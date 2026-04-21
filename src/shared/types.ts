@@ -87,7 +87,7 @@ export interface ModpackSubscription {
   latestVersion?: string
 }
 
-export const APP_VERSION = '0.9.0'
+export const APP_VERSION = '0.9.1'
 
 export const DEFAULT_SETTINGS: Settings = {
   javaPath: '',
@@ -96,7 +96,7 @@ export const DEFAULT_SETTINGS: Settings = {
   closeOnLaunch: false,
   azureClientId: 'ec5344fa-9f20-4722-8301-4e094d1e0749',
   checkUpdatesOnStart: true,
-  updateManifestUrl: ''
+  updateManifestUrl: 'https://raw.githubusercontent.com/Fport1/modpacklauncher-updates/main/update.json'
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/
