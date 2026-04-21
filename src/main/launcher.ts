@@ -77,7 +77,8 @@ export async function launchInstance(
   account: MinecraftAccount,
   settings: Settings,
   mainWindow: BrowserWindow,
-  onProgress?: (current: number, total: number, msg: string) => void
+  onProgress?: (current: number, total: number, msg: string) => void,
+  onExit?: (sessionMs: number) => void
 ): Promise<void> {
   onProgress?.(0, 6, 'Preparando lanzamiento...')
 
@@ -158,7 +159,7 @@ export async function launchInstance(
   onProgress?.(6, 6, 'Lanzando juego...')
   const { launch } = await import('@xmcl/core')
 
-  const proc = await launch({
+  const launchOpts: Record<string, unknown> = {
     gamePath: gameDir,
     resourcePath: sharedDir,
     javaPath,
@@ -171,12 +172,17 @@ export async function launchInstance(
     launcherName: 'ModpackLauncher',
     launcherBrand: 'ModpackLauncher',
     extraExecOption: { stdio: ['ignore', 'pipe', 'pipe'] }
-  })
+  }
+  if (instance.width && instance.height) {
+    launchOpts.width = instance.width
+    launchOpts.height = instance.height
+  }
+  const proc = await launch(launchOpts as Parameters<typeof launch>[0])
 
   runningProcesses.set(instance.id, proc)
   if (settings.closeOnLaunch) mainWindow.minimize()
 
-  // Stream game output to renderer
+  const sessionStart = Date.now()
   const sendLog = (line: string) => {
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('game:log', instance.id, line)
   }
@@ -192,6 +198,7 @@ export async function launchInstance(
     runningProcesses.delete(instance.id)
     if (!mainWindow.isDestroyed()) mainWindow.webContents.send('game:exit', instance.id, code)
     if (settings.closeOnLaunch) mainWindow.restore()
+    onExit?.(Date.now() - sessionStart)
   })
 }
 

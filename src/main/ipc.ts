@@ -14,6 +14,12 @@ import {
   createInstance,
   updateInstance,
   deleteInstance,
+  duplicateInstance,
+  pickInstanceIcon,
+  getInstanceIconBase64,
+  listDefaultIcons,
+  checkInstanceNameExists,
+  listGameDirEntries,
   openInstanceFolder,
   listMods,
   listWorlds,
@@ -151,6 +157,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:delete-shaderpack', (_e, instanceId: string, filename: string) => deleteShaderpack(instanceId, filename))
   ipcMain.handle('instances:delete-world', (_e, instanceId: string, worldName: string) => deleteWorld(instanceId, worldName))
   ipcMain.handle('instances:delete-screenshot', (_e, instanceId: string, filename: string) => deleteScreenshot(instanceId, filename))
+  ipcMain.handle('instances:duplicate', (_e, instanceId: string, newName: string) => duplicateInstance(instanceId, newName))
+  ipcMain.handle('instances:pick-icon', (_e, instanceId: string) => pickInstanceIcon(instanceId, mainWindow))
+  ipcMain.handle('instances:get-icon', (_e, instanceId: string) => getInstanceIconBase64(instanceId))
+  ipcMain.handle('instances:list-default-icons', () => listDefaultIcons())
+  ipcMain.handle('instances:check-name', (_e, name: string, excludeId?: string) => checkInstanceNameExists(name, excludeId))
+  ipcMain.handle('instances:list-game-dir', (_e, instanceId: string, subPath?: string) => listGameDirEntries(instanceId, subPath))
 
   ipcMain.handle('clipboard:write-image-path', async (_e, filePath: string) => {
     const { clipboard, nativeImage } = await import('electron')
@@ -183,9 +195,16 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
 
     try {
-      await launchInstance(instance, account, settings, mainWindow, (current, total, message) => {
-        mainWindow.webContents.send('progress', { current, total, message, type: 'install' })
-      })
+      await launchInstance(
+        instance, account, settings, mainWindow,
+        (current, total, message) => {
+          mainWindow.webContents.send('progress', { current, total, message, type: 'install' })
+        },
+        async (sessionMs) => {
+          instance.playtime = (instance.playtime ?? 0) + sessionMs
+          await updateInstance(instance)
+        }
+      )
 
       instance.lastPlayed = Date.now()
       await updateInstance(instance)

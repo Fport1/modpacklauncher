@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Instance } from '../../../shared/types'
 
 interface Props {
@@ -10,6 +10,8 @@ interface Props {
   onOpenFolder: () => void
   onDetails: () => void
   onExport: () => void
+  onDuplicate: () => void
+  onChangeIcon: () => void
   isLaunching?: boolean
   isRunning?: boolean
 }
@@ -22,6 +24,29 @@ const MODLOADER_COLORS: Record<string, string> = {
   neoforge: 'text-amber-400'
 }
 
+function relativeTime(ms?: number): string {
+  if (!ms) return 'Nunca'
+  const diff = Date.now() - ms
+  const mins = Math.floor(diff / 60_000)
+  const hours = Math.floor(diff / 3_600_000)
+  const days = Math.floor(diff / 86_400_000)
+  if (diff < 60_000) return 'Hace unos instantes'
+  if (mins === 1) return 'Hace 1 minuto'
+  if (mins < 60) return `Hace ${mins} minutos`
+  if (hours === 1) return 'Hace 1 hora'
+  if (hours < 24) return `Hace ${hours} horas`
+  if (days === 1) return 'Hace 1 día'
+  return new Date(ms).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+function formatPlaytime(ms?: number): string {
+  if (!ms || ms < 60_000) return ''
+  const h = Math.floor(ms / 3_600_000)
+  const m = Math.floor((ms % 3_600_000) / 60_000)
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
+}
+
 export default function InstanceCard({
   instance,
   onPlay,
@@ -31,16 +56,23 @@ export default function InstanceCard({
   onOpenFolder,
   onDetails,
   onExport,
+  onDuplicate,
+  onChangeIcon,
   isLaunching,
   isRunning
 }: Props) {
   const [showMenu, setShowMenu] = useState(false)
+  const [iconSrc, setIconSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!instance.icon) { setIconSrc(null); return }
+    window.api.instances.getIcon(instance.id).then(setIconSrc).catch(() => setIconSrc(null))
+  }, [instance.id, instance.icon])
 
   const loaderColor = MODLOADER_COLORS[instance.modloader] ?? 'text-text-secondary'
-
-  const lastPlayedText = instance.lastPlayed
-    ? new Date(instance.lastPlayed).toLocaleDateString()
-    : 'Never'
+  const playtime = formatPlaytime(instance.playtime)
+  const lastText = relativeTime(instance.lastPlayed)
+  const isVanilla = instance.modloader === 'vanilla'
 
   return (
     <div
@@ -52,12 +84,16 @@ export default function InstanceCard({
       onMouseLeave={() => setShowMenu(false)}
     >
       {/* Icon */}
-      <div className="w-12 h-12 rounded-lg bg-bg-hover flex items-center justify-center mb-3">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
-          <rect x="2" y="3" width="20" height="14" rx="2" />
-          <line x1="8" y1="21" x2="16" y2="21" />
-          <line x1="12" y1="17" x2="12" y2="21" />
-        </svg>
+      <div className="w-12 h-12 rounded-lg bg-bg-hover flex items-center justify-center mb-3 overflow-hidden">
+        {iconSrc ? (
+          <img src={iconSrc} alt="" className="w-full h-full object-cover rounded-lg" />
+        ) : (
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
+            <rect x="2" y="3" width="20" height="14" rx="2" />
+            <line x1="8" y1="21" x2="16" y2="21" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+          </svg>
+        )}
       </div>
 
       {/* Info */}
@@ -67,7 +103,12 @@ export default function InstanceCard({
         <span className="text-border">·</span>
         <span className={loaderColor + ' capitalize'}>{instance.modloader}</span>
       </div>
-      <p className="text-xs text-text-muted">Played: {lastPlayedText}</p>
+      <p className="text-xs text-text-muted">
+        {lastText}
+        {playtime && (
+          <><span className="mx-1 text-border">·</span>{playtime}</>
+        )}
+      </p>
 
       {/* Running badge */}
       {isRunning && (
@@ -141,7 +182,7 @@ export default function InstanceCard({
         </button>
 
         {showMenu && (
-          <div className="absolute right-0 top-8 w-44 bg-bg-secondary border border-border rounded-lg shadow-xl z-10 py-1 text-sm">
+          <div className="absolute right-0 top-8 w-48 bg-bg-secondary border border-border rounded-lg shadow-xl z-10 py-1 text-sm">
             <button
               onClick={() => { onDetails(); setShowMenu(false) }}
               className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
@@ -155,17 +196,31 @@ export default function InstanceCard({
               Editar
             </button>
             <button
+              onClick={() => { onChangeIcon(); setShowMenu(false) }}
+              className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+            >
+              Cambiar icono
+            </button>
+            <button
+              onClick={() => { onDuplicate(); setShowMenu(false) }}
+              className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+            >
+              Duplicar
+            </button>
+            <button
               onClick={() => { onOpenFolder(); setShowMenu(false) }}
               className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
             >
               Abrir carpeta
             </button>
-            <button
-              onClick={() => { onExport(); setShowMenu(false) }}
-              className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
-            >
-              Exportar modpack
-            </button>
+            {!isVanilla && (
+              <button
+                onClick={() => { onExport(); setShowMenu(false) }}
+                className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+              >
+                Exportar modpack
+              </button>
+            )}
             <div className="border-t border-border my-1" />
             <button
               onClick={() => { onDelete(); setShowMenu(false) }}

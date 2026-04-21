@@ -68,7 +68,13 @@ const api = {
     toggleShaderpack: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:toggle-shaderpack', instanceId, filename) as Promise<string>,
     deleteShaderpack: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:delete-shaderpack', instanceId, filename),
     deleteWorld: (instanceId: string, worldName: string) => ipcRenderer.invoke('instances:delete-world', instanceId, worldName),
-    deleteScreenshot: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:delete-screenshot', instanceId, filename)
+    deleteScreenshot: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:delete-screenshot', instanceId, filename),
+    duplicate: (instanceId: string, newName: string) => ipcRenderer.invoke('instances:duplicate', instanceId, newName) as Promise<Instance>,
+    pickIcon: (instanceId: string) => ipcRenderer.invoke('instances:pick-icon', instanceId) as Promise<Instance | null>,
+    getIcon: (instanceId: string) => ipcRenderer.invoke('instances:get-icon', instanceId) as Promise<string | null>,
+    listDefaultIcons: () => ipcRenderer.invoke('instances:list-default-icons') as Promise<Array<{ name: string; base64: string }>>,
+    checkName: (name: string, excludeId?: string) => ipcRenderer.invoke('instances:check-name', name, excludeId) as Promise<boolean>,
+    listGameDir: (instanceId: string, subPath?: string) => ipcRenderer.invoke('instances:list-game-dir', instanceId, subPath) as Promise<Array<{ name: string; relativePath: string; isDir: boolean; size?: number }>>
   },
 
   // Clipboard
@@ -120,7 +126,7 @@ const api = {
       instanceId: string; name: string; version: string; description: string
       changelog: string; repoName: string; githubToken: string
       minecraft: string; modloader: string; modloaderVersion?: string
-      categories: { mods: boolean; config: boolean; resourcepacks: boolean; shaderpacks: boolean; scripts: boolean; options: boolean }
+      selectedPaths: string[]
     }) => ipcRenderer.invoke('modpacks:export', params) as Promise<string>,
     onExportProgress: (cb: (p: { message: string; current: number; total: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, p: { message: string; current: number; total: number }) => cb(p)

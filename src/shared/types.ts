@@ -21,12 +21,15 @@ export interface Instance {
   description?: string
   icon?: string
   lastPlayed?: number
+  playtime?: number
   createdAt: number
   modpackUrl?: string
   modpackVersion?: string
   javaPath?: string
   maxMemory?: number
   minMemory?: number
+  width?: number
+  height?: number
 }
 
 export interface PackFile {
@@ -97,7 +100,7 @@ export interface ModpackSubscription {
   latestVersion?: string
 }
 
-export const APP_VERSION = '0.9.9'
+export const APP_VERSION = '0.9.92'
 
 export const DEFAULT_SETTINGS: Settings = {
   javaPath: '',

@@ -168,15 +168,6 @@ export function compareVersions(a: string, b: string): number {
 
 // ── Export to GitHub ───────────────────────────────────────────────────────
 
-export interface ExportCategories {
-  mods: boolean
-  config: boolean
-  resourcepacks: boolean
-  shaderpacks: boolean
-  scripts: boolean
-  options: boolean
-}
-
 export interface ExportParams {
   instanceId: string
   name: string
@@ -184,7 +175,7 @@ export interface ExportParams {
   description: string
   changelog: string
   repoName: string
-  categories: ExportCategories
+  selectedPaths: string[]
   githubToken: string
   minecraft: string
   modloader: string
@@ -199,47 +190,41 @@ interface FileEntry {
 
 type ExportProgress = (message: string, current: number, total: number) => void
 
-async function collectFiles(gameDir: string, cats: ExportCategories): Promise<FileEntry[]> {
+async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): Promise<FileEntry[]> {
   const entries: FileEntry[] = []
+  const seen = new Set<string>()
 
-  async function addDir(subdir: string, filter?: (f: string) => boolean) {
-    const dir = path.join(gameDir, subdir)
-    if (!(await fs.pathExists(dir))) return
-    const items = await fs.readdir(dir)
+  async function addFile(absPath: string, relPath: string) {
+    if (seen.has(relPath)) return
+    seen.add(relPath)
+    try {
+      const buf = await fs.readFile(absPath)
+      entries.push({ localPath: absPath, relativePath: relPath, sha256: crypto.createHash('sha256').update(buf).digest('hex') })
+    } catch { /* skip unreadable */ }
+  }
+
+  async function addDirRecursive(absDir: string, relDir: string) {
+    const items = await fs.readdir(absDir, { withFileTypes: true }).catch(() => [])
     for (const item of items) {
-      const itemPath = path.join(dir, item)
-      const stat = await fs.stat(itemPath).catch(() => null)
-      if (!stat) continue
-      if (stat.isDirectory()) {
-        const subItems = await fs.readdir(itemPath).catch(() => [] as string[])
-        for (const sub of subItems) {
-          const subPath = path.join(itemPath, sub)
-          const subStat = await fs.stat(subPath).catch(() => null)
-          if (!subStat?.isFile()) continue
-          const relPath = `${subdir}/${item}/${sub}`
-          const buf = await fs.readFile(subPath)
-          entries.push({ localPath: subPath, relativePath: relPath, sha256: crypto.createHash('sha256').update(buf).digest('hex') })
-        }
-      } else {
-        if (filter && !filter(item)) continue
-        const relPath = `${subdir}/${item}`
-        const buf = await fs.readFile(itemPath)
-        entries.push({ localPath: itemPath, relativePath: relPath, sha256: crypto.createHash('sha256').update(buf).digest('hex') })
+      const absItem = path.join(absDir, item.name)
+      const relItem = `${relDir}/${item.name}`
+      if (item.isDirectory()) {
+        await addDirRecursive(absItem, relItem)
+      } else if (item.isFile()) {
+        await addFile(absItem, relItem)
       }
     }
   }
 
-  if (cats.mods) await addDir('mods', (f) => f.endsWith('.jar'))
-  if (cats.config) await addDir('config')
-  if (cats.resourcepacks) await addDir('resourcepacks')
-  if (cats.shaderpacks) await addDir('shaderpacks')
-  if (cats.scripts) await addDir('scripts')
-
-  if (cats.options) {
-    const optPath = path.join(gameDir, 'options.txt')
-    if (await fs.pathExists(optPath)) {
-      const buf = await fs.readFile(optPath)
-      entries.push({ localPath: optPath, relativePath: 'options.txt', sha256: crypto.createHash('sha256').update(buf).digest('hex') })
+  for (const selPath of selectedPaths) {
+    const abs = path.join(gameDir, selPath)
+    if (!(await fs.pathExists(abs))) continue
+    const stat = await fs.stat(abs).catch(() => null)
+    if (!stat) continue
+    if (stat.isDirectory()) {
+      await addDirRecursive(abs, selPath)
+    } else {
+      await addFile(abs, selPath)
     }
   }
 
@@ -304,11 +289,11 @@ async function upsertRepoFile(owner: string, repo: string, filePath: string, con
 }
 
 export async function exportModpack(params: ExportParams, onProgress: ExportProgress): Promise<string> {
-  const { instanceId, name, version, description, changelog, repoName, categories, githubToken, minecraft, modloader, modloaderVersion } = params
+  const { instanceId, name, version, description, changelog, repoName, selectedPaths, githubToken, minecraft, modloader, modloaderVersion } = params
 
   onProgress('Leyendo archivos de la instancia...', 0, 1)
   const gameDir = await getInstanceGameDir(instanceId)
-  const files = await collectFiles(gameDir, categories)
+  const files = await collectFilesFromPaths(gameDir, selectedPaths)
 
   if (files.length === 0) throw new Error('No se encontraron archivos en las categorías seleccionadas')
 

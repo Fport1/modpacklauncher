@@ -253,6 +253,7 @@ type OptionType =
   | { kind: 'bool' }
   | { kind: 'slider'; min: number; max: number; step: number; display?: (v: number) => string; store?: (v: number) => string; load?: (raw: string) => number }
   | { kind: 'audio' }
+  | { kind: 'text'; placeholder?: string; hint?: string }
 
 interface OptionDef { label: string; type: OptionType }
 
@@ -266,6 +267,7 @@ function fovStore(v: number): string { return String(v) }
 const WHITELIST: Record<string, OptionDef> = {
   ao:                    { label: 'Smooth Lighting',     type: { kind: 'bool' } },
   fullscreen:            { label: 'Pantalla completa',   type: { kind: 'bool' } },
+  fullscreenResolution:  { label: 'Resolución pantalla completa', type: { kind: 'text', placeholder: '1920x1080@144:24', hint: 'Formato: ANCHOxALTO@HZ:bits — ej. 1920x1080@144:24' } },
   fov:                   { label: 'FOV', type: { kind: 'slider', min: 30, max: 110, step: 1, display: v => `${v}°`, store: fovStore, load: fovLoad } },
   gamma:                 { label: 'Brillo',              type: { kind: 'slider', min: 0, max: 100, step: 1, display: v => `${v}%`, store: v => (v / 100).toFixed(2), load: r => Math.round(parseFloat(r) * 100) } },
   maxFps:                { label: 'Max FPS',             type: { kind: 'slider', min: 10, max: 260, step: 10, display: v => v >= 260 ? 'Sin límite' : `${v} fps` } },
@@ -335,6 +337,26 @@ function OptionBool({ label, rawValue, onUpdate, disabled }: {
   )
 }
 
+function OptionText({ label, rawValue, def, onUpdate, disabled }: {
+  label: string; rawValue: string; def: Extract<OptionDef['type'], { kind: 'text' }>
+  onUpdate: (v: string) => void; disabled: boolean
+}) {
+  return (
+    <div className="px-4 py-3">
+      <p className="text-sm text-text-primary mb-1.5">{label}</p>
+      <input
+        type="text"
+        value={rawValue}
+        onChange={e => onUpdate(e.target.value)}
+        disabled={disabled}
+        placeholder={def.placeholder}
+        className="w-full bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent disabled:opacity-40"
+      />
+      {def.hint && <p className="text-xs text-text-muted mt-1">{def.hint}</p>}
+    </div>
+  )
+}
+
 function OptionsEditor({ content, onChange, disabled, displayHz }: {
   content: string; onChange: (s: string) => void; disabled: boolean; displayHz?: number
 }) {
@@ -365,10 +387,14 @@ function OptionsEditor({ content, onChange, disabled, displayHz }: {
   }
 
   const entryMap = Object.fromEntries(entries.map(e => [e.key, e.value]))
-  const videoKeys = ['ao', 'fullscreen', 'fov', 'gamma', 'maxFps', 'renderDistance', 'simulationDistance']
+  const isFullscreen = entryMap['fullscreen']?.trim() === 'true'
+  const baseVideoKeys = ['ao', 'fullscreen', 'fov', 'gamma', 'maxFps', 'renderDistance', 'simulationDistance']
+  const videoKeys = isFullscreen
+    ? ['ao', 'fullscreen', 'fullscreenResolution', 'fov', 'gamma', 'maxFps', 'renderDistance', 'simulationDistance']
+    : baseVideoKeys
   const audioKeys = Object.keys(WHITELIST).filter(k => k.startsWith('soundCategory_'))
 
-  const videoItems = videoKeys.filter(k => k in entryMap)
+  const videoItems = videoKeys.filter(k => k in entryMap || k === 'fullscreenResolution' && isFullscreen)
   const audioItems = audioKeys.filter(k => k in entryMap)
 
   if (videoItems.length === 0 && audioItems.length === 0) {
@@ -380,12 +406,23 @@ function OptionsEditor({ content, onChange, disabled, displayHz }: {
     )
   }
 
+  function addOrUpdate(key: string, value: string) {
+    if (key in entryMap) {
+      update(key, value)
+    } else {
+      onChange(content.trimEnd() + `\n${key}:${value}`)
+    }
+  }
+
   function renderOption(key: string) {
     const def = WHITELIST[key]
     const val = entryMap[key] ?? ''
     if (!def) return null
     if (def.type.kind === 'bool') {
       return <OptionBool key={key} label={def.label} rawValue={val} onUpdate={v => update(key, v)} disabled={disabled} />
+    }
+    if (def.type.kind === 'text') {
+      return <OptionText key={key} label={def.label} rawValue={val} def={def.type} onUpdate={v => addOrUpdate(key, v)} disabled={disabled} />
     }
     const sliderDef = def.type as Extract<OptionDef['type'], { kind: 'slider' | 'audio' }>
     return <OptionSlider key={key} label={def.label} rawValue={val} def={sliderDef} onUpdate={v => update(key, v)} disabled={disabled}

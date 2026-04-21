@@ -321,25 +321,41 @@ export default function SettingsPage() {
               />
               <button
                 onClick={() => setShowToken((v) => !v)}
-                className="px-3 py-2 border border-border rounded-lg text-text-muted hover:text-text-primary transition-colors text-xs"
+                title={showToken ? 'Ocultar token' : 'Ver token'}
+                className="px-3 py-2 border border-border rounded-lg text-text-muted hover:text-text-primary transition-colors"
               >
-                {showToken ? 'Ocultar' : 'Ver'}
+                {showToken ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+                    <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                )}
               </button>
             </div>
           </div>
 
-          <div className="bg-bg-primary rounded-xl p-4 space-y-2">
+          <div className="bg-bg-primary rounded-xl p-4 space-y-2 select-text cursor-text">
             <p className="text-xs font-semibold text-text-secondary">¿Cómo conseguir un token?</p>
             <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside">
-              <li>Ve a <span className="text-accent font-mono">github.com/settings/tokens</span> (necesitas cuenta de GitHub, es gratis)</li>
-              <li>Click en <span className="font-semibold">"Generate new token (classic)"</span></li>
-              <li>Dale un nombre como <span className="font-mono bg-bg-card px-1 rounded">ModpackLauncher</span></li>
-              <li>En permisos, marca solo <span className="font-mono bg-bg-card px-1 rounded">repo</span></li>
-              <li>Click <span className="font-semibold">"Generate token"</span> y pégalo aquí</li>
+              <li>Ve a <span className="text-accent font-mono select-text">github.com/settings/tokens</span> (necesitas cuenta de GitHub, es gratis)</li>
+              <li>Click en <span className="font-semibold">"Generate new token (classic)"</span> — elige <em>classic</em>, no fine-grained</li>
+              <li>Dale un nombre como <span className="font-mono bg-bg-card px-1 rounded select-text">ModpackLauncher</span></li>
+              <li>En <span className="font-semibold">Expiration</span> elige <span className="font-semibold">No expiration</span> (o la duración que prefieras — si caduca, deberás generar uno nuevo)</li>
+              <li>En permisos marca solo <span className="font-mono bg-bg-card px-1 rounded select-text">repo</span> (acceso completo a repositorios)</li>
+              <li>Click <span className="font-semibold">"Generate token"</span>, copia el token que empieza por <span className="font-mono bg-bg-card px-1 rounded">ghp_</span> y pégalo arriba</li>
             </ol>
-            <p className="text-xs text-text-muted pt-1 border-t border-border">
-              Una vez configurado, ve a una instancia → menú ··· → <span className="font-semibold">Exportar Modpack</span> para publicar.
-            </p>
+            <div className="pt-2 border-t border-border space-y-1">
+              <p className="text-xs text-amber-400/80">⚠ El token solo se muestra una vez en GitHub — guárdalo bien.</p>
+              <p className="text-xs text-text-muted">
+                Una vez configurado, ve a una instancia → menú ··· → <span className="font-semibold">Exportar Modpack</span> para publicarlo.
+              </p>
+            </div>
           </div>
         </div>
       </section>
