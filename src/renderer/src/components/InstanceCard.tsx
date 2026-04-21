@@ -9,6 +9,7 @@ interface Props {
   onDelete: () => void
   onOpenFolder: () => void
   onDetails: () => void
+  onExport: () => void
   isLaunching?: boolean
   isRunning?: boolean
 }
@@ -29,6 +30,7 @@ export default function InstanceCard({
   onDelete,
   onOpenFolder,
   onDetails,
+  onExport,
   isLaunching,
   isRunning
 }: Props) {
@@ -157,6 +159,12 @@ export default function InstanceCard({
               className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
             >
               Abrir carpeta
+            </button>
+            <button
+              onClick={() => { onExport(); setShowMenu(false) }}
+              className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+            >
+              Exportar modpack
             </button>
             <div className="border-t border-border my-1" />
             <button

@@ -29,6 +29,13 @@ export interface Instance {
   minMemory?: number
 }
 
+export interface PackFile {
+  path: string
+  url: string
+  sha256?: string
+  side?: 'client' | 'server' | 'both'
+}
+
 export interface ModpackManifest {
   id: string
   name: string
@@ -39,7 +46,9 @@ export interface ModpackManifest {
   minecraft: string
   modloader: Modloader
   modloaderVersion?: string
-  mods: ModEntry[]
+  files?: PackFile[]
+  // Legacy format support
+  mods?: ModEntry[]
   configs?: ConfigEntry[]
   changelog?: string
 }
@@ -68,6 +77,7 @@ export interface Settings {
   azureClientId: string
   checkUpdatesOnStart: boolean
   updateManifestUrl: string
+  githubToken?: string
 }
 
 export interface DownloadProgress {
@@ -87,7 +97,7 @@ export interface ModpackSubscription {
   latestVersion?: string
 }
 
-export const APP_VERSION = '0.9.6'
+export const APP_VERSION = '0.9.9'
 
 export const DEFAULT_SETTINGS: Settings = {
   javaPath: '',

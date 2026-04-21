@@ -6,6 +6,8 @@ import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
 import { checkJavaStatus, ensureJava } from './java'
 import { checkForUpdates, openDownloadPage, downloadAndInstall } from './updater'
+import { exportModpack } from './modpacks'
+import type { ExportParams } from './modpacks'
 import type { UpdateManifest } from './updater'
 import {
   loadInstances,
@@ -281,6 +283,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       if (e instanceof CancelError) { sendDone(mainWindow); return { upToDate: false, manifest } }
       throw e
     }
+  })
+
+  ipcMain.handle('modpacks:export', async (e, params: ExportParams) => {
+    return exportModpack(params, (message, current, total) => {
+      e.sender.send('modpacks:export-progress', { message, current, total })
+    })
   })
 
   ipcMain.handle('modpacks:check-update', async (_e, instanceId: string, manifestUrl: string) => {

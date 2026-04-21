@@ -3,6 +3,7 @@ import { useStore, activeAccount } from '../store'
 import InstanceCard from '../components/InstanceCard'
 import InstanceDetailModal from '../components/InstanceDetailModal'
 import RamSlider from '../components/RamSlider'
+import ExportModpackModal from '../components/ExportModpackModal'
 import type { Instance, Modloader, ModpackManifest } from '../../../shared/types'
 
 type ModalStep = 'choose' | 'modpack' | 'manual'
@@ -42,6 +43,7 @@ export default function InstancesPage() {
   const [modalStep, setModalStep] = useState<ModalStep | EditMode | null>(null)
   const [editing, setEditing] = useState<Instance | null>(null)
   const [detailInstance, setDetailInstance] = useState<Instance | null>(null)
+  const [exportInstance, setExportInstance] = useState<Instance | null>(null)
   const [launching, setLaunching] = useState<string | null>(null)
   const [systemRam, setSystemRam] = useState(8192)
 
@@ -253,6 +255,22 @@ export default function InstancesPage() {
       const ok = confirm('Ya hay una instancia de Minecraft en ejecución. ¿Abrir otra de todas formas?')
       if (!ok) return
     }
+
+    const inst = instances.find((i) => i.id === id)
+    if (inst?.modpackUrl) {
+      try {
+        const result = await window.api.modpacks.checkUpdate(id, inst.modpackUrl)
+        if (result.hasUpdate) {
+          const ok = confirm(`Hay una actualización del modpack disponible (v${result.manifest.version}). ¿Actualizar antes de jugar?`)
+          if (ok) {
+            setLaunching(id)
+            await window.api.modpacks.update(id, inst.modpackUrl)
+            updateInstance({ ...inst, modpackVersion: result.manifest.version })
+          }
+        }
+      } catch { /* ignore, just launch */ }
+    }
+
     setLaunching(id)
     try { await window.api.launcher.launch(id) }
     catch (e: unknown) { alert(e instanceof Error ? e.message : 'Error al lanzar') }
@@ -294,6 +312,7 @@ export default function InstancesPage() {
               onDelete={() => handleDelete(inst.id)}
               onOpenFolder={() => window.api.instances.openFolder(inst.id)}
               onDetails={() => setDetailInstance(inst)}
+              onExport={() => setExportInstance(inst)}
               isLaunching={launching === inst.id}
               isRunning={runningInstances.has(inst.id)}
             />
@@ -306,6 +325,14 @@ export default function InstancesPage() {
         <InstanceDetailModal
           instance={detailInstance}
           onClose={() => setDetailInstance(null)}
+        />
+      )}
+
+      {/* ── Export modpack modal ── */}
+      {exportInstance && (
+        <ExportModpackModal
+          instance={exportInstance}
+          onClose={() => setExportInstance(null)}
         />
       )}
 

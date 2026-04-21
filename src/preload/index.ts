@@ -115,7 +115,18 @@ const api = {
         hasUpdate: boolean
         manifest: ModpackManifest
         currentVersion?: string
-      }>
+      }>,
+    export: (params: {
+      instanceId: string; name: string; version: string; description: string
+      changelog: string; repoName: string; githubToken: string
+      minecraft: string; modloader: string; modloaderVersion?: string
+      categories: { mods: boolean; config: boolean; resourcepacks: boolean; shaderpacks: boolean; scripts: boolean; options: boolean }
+    }) => ipcRenderer.invoke('modpacks:export', params) as Promise<string>,
+    onExportProgress: (cb: (p: { message: string; current: number; total: number }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, p: { message: string; current: number; total: number }) => cb(p)
+      ipcRenderer.on('modpacks:export-progress', handler)
+      return () => ipcRenderer.removeListener('modpacks:export-progress', handler)
+    }
   },
 
   // Settings

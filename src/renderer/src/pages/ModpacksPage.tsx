@@ -233,7 +233,12 @@ export default function ModpacksPage() {
       {modal === 'addUrl' && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-bg-secondary border border-border rounded-2xl p-6 w-[500px] shadow-2xl">
-            <h2 className="text-lg font-bold text-text-primary mb-2">Add Modpack</h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-bold text-text-primary">Add Modpack</h2>
+              <button onClick={() => setModal(null)} className="w-7 h-7 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
             <p className="text-xs text-text-muted mb-5">
               Enter the URL of a modpack manifest JSON file. You can host it on GitHub Gist or any public URL.
             </p>

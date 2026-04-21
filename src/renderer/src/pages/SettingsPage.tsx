@@ -32,6 +32,7 @@ export default function SettingsPage() {
   const [authError, setAuthError] = useState('')
   const [saved, setSaved] = useState(false)
   const [systemRam, setSystemRam] = useState(8192)
+  const [showToken, setShowToken] = useState(false)
 
   const [localSettings, setLocalSettings] = useState(settings)
 
@@ -296,6 +297,50 @@ export default function SettingsPage() {
               </button>
             </label>
           ))}
+        </div>
+      </section>
+
+      {/* GitHub para modpacks */}
+      <section>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
+          Creación de Modpacks
+        </h2>
+        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+          <div>
+            <label className="block text-sm text-text-secondary mb-1.5">
+              Token de GitHub
+              <span className="text-text-muted text-xs ml-1">(solo si vas a crear modpacks)</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type={showToken ? 'text' : 'password'}
+                value={localSettings.githubToken ?? ''}
+                onChange={(e) => setLocalSettings({ ...localSettings, githubToken: e.target.value })}
+                placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent font-mono"
+              />
+              <button
+                onClick={() => setShowToken((v) => !v)}
+                className="px-3 py-2 border border-border rounded-lg text-text-muted hover:text-text-primary transition-colors text-xs"
+              >
+                {showToken ? 'Ocultar' : 'Ver'}
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-bg-primary rounded-xl p-4 space-y-2">
+            <p className="text-xs font-semibold text-text-secondary">¿Cómo conseguir un token?</p>
+            <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside">
+              <li>Ve a <span className="text-accent font-mono">github.com/settings/tokens</span> (necesitas cuenta de GitHub, es gratis)</li>
+              <li>Click en <span className="font-semibold">"Generate new token (classic)"</span></li>
+              <li>Dale un nombre como <span className="font-mono bg-bg-card px-1 rounded">ModpackLauncher</span></li>
+              <li>En permisos, marca solo <span className="font-mono bg-bg-card px-1 rounded">repo</span></li>
+              <li>Click <span className="font-semibold">"Generate token"</span> y pégalo aquí</li>
+            </ol>
+            <p className="text-xs text-text-muted pt-1 border-t border-border">
+              Una vez configurado, ve a una instancia → menú ··· → <span className="font-semibold">Exportar Modpack</span> para publicar.
+            </p>
+          </div>
         </div>
       </section>
 
