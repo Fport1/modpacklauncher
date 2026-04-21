@@ -1,0 +1,45 @@
+appId: com.modpacklauncher.app
+productName: ModpackLauncher
+copyright: Copyright © 2024
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**/*
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  # Detecta instalación previa y la reemplaza automáticamente
+  deleteAppDataOnUninstall: false
+  # Permite instalar encima de versiones anteriores sin desinstalar antes
+  allowElevation: true
+  # Nombre del registro — debe ser el mismo en todas las versiones para que detecte la instalación previa
+  uninstallDisplayName: ModpackLauncher
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: build/icon.icns
+  category: public.app-category.games
+
+dmg:
+  writeUpdateInfo: false
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: build/icon.png
+  category: Game

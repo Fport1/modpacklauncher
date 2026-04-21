@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm view *)",
+      "Bash(sed -n '101,115p' node_modules/@xmcl/installer/dist/forge.d.ts)",
+      "Bash(sed -n '92,100p' node_modules/@xmcl/installer/dist/fabric.d.ts)",
+      "Bash(npx electron-vite *)",
+      "Bash(npm run *)",
+      "Bash(node -e \"const os = require\\('os'\\); console.log\\(Math.floor\\(os.totalmem\\(\\) / 1024 / 1024\\)\\)\")",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

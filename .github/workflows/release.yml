@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build installer
+        run: npm run build && npx electron-builder --win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ModpackLauncher ${{ steps.version.outputs.VERSION }}
+          files: dist/ModpackLauncher*.exe
+          generate_release_notes: false
+
+      - name: Update update.json
+        env:
+          TOKEN: ${{ secrets.UPDATES_REPO_TOKEN }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          $exe = "ModpackLauncher Setup $env:VERSION.exe"
+          $url = "https://github.com/Fport1/modpacklauncher/releases/download/v$env:VERSION/$exe"
+          $url = $url -replace ' ', '.'
+
+          $json = @{
+            version = $env:VERSION
+            releaseNotes = "Nueva version disponible."
+            date = (Get-Date -Format "yyyy-MM-dd")
+            files = @{ win32 = $url }
+          } | ConvertTo-Json -Depth 5
+
+          $headers = @{
+            Authorization = "token $env:TOKEN"
+            Accept = "application/vnd.github+json"
+          }
+
+          $existing = Invoke-RestMethod -Uri "https://api.github.com/repos/Fport1/modpacklauncher-updates/contents/update.json" -Headers $headers
+          $sha = $existing.sha
+
+          $body = @{
+            message = "Update to v$env:VERSION"
+            content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+            sha = $sha
+          } | ConvertTo-Json
+
+          Invoke-RestMethod -Method PUT -Uri "https://api.github.com/repos/Fport1/modpacklauncher-updates/contents/update.json" -Headers $headers -Body $body -ContentType "application/json"

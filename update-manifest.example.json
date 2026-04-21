@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "date": "2024-04-20",
+  "releaseNotes": "- Nueva interfaz mejorada\n- Soporte para NeoForge\n- Corrección de errores en la actualización de modpacks\n- Mejoras de rendimiento",
+  "files": {
+    "win32": "https://drive.google.com/uc?export=download&id=TU_FILE_ID_WINDOWS",
+    "darwin": "https://drive.google.com/uc?export=download&id=TU_FILE_ID_MACOS",
+    "linux": "https://drive.google.com/uc?export=download&id=TU_FILE_ID_LINUX"
+  }
+}
