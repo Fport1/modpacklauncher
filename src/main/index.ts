@@ -10,7 +10,8 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
-  const iconPath = path.join(__dirname, '../../build/icon.png')
+  const iconExt = process.platform === 'win32' ? 'ico' : process.platform === 'darwin' ? 'icns' : 'png'
+  const iconPath = path.join(__dirname, `../../build/icon.${iconExt}`)
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 700,
