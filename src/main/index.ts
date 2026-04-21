@@ -10,6 +10,7 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
+  const iconPath = path.join(__dirname, '../../build/icon.png')
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 700,
@@ -17,6 +18,7 @@ function createWindow(): void {
     minHeight: 600,
     frame: false,
     backgroundColor: '#0f0f14',
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
