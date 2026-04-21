@@ -1,5 +1,9 @@
-import { shell } from 'electron'
+import { shell, app } from 'electron'
+import { spawn } from 'child_process'
 import axios from 'axios'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import { APP_VERSION } from '../shared/types'
 
 export interface UpdateManifest {
@@ -46,8 +50,42 @@ export async function checkForUpdates(manifestUrl: string): Promise<UpdateCheckR
 export function openDownloadPage(manifest: UpdateManifest): void {
   const platform = process.platform as 'win32' | 'darwin' | 'linux'
   const url = manifest.files[platform]
-  if (!url) {
-    throw new Error(`No hay enlace de descarga para ${platform} en el manifiesto`)
-  }
+  if (!url) throw new Error(`No hay enlace de descarga para ${platform} en el manifiesto`)
   shell.openExternal(url)
+}
+
+export async function downloadAndInstall(
+  manifest: UpdateManifest,
+  onProgress: (pct: number) => void
+): Promise<void> {
+  const platform = process.platform as 'win32' | 'darwin' | 'linux'
+  const url = manifest.files[platform]
+  if (!url) throw new Error(`No hay enlace de descarga para ${platform} en el manifiesto`)
+
+  const filename = url.split('/').pop() ?? `update-${manifest.version}.exe`
+  const dest = path.join(os.tmpdir(), filename)
+
+  const response = await axios.get<NodeJS.ReadableStream>(url, {
+    responseType: 'stream',
+    timeout: 0
+  })
+
+  const total = parseInt(response.headers['content-length'] ?? '0', 10)
+  let downloaded = 0
+
+  await new Promise<void>((resolve, reject) => {
+    const writer = fs.createWriteStream(dest)
+    response.data.on('data', (chunk: Buffer) => {
+      downloaded += chunk.length
+      if (total > 0) onProgress(Math.round((downloaded / total) * 100))
+    })
+    response.data.pipe(writer)
+    writer.on('finish', resolve)
+    writer.on('error', reject)
+  })
+
+  onProgress(100)
+
+  spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
+  setTimeout(() => app.quit(), 500)
 }

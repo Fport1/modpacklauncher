@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS } from '../shared/types'
 import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
 import { checkJavaStatus, ensureJava } from './java'
-import { checkForUpdates, openDownloadPage } from './updater'
+import { checkForUpdates, openDownloadPage, downloadAndInstall } from './updater'
 import type { UpdateManifest } from './updater'
 import {
   loadInstances,
@@ -338,6 +338,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('updater:open-download', (_e, manifest: UpdateManifest) => {
     openDownloadPage(manifest)
+  })
+
+  ipcMain.handle('updater:download-and-install', async (e, manifest: UpdateManifest) => {
+    await downloadAndInstall(manifest, (pct) => {
+      e.sender.send('updater:download-progress', pct)
+    })
   })
 }
 

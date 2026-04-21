@@ -166,7 +166,16 @@ const api = {
     openDownload: (manifest: {
       version: string
       files: { win32?: string; darwin?: string; linux?: string }
-    }) => ipcRenderer.invoke('updater:open-download', manifest)
+    }) => ipcRenderer.invoke('updater:open-download', manifest),
+    downloadAndInstall: (manifest: {
+      version: string
+      files: { win32?: string; darwin?: string; linux?: string }
+    }) => ipcRenderer.invoke('updater:download-and-install', manifest) as Promise<void>,
+    onDownloadProgress: (cb: (pct: number) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, pct: number) => cb(pct)
+      ipcRenderer.on('updater:download-progress', handler)
+      return () => ipcRenderer.removeListener('updater:download-progress', handler)
+    }
   },
 
   // Cancel current operation
