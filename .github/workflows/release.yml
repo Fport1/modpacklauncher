@@ -9,65 +9,109 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
-
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build installer
-        run: npm run build && npx electron-builder --win --publish never
-
-      - name: Get version
-        id: version
+      - run: npm ci
+      - run: npm run build && npx electron-builder --win --publish never
+      - id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
         shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: dist/ModpackLauncher*.exe
+
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build && npx electron-builder --mac --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: dist/ModpackLauncher*.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build && npx electron-builder --linux --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/ModpackLauncher*.AppImage
+
+  release:
+    needs: [build-windows, build-mac, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-windows
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-mac
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-linux
+          path: dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ModpackLauncher ${{ steps.version.outputs.VERSION }}
-          files: dist/ModpackLauncher*.exe
+          name: ModpackLauncher ${{ needs.build-windows.outputs.version }}
+          files: dist/*
           generate_release_notes: false
 
       - name: Update update.json
         env:
           TOKEN: ${{ secrets.UPDATES_REPO_TOKEN }}
-          VERSION: ${{ steps.version.outputs.VERSION }}
+          VERSION: ${{ needs.build-windows.outputs.version }}
         run: |
-          $exe = "ModpackLauncher Setup $env:VERSION.exe"
-          $url = "https://github.com/Fport1/modpacklauncher/releases/download/v$env:VERSION/$exe"
-          $url = $url -replace ' ', '.'
+          WIN_EXE="ModpackLauncher Setup ${VERSION}.exe"
+          WIN_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${WIN_EXE// /.}"
 
-          $json = @{
-            version = $env:VERSION
-            releaseNotes = "Nueva version disponible."
-            date = (Get-Date -Format "yyyy-MM-dd")
-            files = @{ win32 = $url }
-          } | ConvertTo-Json -Depth 5
+          MAC_DMG=$(ls dist/ModpackLauncher*.dmg | head -1 | xargs basename)
+          MAC_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${MAC_DMG// /.}"
 
-          $headers = @{
-            Authorization = "token $env:TOKEN"
-            Accept = "application/vnd.github+json"
-          }
+          LINUX_APPIMAGE=$(ls dist/ModpackLauncher*.AppImage | head -1 | xargs basename)
+          LINUX_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${LINUX_APPIMAGE// /.}"
 
-          $existing = Invoke-RestMethod -Uri "https://api.github.com/repos/Fport1/modpacklauncher-updates/contents/update.json" -Headers $headers
-          $sha = $existing.sha
+          JSON=$(jq -n \
+            --arg version "$VERSION" \
+            --arg win32 "$WIN_URL" \
+            --arg darwin "$MAC_URL" \
+            --arg linux "$LINUX_URL" \
+            '{version: $version, releaseNotes: "Nueva version disponible.", date: (now | strftime("%Y-%m-%d")), files: {win32: $win32, darwin: $darwin, linux: $linux}}')
 
-          $body = @{
-            message = "Update to v$env:VERSION"
-            content = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
-            sha = $sha
-          } | ConvertTo-Json
+          EXISTING=$(curl -s -H "Authorization: token $TOKEN" \
+            https://api.github.com/repos/Fport1/modpacklauncher-updates/contents/update.json)
+          SHA=$(echo "$EXISTING" | jq -r '.sha')
 
-          Invoke-RestMethod -Method PUT -Uri "https://api.github.com/repos/Fport1/modpacklauncher-updates/contents/update.json" -Headers $headers -Body $body -ContentType "application/json"
+          CONTENT=$(echo "$JSON" | base64 -w 0)
+
+          curl -s -X PUT \
+            -H "Authorization: token $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/Fport1/modpacklauncher-updates/contents/update.json \
+            -d "{\"message\":\"Update to v${VERSION}\",\"content\":\"${CONTENT}\",\"sha\":\"${SHA}\"}"
