@@ -28,6 +28,7 @@ export default function App() {
   } = useStore()
 
   const [appReady, setAppReady] = useState(false)
+  const [closeConfirm, setCloseConfirm] = useState(false)
 
   const lastActivityRef = useRef(Date.now())
   const afkRef = useRef(false)
@@ -131,6 +132,22 @@ export default function App() {
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
 
+    // Prevent mouse back/forward navigation (buttons 3 and 4)
+    const preventMouseNav = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) e.preventDefault()
+    }
+    document.addEventListener('mousedown', preventMouseNav, { capture: true })
+
+    // Handle close request from main process
+    const unsubClose = window.api.window.onRequestClose(() => {
+      const { progress } = useStore.getState()
+      if (progress) {
+        setCloseConfirm(true)
+      } else {
+        window.api.window.confirmClose()
+      }
+    })
+
     return () => {
       unsubProgress()
       unsubStarted()
@@ -142,6 +159,8 @@ export default function App() {
       clearInterval(afkTimer)
       clearInterval(hourlyTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      document.removeEventListener('mousedown', preventMouseNav, { capture: true })
+      unsubClose()
     }
   }, [])
 
@@ -179,6 +198,26 @@ export default function App() {
         <ProgressModal />
         <UpdateModal />
       </div>
+      {closeConfirm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[500]">
+          <div className="bg-bg-secondary border border-border rounded-2xl p-6 w-[400px] shadow-2xl">
+            <h2 className="text-base font-bold text-text-primary mb-2">¿Cerrar el launcher?</h2>
+            <p className="text-sm text-text-muted mb-5">
+              Hay una operación en curso. Si cierras ahora, podría interrumpirse y dejar archivos incompletos.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setCloseConfirm(false)}
+                className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors">
+                Cancelar
+              </button>
+              <button onClick={() => window.api.window.confirmClose()}
+                className="flex-1 py-2 bg-red-500 hover:bg-red-400 text-white rounded-lg text-sm font-medium transition-colors">
+                Cerrar de todas formas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </HashRouter>
   )
 }

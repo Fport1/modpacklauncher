@@ -10,11 +10,11 @@ export default function TitleBar() {
 
   return (
     <div
-      className="flex items-center justify-between h-9 bg-bg-secondary border-b border-border px-4 flex-shrink-0"
+      className="flex items-center justify-between h-9 bg-bg-secondary border-b border-border px-4 flex-shrink-0 relative z-[200]"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-accent select-none">ModpackLauncher</span>
+        <span className="text-sm font-semibold text-text-primary select-none">Modpack Launcher by <span className="text-red-500">Fport1</span></span>
         <span className="text-xs text-text-muted select-none">v{APP_VERSION}</span>
       </div>
 

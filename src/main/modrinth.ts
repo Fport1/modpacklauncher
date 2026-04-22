@@ -54,13 +54,15 @@ export async function searchMods(
   loader: string,
   categories: string[],
   environment: string,
+  projectType: string = 'mod',
   limit = 20,
   offset = 0,
   index = 'relevance'
 ): Promise<ModrinthSearchResult> {
-  const facets: string[][] = [['project_type:mod']]
-  if (mcVersion) facets.push([`versions:${mcVersion}`])
-  if (loader && loader !== 'vanilla') facets.push([`categories:${loader}`])
+  const facets: string[][] = [[`project_type:${projectType}`]]
+  if (mcVersion && projectType === 'mod') facets.push([`versions:${mcVersion}`])
+  else if (mcVersion) facets.push([`versions:${mcVersion}`])
+  if (loader && loader !== 'vanilla' && projectType === 'mod') facets.push([`categories:${loader}`])
   for (const cat of categories) facets.push([`categories:${cat}`])
   if (environment === 'client') facets.push(['client_side:required', 'client_side:optional'])
   if (environment === 'server') facets.push(['server_side:required', 'server_side:optional'])
@@ -98,20 +100,20 @@ export async function getModrinthCategories(): Promise<ModrinthCategory[]> {
   return data.filter(c => c.project_type === 'mod')
 }
 
-export async function getInstalledProjectIds(instanceId: string): Promise<string[]> {
+export async function getInstalledProjectIds(instanceId: string, subFolder: string = 'mods', extensions: string[] = ['.jar', '.jar.disabled']): Promise<string[]> {
   const gameDir = await getInstanceGameDir(instanceId)
-  const modsDir = path.join(gameDir, 'mods')
-  if (!(await fs.pathExists(modsDir))) return []
+  const dir = path.join(gameDir, subFolder)
+  if (!(await fs.pathExists(dir))) return []
 
-  const files = (await fs.readdir(modsDir)).filter(f => f.endsWith('.jar') || f.endsWith('.jar.disabled'))
+  const files = (await fs.readdir(dir)).filter(f => extensions.some(ext => f.endsWith(ext)))
   if (files.length === 0) return []
 
   const hashes: string[] = []
   for (const file of files) {
     try {
-      const buf = await fs.readFile(path.join(modsDir, file))
+      const buf = await fs.readFile(path.join(dir, file))
       hashes.push(crypto.createHash('sha1').update(buf).digest('hex'))
-    } catch { /* skip unreadable */ }
+    } catch { }
   }
   if (hashes.length === 0) return []
 
@@ -127,15 +129,25 @@ export async function getInstalledProjectIds(instanceId: string): Promise<string
   }
 }
 
+export async function getProjectVersionForInstall(projectId: string, mcVersion: string, loader: string): Promise<ModrinthVersion | null> {
+  try {
+    const versions = await getModVersions(projectId, mcVersion, loader)
+    return versions[0] ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function installModFromUrl(
   instanceId: string,
   fileUrl: string,
-  filename: string
+  filename: string,
+  subFolder: string = 'mods'
 ): Promise<void> {
   const gameDir = await getInstanceGameDir(instanceId)
-  const modsDir = path.join(gameDir, 'mods')
-  await fs.ensureDir(modsDir)
-  const dest = path.join(modsDir, filename)
+  const destDir = path.join(gameDir, subFolder)
+  await fs.ensureDir(destDir)
+  const dest = path.join(destDir, filename)
   const response = await axios.get<Buffer>(fileUrl, {
     responseType: 'arraybuffer',
     timeout: 120_000,

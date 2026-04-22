@@ -63,7 +63,7 @@ import {
   getNeoForgeVersions
 } from './launcher'
 import { fetchManifest, installModpack, updateModpack, compareVersions } from './modpacks'
-import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds } from './modrinth'
+import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getProjectVersionForInstall } from './modrinth'
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
 
 interface AccountsStore {
@@ -332,17 +332,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── Modrinth ─────────────────────────────────────────────────────────────────
 
-  ipcMain.handle('modrinth:search', (_e, query: string, mcVersion: string, loader: string, categories: string[], environment: string, limit: number, offset: number, index: string) =>
-    searchMods(query, mcVersion, loader, categories, environment, limit, offset, index)
+  ipcMain.handle('modrinth:search', (_e, query, mcVersion, loader, categories, environment, projectType, limit, offset, index) =>
+    searchMods(query, mcVersion, loader, categories, environment, projectType, limit, offset, index)
   )
   ipcMain.handle('modrinth:get-versions', (_e, projectId: string, mcVersion: string, loader: string) =>
     getModVersions(projectId, mcVersion, loader)
   )
-  ipcMain.handle('modrinth:install-mod', (_e, instanceId: string, fileUrl: string, filename: string) =>
-    installModFromUrl(instanceId, fileUrl, filename)
+  ipcMain.handle('modrinth:install-mod', (_e, instanceId: string, fileUrl: string, filename: string, subFolder?: string) =>
+    installModFromUrl(instanceId, fileUrl, filename, subFolder)
   )
   ipcMain.handle('modrinth:get-categories', () => getModrinthCategories())
-  ipcMain.handle('modrinth:get-installed-ids', (_e, instanceId: string) => getInstalledProjectIds(instanceId))
+  ipcMain.handle('modrinth:get-installed-ids', (_e, instanceId: string, subFolder?: string, extensions?: string[]) =>
+    getInstalledProjectIds(instanceId, subFolder, extensions)
+  )
+  ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string) =>
+    getProjectVersionForInstall(projectId, mcVersion, loader)
+  )
 
   ipcMain.handle('modpacks:get-published', () => getPublishedModpacks())
   ipcMain.handle('modpacks:delete-published', (_e, id: string) => deletePublishedModpack(id))

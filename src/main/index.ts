@@ -42,6 +42,10 @@ function createWindow(): void {
 
   registerIpcHandlers(mainWindow)
 
+  mainWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
+  })
+
   // Titlebar window controls
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false))
@@ -79,4 +83,5 @@ ipcMain.on('window:maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
-ipcMain.on('window:close', () => mainWindow?.close())
+ipcMain.on('window:close', () => mainWindow?.webContents.send('app:request-close'))
+ipcMain.on('app:confirm-close', () => mainWindow?.destroy())

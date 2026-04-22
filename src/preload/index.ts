@@ -17,7 +17,13 @@ const api = {
     close: () => ipcRenderer.send('window:close'),
     onMaximized: (cb: (maximized: boolean) => void) => {
       ipcRenderer.on('window:maximized', (_e, v) => cb(v))
-    }
+    },
+    onRequestClose: (cb: () => void) => {
+      const handler = () => cb()
+      ipcRenderer.on('app:request-close', handler)
+      return () => ipcRenderer.removeListener('app:request-close', handler)
+    },
+    confirmClose: () => ipcRenderer.send('app:confirm-close'),
   },
 
   // Auth
@@ -142,16 +148,18 @@ const api = {
 
   // Modrinth
   modrinth: {
-    search: (query: string, mcVersion: string, loader: string, categories: string[], environment: string, limit?: number, offset?: number, index?: string) =>
-      ipcRenderer.invoke('modrinth:search', query, mcVersion, loader, categories, environment, limit ?? 20, offset ?? 0, index ?? 'relevance') as Promise<import('../main/modrinth').ModrinthSearchResult>,
+    search: (query: string, mcVersion: string, loader: string, categories: string[], environment: string, projectType?: string, limit?: number, offset?: number, index?: string) =>
+      ipcRenderer.invoke('modrinth:search', query, mcVersion, loader, categories, environment, projectType ?? 'mod', limit ?? 20, offset ?? 0, index ?? 'relevance') as Promise<any>,
     getVersions: (projectId: string, mcVersion: string, loader: string) =>
-      ipcRenderer.invoke('modrinth:get-versions', projectId, mcVersion, loader) as Promise<import('../main/modrinth').ModrinthVersion[]>,
-    installMod: (instanceId: string, fileUrl: string, filename: string) =>
-      ipcRenderer.invoke('modrinth:install-mod', instanceId, fileUrl, filename) as Promise<void>,
+      ipcRenderer.invoke('modrinth:get-versions', projectId, mcVersion, loader) as Promise<any[]>,
+    installMod: (instanceId: string, fileUrl: string, filename: string, subFolder?: string) =>
+      ipcRenderer.invoke('modrinth:install-mod', instanceId, fileUrl, filename, subFolder) as Promise<void>,
     getCategories: () =>
-      ipcRenderer.invoke('modrinth:get-categories') as Promise<import('../main/modrinth').ModrinthCategory[]>,
-    getInstalledIds: (instanceId: string) =>
-      ipcRenderer.invoke('modrinth:get-installed-ids', instanceId) as Promise<string[]>
+      ipcRenderer.invoke('modrinth:get-categories') as Promise<any[]>,
+    getInstalledIds: (instanceId: string, subFolder?: string, extensions?: string[]) =>
+      ipcRenderer.invoke('modrinth:get-installed-ids', instanceId, subFolder, extensions) as Promise<string[]>,
+    getProjectVersion: (projectId: string, mcVersion: string, loader: string) =>
+      ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader) as Promise<any | null>,
   },
 
   // Settings
