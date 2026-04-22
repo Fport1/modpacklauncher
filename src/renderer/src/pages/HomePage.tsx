@@ -5,6 +5,16 @@ import type { Instance } from '../../../shared/types'
 import { APP_VERSION } from '../../../shared/types'
 import UpdateCheckBtn from '../components/UpdateCheckBtn'
 
+function InstanceIcon({ instanceId }: { instanceId: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    window.api.instances.getIcon(instanceId).then(setSrc).catch(() => setSrc(null))
+  }, [instanceId])
+  return src
+    ? <img src={src} className="w-full h-full object-cover rounded-lg" draggable={false} />
+    : <div className="w-full h-full rounded-lg animate-pulse bg-bg-hover" />
+}
+
 export default function HomePage() {
   const account = useStore(activeAccount)
   const { setInstances } = useStore()
@@ -92,11 +102,8 @@ export default function HomePage() {
                 key={inst.id}
                 className="flex items-center gap-4 bg-bg-card border border-border rounded-xl p-3 hover:border-accent/30 transition-colors"
               >
-                <div className="w-10 h-10 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
-                    <rect x="2" y="3" width="20" height="14" rx="2" />
-                    <line x1="12" y1="17" x2="12" y2="21" />
-                  </svg>
+                <div className="w-10 h-10 rounded-lg bg-bg-hover flex-shrink-0 overflow-hidden">
+                  <InstanceIcon instanceId={inst.id} />
                 </div>
                 <div className="flex-1 overflow-hidden">
                   <p className="font-medium text-text-primary truncate">{inst.name}</p>

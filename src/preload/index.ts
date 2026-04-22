@@ -198,6 +198,11 @@ const api = {
     }
   },
 
+  // Player skin
+  skin: {
+    getHead: (uuid: string) => ipcRenderer.invoke('skin:get-head', uuid) as Promise<string | null>
+  },
+
   // Cancel current operation
   cancel: () => ipcRenderer.invoke('operation:cancel') as Promise<void>,
 

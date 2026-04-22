@@ -8,19 +8,18 @@ import UpdateCheckBtn from '../components/UpdateCheckBtn'
 
 
 function SkinAvatar({ uuid, username }: { uuid: string; username: string }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => {
+    window.api.skin.getHead(uuid).then(setSrc).catch(() => setSrc(null))
+  }, [uuid])
+
+  if (!src) {
     return <span className="text-accent text-sm font-bold">{username[0].toUpperCase()}</span>
   }
-  return (
-    <img
-      src={`https://crafatar.com/avatars/${uuid}?size=36&overlay=true`}
-      alt={username}
-      className="w-full h-full object-cover"
-      onError={() => setFailed(true)}
-    />
-  )
+  return <img src={src} alt={username} className="w-full h-full object-cover" draggable={false} />
 }
+
+export { SkinAvatar }
 
 export default function SettingsPage() {
   const { accounts, activeAccountId, settings, addAccount, removeAccount, setActiveAccountId, setSettings } = useStore()
@@ -123,9 +122,9 @@ export default function SettingsPage() {
                 }`}
                 onClick={() => setActive(acc.id)}
               >
-                <div className="w-9 h-9 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <div className="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {acc.type === 'microsoft' ? (
-                    <SkinAvatar uuid={acc.uuid} username={acc.username} />
+                    <SkinAvatar uuid={acc.uuid} username={acc.username} size={40} />
                   ) : (
                     <span className="text-accent text-sm font-bold">
                       {acc.username[0].toUpperCase()}

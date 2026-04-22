@@ -353,6 +353,23 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
 
+  // ── Player skin ─────────────────────────────────────────────────────────────
+
+  ipcMain.handle('skin:get-head', async (_e, uuid: string) => {
+    try {
+      const axios = (await import('axios')).default
+      const url = `https://crafatar.com/renders/head/${uuid}?size=64&overlay=true`
+      const res = await axios.get<Buffer>(url, {
+        responseType: 'arraybuffer',
+        timeout: 8_000,
+        headers: { 'User-Agent': 'ModpackLauncher/1.0' }
+      })
+      return `data:image/png;base64,${Buffer.from(res.data).toString('base64')}`
+    } catch {
+      return null
+    }
+  })
+
   // ── System ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('system:get-ram', () => Math.floor(os.totalmem() / 1024 / 1024))

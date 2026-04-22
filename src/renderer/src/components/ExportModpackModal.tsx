@@ -362,14 +362,19 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
 
           {/* Result */}
           {resultUrl && (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4">
-              <p className="text-xs font-semibold text-green-400 mb-2">¡Modpack publicado!</p>
-              <p className="text-xs text-text-muted mb-2">Comparte este enlace con tus usuarios:</p>
+            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-green-400">¡Modpack publicado!</p>
               <div className="flex gap-2">
                 <input readOnly value={resultUrl} className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono focus:outline-none" />
-                <button onClick={copyUrl} className="px-3 py-2 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg transition-colors">
+                <button onClick={copyUrl} className="px-3 py-2 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg transition-colors whitespace-nowrap">
                   {copied ? '¡Copiado!' : 'Copiar'}
                 </button>
+              </div>
+              <div className="bg-bg-card rounded-lg p-3 text-xs text-text-muted space-y-1.5">
+                <p className="text-text-secondary font-medium">¿Cómo instalar este modpack?</p>
+                <p>1. Comparte el enlace de arriba con tus jugadores.</p>
+                <p>2. En el launcher, ve a <span className="text-text-primary font-medium">Instancias → Nueva Instancia → Instalar Modpack</span>.</p>
+                <p>3. Pega el enlace y haz clic en <span className="text-text-primary font-medium">Obtener</span>.</p>
               </div>
             </div>
           )}

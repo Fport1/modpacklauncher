@@ -100,14 +100,14 @@ export interface ModpackSubscription {
   latestVersion?: string
 }
 
-export const APP_VERSION = '0.9.93'
+export const APP_VERSION = '0.9.94'
 
 export const DEFAULT_SETTINGS: Settings = {
   javaPath: '',
   maxMemory: 4096,
   minMemory: 512,
   closeOnLaunch: false,
-  azureClientId: 'ec5344fa-9f20-4722-8301-4e094d1e0749',
+  azureClientId: '',
   checkUpdatesOnStart: true,
   updateManifestUrl: 'https://raw.githubusercontent.com/Fport1/modpacklauncher-updates/main/update.json'
 }

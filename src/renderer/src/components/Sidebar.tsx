@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { useStore, activeAccount } from '../store'
+import { SkinAvatar } from '../pages/SettingsPage'
 
 const navItems = [
   {
@@ -73,10 +74,11 @@ export default function Sidebar() {
       <div className="p-3 border-t border-border">
         {account ? (
           <div className="flex items-center gap-2.5 px-2 py-2">
-            <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-accent text-xs font-bold">
-                {account.username[0].toUpperCase()}
-              </span>
+            <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {account.type === 'microsoft'
+                ? <SkinAvatar uuid={account.uuid} username={account.username} />
+                : <span className="text-accent text-xs font-bold">{account.username[0].toUpperCase()}</span>
+              }
             </div>
             <div className="overflow-hidden">
               <p className="text-sm font-medium text-text-primary truncate">{account.username}</p>
