@@ -72,9 +72,12 @@ const api = {
     duplicate: (instanceId: string, newName: string) => ipcRenderer.invoke('instances:duplicate', instanceId, newName) as Promise<Instance>,
     pickIcon: (instanceId: string) => ipcRenderer.invoke('instances:pick-icon', instanceId) as Promise<Instance | null>,
     getIcon: (instanceId: string) => ipcRenderer.invoke('instances:get-icon', instanceId) as Promise<string | null>,
-    listDefaultIcons: () => ipcRenderer.invoke('instances:list-default-icons') as Promise<Array<{ name: string; base64: string }>>,
+    listDefaultIcons: () => ipcRenderer.invoke('instances:list-default-icons') as Promise<Array<{ name: string; base64: string; filePath: string }>>,
     checkName: (name: string, excludeId?: string) => ipcRenderer.invoke('instances:check-name', name, excludeId) as Promise<boolean>,
-    listGameDir: (instanceId: string, subPath?: string) => ipcRenderer.invoke('instances:list-game-dir', instanceId, subPath) as Promise<Array<{ name: string; relativePath: string; isDir: boolean; size?: number }>>
+    listGameDir: (instanceId: string, subPath?: string) => ipcRenderer.invoke('instances:list-game-dir', instanceId, subPath) as Promise<Array<{ name: string; relativePath: string; isDir: boolean; size?: number }>>,
+    getDefaultIcon: () => ipcRenderer.invoke('instances:get-default-icon') as Promise<string | null>,
+    pickIconPreview: () => ipcRenderer.invoke('instances:pick-icon-preview') as Promise<{ filePath: string; base64: string } | null>,
+    applyPendingIcon: (instanceId: string, filePath: string) => ipcRenderer.invoke('instances:apply-pending-icon', instanceId, filePath) as Promise<void>
   },
 
   // Clipboard

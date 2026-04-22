@@ -3,7 +3,7 @@ import fs from 'fs-extra'
 import path from 'path'
 import crypto from 'crypto'
 import type { ModpackManifest, PackFile, Modloader } from '../shared/types'
-import { getInstanceGameDir } from './instances'
+import { getInstanceGameDir, resolveInstanceDir, updateInstance, loadInstances } from './instances'
 import { downloadFile, fileMatchesHash, fileExists } from './downloader'
 import type { ProgressCallback } from './downloader'
 import { checkCancel } from './cancelToken'
@@ -102,6 +102,22 @@ export async function installModpack(
   }
 
   await saveLocalManifest(instanceId, manifest)
+
+  if (manifest.thumbnail) {
+    try {
+      const iconResp = await axios.get<Buffer>(normalizeUrl(manifest.thumbnail), {
+        responseType: 'arraybuffer',
+        timeout: 15_000
+      })
+      const instanceDir = await resolveInstanceDir(instanceId)
+      const iconPath = path.join(instanceDir, 'icon.png')
+      await fs.writeFile(iconPath, Buffer.from(iconResp.data))
+      const instances = await loadInstances()
+      const inst = instances.find(i => i.id === instanceId)
+      if (inst) await updateInstance({ ...inst, icon: 'icon.png' })
+    } catch { /* thumbnail optional — ignore errors */ }
+  }
+
   onProgress?.(files.length, files.length, '¡Modpack instalado!')
 }
 

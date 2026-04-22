@@ -65,7 +65,6 @@ export default function InstanceCard({
   const [iconSrc, setIconSrc] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!instance.icon) { setIconSrc(null); return }
     window.api.instances.getIcon(instance.id).then(setIconSrc).catch(() => setIconSrc(null))
   }, [instance.id, instance.icon])
 
@@ -85,15 +84,10 @@ export default function InstanceCard({
     >
       {/* Icon */}
       <div className="w-12 h-12 rounded-lg bg-bg-hover flex items-center justify-center mb-3 overflow-hidden">
-        {iconSrc ? (
-          <img src={iconSrc} alt="" className="w-full h-full object-cover rounded-lg" />
-        ) : (
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <line x1="8" y1="21" x2="16" y2="21" />
-            <line x1="12" y1="17" x2="12" y2="21" />
-          </svg>
-        )}
+        {iconSrc
+          ? <img src={iconSrc} alt="" className="w-full h-full object-cover rounded-lg" draggable={false} />
+          : <div className="w-full h-full rounded-lg animate-pulse bg-bg-card" />
+        }
       </div>
 
       {/* Info */}

@@ -123,7 +123,7 @@ export async function pickInstanceIcon(
   await fs.copy(result.filePaths[0], path.join(dir, 'icon.png'), { overwrite: true })
 
   const meta = await fs.readJson(path.join(dir, 'instance.json')) as Instance
-  meta.icon = 'icon.png'
+  meta.icon = `icon.png?v=${Date.now()}`
   await fs.writeJson(path.join(dir, 'instance.json'), meta, { spaces: 2 })
   return meta
 }
@@ -132,33 +132,81 @@ export async function getInstanceIconBase64(instanceId: string): Promise<string 
   try {
     const dir = await resolveInstanceDir(instanceId)
     const meta = await fs.readJson(path.join(dir, 'instance.json')) as Instance
-    if (!meta.icon) return null
-    const iconPath = path.join(dir, meta.icon)
-    if (!(await fs.pathExists(iconPath))) return null
-    const buf = await fs.readFile(iconPath)
-    const ext = path.extname(iconPath).slice(1).toLowerCase()
+    if (meta.icon) {
+      const iconFile = meta.icon.split('?')[0]
+      const iconPath = path.join(dir, iconFile)
+      const result = await readIconAsBase64(iconPath)
+      if (result) return result
+    }
+  } catch { /* fall through */ }
+  return getDefaultIconBase64()
+}
+
+async function getBundledIconsDir(): Promise<string> {
+  const { app } = await import('electron')
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'icons')
+    : path.join(app.getAppPath(), 'resources', 'icons')
+}
+
+async function readIconAsBase64(filePath: string): Promise<string | null> {
+  try {
+    if (!(await fs.pathExists(filePath))) return null
+    const buf = await fs.readFile(filePath)
+    const ext = path.extname(filePath).slice(1).toLowerCase()
     const mime = (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg' : 'image/png'
     return `data:${mime};base64,${buf.toString('base64')}`
   } catch { return null }
 }
 
-export async function listDefaultIcons(): Promise<Array<{ name: string; base64: string }>> {
+export async function getDefaultIconBase64(): Promise<string | null> {
+  const bundledDir = await getBundledIconsDir()
+  return readIconAsBase64(path.join(bundledDir, 'grass_block.png'))
+}
+
+export async function listDefaultIcons(): Promise<Array<{ name: string; base64: string; filePath: string }>> {
   const { app } = await import('electron')
-  const iconsDir = path.join(app.getPath('userData'), 'icons')
-  await fs.ensureDir(iconsDir)
-  const entries = await fs.readdir(iconsDir, { withFileTypes: true }).catch(() => [])
-  const result: Array<{ name: string; base64: string }> = []
-  for (const e of entries) {
-    if (!e.isFile()) continue
-    const lower = e.name.toLowerCase()
-    if (!lower.endsWith('.png') && !lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) continue
-    try {
-      const buf = await fs.readFile(path.join(iconsDir, e.name))
-      const mime = lower.endsWith('.jpg') || lower.endsWith('.jpeg') ? 'image/jpeg' : 'image/png'
-      result.push({ name: e.name, base64: `data:${mime};base64,${buf.toString('base64')}` })
-    } catch { /* skip */ }
+  const bundledDir = await getBundledIconsDir()
+  const userDir = path.join(app.getPath('userData'), 'icons')
+  await fs.ensureDir(userDir)
+
+  const result: Array<{ name: string; base64: string; filePath: string }> = []
+  const seen = new Set<string>()
+
+  for (const dir of [bundledDir, userDir]) {
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const e of entries) {
+      if (!e.isFile() || seen.has(e.name)) continue
+      const lower = e.name.toLowerCase()
+      if (!lower.endsWith('.png') && !lower.endsWith('.jpg') && !lower.endsWith('.jpeg')) continue
+      const filePath = path.join(dir, e.name)
+      const base64 = await readIconAsBase64(filePath)
+      if (base64) { result.push({ name: e.name, base64, filePath }); seen.add(e.name) }
+    }
   }
   return result
+}
+
+export async function pickIconPreview(
+  mainWindow: import('electron').BrowserWindow
+): Promise<{ filePath: string; base64: string } | null> {
+  const { dialog } = await import('electron')
+  const result = await dialog.showOpenDialog(mainWindow, {
+    filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+    properties: ['openFile']
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  const base64 = await readIconAsBase64(result.filePaths[0])
+  if (!base64) return null
+  return { filePath: result.filePaths[0], base64 }
+}
+
+export async function applyPendingIcon(instanceId: string, filePath: string): Promise<void> {
+  const dir = await resolveInstanceDir(instanceId)
+  await fs.copy(filePath, path.join(dir, 'icon.png'), { overwrite: true })
+  const meta = await fs.readJson(path.join(dir, 'instance.json')) as Instance
+  meta.icon = `icon.png?v=${Date.now()}`
+  await fs.writeJson(path.join(dir, 'instance.json'), meta, { spaces: 2 })
 }
 
 export async function checkInstanceNameExists(name: string, excludeId?: string): Promise<boolean> {

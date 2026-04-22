@@ -100,7 +100,7 @@ export interface ModpackSubscription {
   latestVersion?: string
 }
 
-export const APP_VERSION = '0.9.92'
+export const APP_VERSION = '0.9.93'
 
 export const DEFAULT_SETTINGS: Settings = {
   javaPath: '',

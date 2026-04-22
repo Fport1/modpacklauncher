@@ -144,13 +144,15 @@ function NameConflictModal({
 function IconPickerModal({
   instance,
   onClose,
-  onUpdated
+  onUpdated,
+  onPreviewPick
 }: {
-  instance: Instance
+  instance?: Instance
   onClose: () => void
-  onUpdated: (inst: Instance) => void
+  onUpdated?: (inst: Instance) => void
+  onPreviewPick?: (icon: { filePath: string; base64: string }) => void
 }) {
-  const [defaultIcons, setDefaultIcons] = useState<Array<{ name: string; base64: string }>>([])
+  const [defaultIcons, setDefaultIcons] = useState<Array<{ name: string; base64: string; filePath: string }>>([])
   const [loading, setLoading] = useState(true)
   const [picking, setPicking] = useState(false)
 
@@ -164,9 +166,27 @@ function IconPickerModal({
   async function pickCustom() {
     setPicking(true)
     try {
-      const updated = await window.api.instances.pickIcon(instance.id)
-      if (updated) { onUpdated(updated); onClose() }
+      if (instance && onUpdated) {
+        const updated = await window.api.instances.pickIcon(instance.id)
+        if (updated) { onUpdated(updated); onClose() }
+      } else if (onPreviewPick) {
+        const result = await window.api.instances.pickIconPreview()
+        if (result) { onPreviewPick(result); onClose() }
+      }
     } finally { setPicking(false) }
+  }
+
+  async function applyDefault(ic: { filePath: string; base64: string; name: string }) {
+    if (instance && onUpdated) {
+      try {
+        await window.api.instances.applyPendingIcon(instance.id, ic.filePath)
+        const updated = await window.api.instances.list().then(list => list.find(i => i.id === instance.id))
+        if (updated) { onUpdated(updated); onClose() }
+      } catch { /* ignore */ }
+    } else if (onPreviewPick) {
+      onPreviewPick({ filePath: ic.filePath, base64: ic.base64 })
+      onClose()
+    }
   }
 
   return (
@@ -174,7 +194,7 @@ function IconPickerModal({
       <div className="relative bg-bg-secondary border border-border rounded-2xl p-6 w-[480px] shadow-2xl">
         <CloseBtn onClick={onClose} />
         <h2 className="text-base font-bold text-text-primary mb-1">Cambiar icono</h2>
-        <p className="text-xs text-text-muted mb-4">{instance.name}</p>
+        {instance && <p className="text-xs text-text-muted mb-4">{instance.name}</p>}
 
         <button
           onClick={pickCustom}
@@ -195,10 +215,12 @@ function IconPickerModal({
             <p className="text-xs text-text-muted mb-2">Iconos predeterminados</p>
             <div className="grid grid-cols-6 gap-2">
               {defaultIcons.map(ic => (
-                <button key={ic.name} title={ic.name} onClick={async () => {
-                  /* TODO: apply default icon — for now just close */
-                  onClose()
-                }} className="w-full aspect-square rounded-lg overflow-hidden border border-border hover:border-accent/60 transition-colors">
+                <button
+                  key={ic.name}
+                  title={ic.name}
+                  onClick={() => applyDefault(ic)}
+                  className="w-full aspect-square rounded-lg overflow-hidden border border-border hover:border-accent/60 transition-colors"
+                >
                   <img src={ic.base64} alt={ic.name} className="w-full h-full object-cover" />
                 </button>
               ))}
@@ -257,6 +279,10 @@ export default function InstancesPage() {
     height: 0,
     resPreset: 0
   })
+  const [pendingIcon, setPendingIcon] = useState<{ filePath: string; base64: string } | null>(null)
+  const [formIconBase64, setFormIconBase64] = useState<string | null>(null)
+  const [showFormIconPicker, setShowFormIconPicker] = useState(false)
+  const [defaultIconBase64, setDefaultIconBase64] = useState<string | null>(null)
   const [javaStatus, setJavaStatus] = useState<{ found: boolean; required: number } | null>(null)
   const [formError, setFormError] = useState('')
   const [savingForm, setSavingForm] = useState(false)
@@ -270,6 +296,7 @@ export default function InstancesPage() {
   useEffect(() => {
     window.api.instances.list().then(setInstances)
     window.api.system.getRam().then(setSystemRam)
+    window.api.instances.getDefaultIcon().then(setDefaultIconBase64).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -331,6 +358,8 @@ export default function InstancesPage() {
 
   function openManual() {
     setForm({ name: '', minecraft: mcVersions[0]?.id ?? '1.20.1', modloader: 'vanilla', modloaderVersion: '', description: '', maxMemory: 4096, minMemory: 512, javaPath: '', width: 0, height: 0, resPreset: 0 })
+    setPendingIcon(null)
+    setFormIconBase64(null)
     setFormError('')
     setModalStep('manual')
   }
@@ -356,6 +385,9 @@ export default function InstancesPage() {
       height: h,
       resPreset
     })
+    setPendingIcon(null)
+    setFormIconBase64(null)
+    window.api.instances.getIcon(inst.id).then(setFormIconBase64).catch(() => {})
     setEditing(inst)
     setFormError('')
     setModalStep('edit')
@@ -367,6 +399,7 @@ export default function InstancesPage() {
     setEditing(null)
     setSavingForm(false)
     setModpackLoading(false)
+    setShowFormIconPicker(false)
   }
 
   async function fetchModpack() {
@@ -455,7 +488,12 @@ export default function InstancesPage() {
           height: res.height
         }
         await window.api.instances.update(updated)
-        updateInstance(updated)
+        if (pendingIcon) {
+          await window.api.instances.applyPendingIcon(updated.id, pendingIcon.filePath)
+          updateInstance({ ...updated, icon: `icon.png?v=${Date.now()}` })
+        } else {
+          updateInstance(updated)
+        }
       } else {
         const inst = await window.api.instances.create({
           name,
@@ -469,7 +507,12 @@ export default function InstancesPage() {
           width: res.width,
           height: res.height
         })
-        addInstance(inst)
+        if (pendingIcon) {
+          await window.api.instances.applyPendingIcon(inst.id, pendingIcon.filePath)
+          addInstance({ ...inst, icon: 'icon.png' })
+        } else {
+          addInstance(inst)
+        }
       }
       cancelModal()
     } catch (e: unknown) {
@@ -625,12 +668,20 @@ export default function InstancesPage() {
         />
       )}
 
-      {/* ── Icon picker modal ── */}
+      {/* ── Icon picker modal (existing instance) ── */}
       {iconPickInstance && (
         <IconPickerModal
           instance={iconPickInstance}
           onClose={() => setIconPickInstance(null)}
           onUpdated={updated => { updateInstance(updated); setIconPickInstance(null) }}
+        />
+      )}
+
+      {/* ── Icon picker modal (form / create) ── */}
+      {showFormIconPicker && (
+        <IconPickerModal
+          onClose={() => setShowFormIconPicker(false)}
+          onPreviewPick={icon => { setPendingIcon(icon); setShowFormIconPicker(false) }}
         />
       )}
 
@@ -785,6 +836,29 @@ export default function InstancesPage() {
               </h2>
 
               <div className="space-y-4">
+                {/* Icon preview */}
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    title="Haz clic para cambiar el icono"
+                    onClick={() => setShowFormIconPicker(true)}
+                    className="w-16 h-16 rounded-xl overflow-hidden border-2 border-border hover:border-accent/60 transition-colors relative group"
+                  >
+                    {(pendingIcon?.base64 || formIconBase64 || defaultIconBase64) && (
+                      <img
+                        src={pendingIcon?.base64 ?? formIconBase64 ?? defaultIconBase64!}
+                        className="w-full h-full object-cover"
+                        draggable={false}
+                      />
+                    )}
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                        <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                    </div>
+                  </button>
+                </div>
+
                 {/* Name */}
                 <div>
                   <label className="block text-xs text-text-muted mb-1.5">Nombre *</label>

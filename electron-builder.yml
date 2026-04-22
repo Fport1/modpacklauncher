@@ -9,6 +9,14 @@ directories:
 files:
   - out/**/*
 
+extraResources:
+  - from: resources/icons
+    to: icons
+    filter:
+      - "**/*.png"
+      - "**/*.jpg"
+      - "**/*.jpeg"
+
 win:
   target:
     - target: nsis

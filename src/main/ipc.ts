@@ -17,9 +17,12 @@ import {
   duplicateInstance,
   pickInstanceIcon,
   getInstanceIconBase64,
+  getDefaultIconBase64,
   listDefaultIcons,
   checkInstanceNameExists,
   listGameDirEntries,
+  pickIconPreview,
+  applyPendingIcon,
   openInstanceFolder,
   listMods,
   listWorlds,
@@ -163,6 +166,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:list-default-icons', () => listDefaultIcons())
   ipcMain.handle('instances:check-name', (_e, name: string, excludeId?: string) => checkInstanceNameExists(name, excludeId))
   ipcMain.handle('instances:list-game-dir', (_e, instanceId: string, subPath?: string) => listGameDirEntries(instanceId, subPath))
+  ipcMain.handle('instances:get-default-icon', () => getDefaultIconBase64())
+  ipcMain.handle('instances:pick-icon-preview', () => pickIconPreview(mainWindow))
+  ipcMain.handle('instances:apply-pending-icon', (_e, instanceId: string, filePath: string) => applyPendingIcon(instanceId, filePath))
 
   ipcMain.handle('clipboard:write-image-path', async (_e, filePath: string) => {
     const { clipboard, nativeImage } = await import('electron')
