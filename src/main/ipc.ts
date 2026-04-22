@@ -267,7 +267,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── Modpacks ────────────────────────────────────────────────────────────────
 
-  ipcMain.handle('modpacks:fetch', (_e, url: string) => fetchManifest(url))
+  ipcMain.handle('modpacks:fetch', (_e, url: string, key?: string) => fetchManifest(url, key))
 
   ipcMain.handle('modpacks:install', async (_e, instanceId: string, manifest: ModpackManifest) => {
     resetCancel()
@@ -283,11 +283,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('modpacks:update', async (_e, instanceId: string, manifestUrl: string) => {
-    const manifest = await fetchManifest(manifestUrl)
-
     const instances = await loadInstances()
     const instance = instances.find((i) => i.id === instanceId)
     if (!instance) throw new Error('Instance not found')
+
+    const manifest = await fetchManifest(manifestUrl, instance.modpackKey)
 
     if (
       instance.modpackVersion &&
@@ -332,9 +332,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modpacks:delete-published', (_e, id: string) => deletePublishedModpack(id))
 
   ipcMain.handle('modpacks:check-update', async (_e, instanceId: string, manifestUrl: string) => {
-    const manifest = await fetchManifest(manifestUrl)
     const instances = await loadInstances()
     const instance = instances.find((i) => i.id === instanceId)
+    const manifest = await fetchManifest(manifestUrl, instance?.modpackKey)
     if (!instance) return { hasUpdate: false, manifest }
 
     const hasUpdate =

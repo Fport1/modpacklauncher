@@ -25,6 +25,7 @@ export interface Instance {
   createdAt: number
   modpackUrl?: string
   modpackVersion?: string
+  modpackKey?: string
   javaPath?: string
   maxMemory?: number
   minMemory?: number

@@ -17,13 +17,16 @@ export default function ModpacksPage() {
 
   const [urlInput, setUrlInput] = useState('')
   const [instanceName, setInstanceName] = useState('')
+  const [keyInput, setKeyInput] = useState('')
+  const [showKeyInput, setShowKeyInput] = useState(false)
+  const [keyVisible, setKeyVisible] = useState(false)
   const [fetchedManifest, setFetchedManifest] = useState<ModpackManifest | null>(null)
   const [published, setPublished] = useState<PublishedModpack[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [revealedId, setRevealedId] = useState('')
   const [revealedInstId, setRevealedInstId] = useState('')
   const [copiedInstId, setCopiedInstId] = useState('')
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [statuses, setStatuses] = useState<Map<string, UpdateStatus>>(new Map())
   const [modal, setModal] = useState<'addUrl' | 'changelog' | null>(null)
   const [changelogManifest, setChangelogManifest] = useState<ModpackManifest | null>(null)
@@ -69,11 +72,20 @@ export default function ModpacksPage() {
     setError('')
     setLoading(true)
     try {
-      const manifest = await window.api.modpacks.fetch(urlInput.trim())
+      const manifest = await window.api.modpacks.fetch(urlInput.trim(), keyInput.trim() || undefined)
       setFetchedManifest(manifest)
       setInstanceName(manifest.name)
+      setShowKeyInput(false)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to fetch manifest')
+      const msg = e instanceof Error ? e.message : 'Failed to fetch manifest'
+      if (msg === 'ENCRYPTED') {
+        setShowKeyInput(true)
+        setError('Este modpack está protegido con clave. Introdúcela abajo.')
+      } else if ((e as { code?: string }).code === 'WRONG_KEY' || msg === 'Clave incorrecta') {
+        setError('Clave incorrecta. Inténtalo de nuevo.')
+      } else {
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -94,7 +106,8 @@ export default function ModpacksPage() {
         modloaderVersion: fetchedManifest.modloaderVersion,
         description: fetchedManifest.description,
         modpackUrl: urlInput.trim(),
-        modpackVersion: fetchedManifest.version
+        modpackVersion: fetchedManifest.version,
+        modpackKey: keyInput.trim() || undefined
       })
       await window.api.modpacks.install(newInst.id, fetchedManifest)
       const allInstances = await window.api.instances.list()
@@ -165,7 +178,7 @@ export default function ModpacksPage() {
             Check Updates
           </button>
           <button
-            onClick={() => { setModal('addUrl'); setFetchedManifest(null); setUrlInput(''); setError('') }}
+            onClick={() => { setModal('addUrl'); setFetchedManifest(null); setUrlInput(''); setKeyInput(''); setShowKeyInput(false); setError('') }}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -258,8 +271,8 @@ export default function ModpacksPage() {
                 return acc
               }, {})
             ).map(([groupName, versions]) => {
-              const isCollapsed = collapsedGroups.has(groupName)
-              const toggleCollapse = () => setCollapsedGroups(prev => {
+              const isCollapsed = !expandedGroups.has(groupName)
+              const toggleCollapse = () => setExpandedGroups(prev => {
                 const next = new Set(prev)
                 next.has(groupName) ? next.delete(groupName) : next.add(groupName)
                 return next
@@ -338,6 +351,7 @@ export default function ModpacksPage() {
                     type="text"
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && fetchManifest()}
                     placeholder="https://example.com/modpack.json"
                     className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
                   />
@@ -350,6 +364,41 @@ export default function ModpacksPage() {
                   </button>
                 </div>
               </div>
+
+              {showKeyInput && (
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">
+                    🔒 Clave de acceso
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type={keyVisible ? 'text' : 'password'}
+                        value={keyInput}
+                        onChange={(e) => setKeyInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && fetchManifest()}
+                        placeholder="Introduce la clave del modpack"
+                        autoFocus
+                        className="w-full bg-bg-primary border border-amber-500/50 rounded-lg px-3 py-2 pr-9 text-sm text-text-primary focus:outline-none focus:border-amber-500"
+                      />
+                      <button type="button" onClick={() => setKeyVisible(v => !v)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                        {keyVisible
+                          ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                          : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        }
+                      </button>
+                    </div>
+                    <button
+                      onClick={fetchManifest}
+                      disabled={loading || !keyInput.trim()}
+                      className="px-3 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/40 text-white text-sm rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      Desbloquear
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {fetchedManifest && (
                 <div className="bg-bg-primary border border-accent/30 rounded-lg p-4">

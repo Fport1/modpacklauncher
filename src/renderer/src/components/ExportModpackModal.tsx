@@ -192,6 +192,8 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const [loadingRoot, setLoadingRoot] = useState(true)
 
   // Export state
+  const [accessKey, setAccessKey] = useState('')
+  const [showKey, setShowKey] = useState(false)
   const [progress, setProgress] = useState<{ message: string; current: number; total: number } | null>(null)
   const [resultUrl, setResultUrl] = useState('')
   const [error, setError] = useState('')
@@ -306,7 +308,8 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
         minecraft: instance.minecraft,
         modloader: instance.modloader,
         modloaderVersion: instance.modloaderVersion,
-        selectedPaths: [...selected]
+        selectedPaths: [...selected],
+        accessKey: accessKey.trim() || undefined
       })
       setResultUrl(url)
       setProgress(null)
@@ -433,6 +436,33 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                 <label className="block text-xs text-text-muted mb-1">Changelog</label>
                 <textarea value={changelog} onChange={e => setChangelog(e.target.value)} rows={2}
                   className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent resize-none" />
+              </div>
+
+              <div>
+                <label className="block text-xs text-text-muted mb-1">
+                  Clave de acceso <span className="text-text-muted/60">(opcional)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={accessKey}
+                    onChange={e => setAccessKey(e.target.value)}
+                    placeholder="Deja vacío para modpack público"
+                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 pr-9 text-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                  <button type="button" onClick={() => setShowKey(v => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                    {showKey
+                      ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                  </button>
+                </div>
+                {accessKey && (
+                  <p className="text-[11px] text-amber-400 mt-1">
+                    🔒 Este modpack requerirá la clave para instalarse. Compártela de forma privada.
+                  </p>
+                )}
               </div>
 
               {/* File picker */}

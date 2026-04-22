@@ -108,7 +108,7 @@ const api = {
 
   // Modpacks
   modpacks: {
-    fetch: (url: string) => ipcRenderer.invoke('modpacks:fetch', url) as Promise<ModpackManifest>,
+    fetch: (url: string, key?: string) => ipcRenderer.invoke('modpacks:fetch', url, key) as Promise<ModpackManifest>,
     install: (instanceId: string, manifest: ModpackManifest) =>
       ipcRenderer.invoke('modpacks:install', instanceId, manifest),
     update: (instanceId: string, manifestUrl: string) =>
@@ -129,7 +129,7 @@ const api = {
       instanceId: string; name: string; version: string; description: string
       changelog: string; repoName: string; githubToken: string
       minecraft: string; modloader: string; modloaderVersion?: string
-      selectedPaths: string[]
+      selectedPaths: string[]; accessKey?: string
     }) => ipcRenderer.invoke('modpacks:export', params) as Promise<string>,
     onExportProgress: (cb: (p: { message: string; current: number; total: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, p: { message: string; current: number; total: number }) => cb(p)

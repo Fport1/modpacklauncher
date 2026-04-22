@@ -61,15 +61,76 @@ export async function loadLocalManifest(instanceId: string): Promise<ModpackMani
   return fs.readJson(p).catch(() => null)
 }
 
+// ── AES-256-GCM encryption ─────────────────────────────────────────────────
+
+interface EncryptedPayload {
+  enc: true
+  iv: string
+  salt: string
+  tag: string
+  data: string
+}
+
+function deriveKey(password: string, salt: Buffer): Buffer {
+  return crypto.pbkdf2Sync(password, salt, 100_000, 32, 'sha256')
+}
+
+export function encryptManifest(manifest: ModpackManifest, password: string): EncryptedPayload {
+  const salt = crypto.randomBytes(16)
+  const iv = crypto.randomBytes(12)
+  const key = deriveKey(password, salt)
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
+  const plain = JSON.stringify(manifest)
+  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
+  const tag = (cipher as ReturnType<typeof crypto.createCipheriv> & { getAuthTag(): Buffer }).getAuthTag()
+  return {
+    enc: true,
+    iv: iv.toString('base64'),
+    salt: salt.toString('base64'),
+    tag: tag.toString('base64'),
+    data: encrypted.toString('base64')
+  }
+}
+
+function decryptManifest(payload: EncryptedPayload, password: string): ModpackManifest {
+  const salt = Buffer.from(payload.salt, 'base64')
+  const iv = Buffer.from(payload.iv, 'base64')
+  const tag = Buffer.from(payload.tag, 'base64')
+  const data = Buffer.from(payload.data, 'base64')
+  const key = deriveKey(password, salt)
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv)
+    ;(decipher as ReturnType<typeof crypto.createDecipheriv> & { setAuthTag(t: Buffer): void }).setAuthTag(tag)
+    const decrypted = Buffer.concat([decipher.update(data), decipher.final()])
+    return JSON.parse(decrypted.toString('utf8')) as ModpackManifest
+  } catch {
+    const err = new Error('Clave incorrecta')
+    ;(err as NodeJS.ErrnoException).code = 'WRONG_KEY'
+    throw err
+  }
+}
+
 // ── Manifest fetching ──────────────────────────────────────────────────────
 
-export async function fetchManifest(url: string): Promise<ModpackManifest> {
-  const { data } = await axios.get<ModpackManifest>(url, {
+export async function fetchManifest(url: string, key?: string): Promise<ModpackManifest> {
+  const { data } = await axios.get<unknown>(url, {
     timeout: 15_000,
     headers: { 'Cache-Control': 'no-cache' }
   })
+
+  if (data && typeof data === 'object' && (data as Record<string, unknown>).enc === true) {
+    if (!key) {
+      const err = new Error('ENCRYPTED')
+      ;(err as NodeJS.ErrnoException).code = 'ENCRYPTED'
+      throw err
+    }
+    const manifest = decryptManifest(data as EncryptedPayload, key)
+    validateManifest(manifest)
+    return manifest
+  }
+
   validateManifest(data)
-  return data
+  return data as ModpackManifest
 }
 
 function validateManifest(m: unknown): asserts m is ModpackManifest {
@@ -251,6 +312,7 @@ export interface ExportParams {
   minecraft: string
   modloader: string
   modloaderVersion?: string
+  accessKey?: string
 }
 
 interface FileEntry {
@@ -443,7 +505,11 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
       manifest.thumbnail = `https://raw.githubusercontent.com/${owner}/${repoName}/main/thumbnail.png`
     }
   } catch { /* thumbnail optional */ }
-  await upsertRepoFile(owner, repoName, 'modpack.json', JSON.stringify(manifest, null, 2), githubToken, `Release v${version}`)
+
+  const manifestContent = params.accessKey
+    ? JSON.stringify(encryptManifest(manifest, params.accessKey))
+    : JSON.stringify(manifest, null, 2)
+  await upsertRepoFile(owner, repoName, 'modpack.json', manifestContent, githubToken, `Release v${version}`)
 
   return `https://raw.githubusercontent.com/${owner}/${repoName}/main/modpack.json`
 }
