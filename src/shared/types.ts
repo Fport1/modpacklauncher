@@ -103,6 +103,7 @@ export interface PublishedModpack {
   modloader: string
   url: string
   publishedAt: number
+  accessKey?: string
 }
 
 export interface ModpackSubscription {

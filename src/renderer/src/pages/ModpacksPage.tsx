@@ -24,6 +24,7 @@ export default function ModpacksPage() {
   const [published, setPublished] = useState<PublishedModpack[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [revealedId, setRevealedId] = useState('')
+  const [revealedKeyId, setRevealedKeyId] = useState('')
   const [revealedInstId, setRevealedInstId] = useState('')
   const [copiedInstId, setCopiedInstId] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -298,6 +299,24 @@ export default function ModpacksPage() {
                             <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">
                               {revealedId === mp.id ? mp.url : '••••••••••••••••••••••••••••••••••••'}
                             </p>
+                            {mp.accessKey && (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400 flex-shrink-0">
+                                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+                                </svg>
+                                <p className="text-[11px] text-amber-400/80 truncate font-mono flex-1">
+                                  {revealedKeyId === mp.id ? mp.accessKey : '••••••••••••••'}
+                                </p>
+                                <button onClick={() => setRevealedKeyId(prev => prev === mp.id ? '' : mp.id)}
+                                  className="flex-shrink-0 p-1 text-amber-400/60 hover:text-amber-400 transition-colors"
+                                  title={revealedKeyId === mp.id ? 'Ocultar clave' : 'Ver clave'}>
+                                  {revealedKeyId === mp.id
+                                    ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                    : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                  }
+                                </button>
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
                             <button onClick={() => setRevealedId(prev => prev === mp.id ? '' : mp.id)} className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title={revealedId === mp.id ? 'Ocultar' : 'Mostrar URL'}>

@@ -323,7 +323,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       minecraft: params.minecraft,
       modloader: params.modloader,
       url,
-      publishedAt: Date.now()
+      publishedAt: Date.now(),
+      accessKey: params.accessKey || undefined
     })
     return url
   })
