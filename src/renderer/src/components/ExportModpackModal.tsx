@@ -382,9 +382,14 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
           {/* Progress */}
           {isExporting && (
             <div>
-              <div className="flex justify-between text-xs text-text-muted mb-2">
-                <span>{progress.message}</span>
-                <span>{pct}%</span>
+              <div className="flex justify-between items-center text-xs text-text-muted mb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg className="animate-spin w-3.5 h-3.5 flex-shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 12a9 9 0 00-9-9"/>
+                  </svg>
+                  <span className="truncate">{progress.message}</span>
+                </div>
+                <span className="flex-shrink-0 ml-2">{pct}%</span>
               </div>
               <div className="w-full h-2 bg-bg-hover rounded-full overflow-hidden">
                 <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />

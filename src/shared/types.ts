@@ -49,6 +49,7 @@ export interface ModpackManifest {
   minecraft: string
   modloader: Modloader
   modloaderVersion?: string
+  filesZip?: string
   files?: PackFile[]
   // Legacy format support
   mods?: ModEntry[]
@@ -93,6 +94,16 @@ export interface DownloadProgress {
   error?: string
 }
 
+export interface PublishedModpack {
+  id: string
+  name: string
+  version: string
+  minecraft: string
+  modloader: string
+  url: string
+  publishedAt: number
+}
+
 export interface ModpackSubscription {
   url: string
   instanceId: string
@@ -100,7 +111,7 @@ export interface ModpackSubscription {
   latestVersion?: string
 }
 
-export const APP_VERSION = '0.9.94'
+export const APP_VERSION = '1.0.0'
 
 export const DEFAULT_SETTINGS: Settings = {
   javaPath: '',

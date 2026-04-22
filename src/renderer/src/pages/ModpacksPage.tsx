@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
-import type { Instance, ModpackManifest } from '../../../shared/types'
+import type { Instance, ModpackManifest, DownloadProgress, PublishedModpack } from '../../../shared/types'
 
 interface UpdateStatus {
   instanceId: string
@@ -16,16 +16,25 @@ export default function ModpacksPage() {
   const modpackInstances = instances.filter((i) => i.modpackUrl)
 
   const [urlInput, setUrlInput] = useState('')
-  const [targetInstanceId, setTargetInstanceId] = useState('')
+  const [instanceName, setInstanceName] = useState('')
   const [fetchedManifest, setFetchedManifest] = useState<ModpackManifest | null>(null)
+  const [published, setPublished] = useState<PublishedModpack[]>([])
+  const [copiedId, setCopiedId] = useState('')
+  const [revealedId, setRevealedId] = useState('')
+  const [revealedInstId, setRevealedInstId] = useState('')
+  const [copiedInstId, setCopiedInstId] = useState('')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [statuses, setStatuses] = useState<Map<string, UpdateStatus>>(new Map())
   const [modal, setModal] = useState<'addUrl' | 'changelog' | null>(null)
   const [changelogManifest, setChangelogManifest] = useState<ModpackManifest | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [installProgress, setInstallProgress] = useState<DownloadProgress | null>(null)
+  const unsubRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     window.api.instances.list().then(setInstances)
+    window.api.modpacks.getPublished().then(setPublished)
   }, [])
 
   useEffect(() => {
@@ -62,6 +71,7 @@ export default function ModpacksPage() {
     try {
       const manifest = await window.api.modpacks.fetch(urlInput.trim())
       setFetchedManifest(manifest)
+      setInstanceName(manifest.name)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to fetch manifest')
     } finally {
@@ -70,30 +80,54 @@ export default function ModpacksPage() {
   }
 
   async function handleInstall() {
-    if (!fetchedManifest || !targetInstanceId) {
-      setError('Select an instance first')
-      return
-    }
+    if (!fetchedManifest) return
     setLoading(true)
     setError('')
+    setInstallProgress(null)
+    unsubRef.current?.()
+    unsubRef.current = window.api.onProgress(setInstallProgress)
     try {
-      await window.api.modpacks.install(targetInstanceId, fetchedManifest)
+      const newInst = await window.api.instances.create({
+        name: instanceName.trim() || fetchedManifest.name,
+        minecraft: fetchedManifest.minecraft,
+        modloader: fetchedManifest.modloader,
+        modloaderVersion: fetchedManifest.modloaderVersion,
+        description: fetchedManifest.description,
+        modpackUrl: urlInput.trim(),
+        modpackVersion: fetchedManifest.version
+      })
+      await window.api.modpacks.install(newInst.id, fetchedManifest)
       const allInstances = await window.api.instances.list()
-      const inst = allInstances.find((i) => i.id === targetInstanceId)
-      if (inst) {
-        const updated = { ...inst, modpackUrl: urlInput.trim(), modpackVersion: fetchedManifest.version }
-        await window.api.instances.update(updated)
-        updateInstanceStore(updated)
-      }
+      setInstances(allInstances)
       setModal(null)
       setFetchedManifest(null)
       setUrlInput('')
-      setInstances(allInstances)
+      setInstanceName('')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Installation failed')
     } finally {
       setLoading(false)
+      setInstallProgress(null)
+      unsubRef.current?.()
     }
+  }
+
+  async function copyInstanceUrl(inst: Instance) {
+    if (!inst.modpackUrl) return
+    await window.api.clipboard.writeText(inst.modpackUrl)
+    setCopiedInstId(inst.id)
+    setTimeout(() => setCopiedInstId(''), 2000)
+  }
+
+  async function copyPublishedUrl(modpack: PublishedModpack) {
+    await window.api.clipboard.writeText(modpack.url)
+    setCopiedId(modpack.id)
+    setTimeout(() => setCopiedId(''), 2000)
+  }
+
+  async function deletePublished(id: string) {
+    await window.api.modpacks.deletePublished(id)
+    setPublished(prev => prev.filter(m => m.id !== id))
   }
 
   async function handleUpdate(inst: Instance) {
@@ -114,8 +148,6 @@ export default function ModpacksPage() {
       setStatuses((prev) => new Map(prev).set(inst.id, { instanceId: inst.id, hasUpdate: false, checking: false }))
     }
   }
-
-  const instancesWithoutPack = instances.filter((i) => !i.modpackUrl)
 
   return (
     <div className="p-6">
@@ -164,68 +196,123 @@ export default function ModpacksPage() {
           </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {modpackInstances.map((inst) => {
             const status = statuses.get(inst.id)
             return (
-              <div
-                key={inst.id}
-                className="flex items-center gap-4 bg-bg-card border border-border rounded-xl p-4 hover:border-accent/30 transition-colors"
-              >
-                <div className="w-12 h-12 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
-                    <polyline points="16 16 12 12 8 16" />
-                    <line x1="12" y1="12" x2="12" y2="21" />
-                    <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3" />
-                  </svg>
-                </div>
-
+              <div key={inst.id} className="flex items-center gap-3 bg-bg-card border border-border rounded-xl px-4 py-3 hover:border-accent/30 transition-colors">
                 <div className="flex-1 overflow-hidden">
-                  <p className="font-semibold text-text-primary truncate">{inst.name}</p>
-                  <p className="text-xs text-text-secondary">
-                    MC {inst.minecraft} · {inst.modloader}
-                  </p>
-                  <p className="text-xs text-text-muted mt-0.5 truncate">{inst.modpackUrl}</p>
-                </div>
-
-                <div className="flex items-center gap-3 flex-shrink-0">
-                  <div className="text-right">
-                    <p className="text-xs text-text-muted">Installed</p>
-                    <p className="text-sm font-medium text-text-primary">
-                      v{inst.modpackVersion ?? '?'}
-                    </p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-text-primary truncate">{inst.name}</p>
+                    <span className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full flex-shrink-0">v{inst.modpackVersion ?? '?'}</span>
+                    <span className="text-xs text-text-muted flex-shrink-0">MC {inst.minecraft} · {inst.modloader}</span>
                   </div>
-
-                  {status?.checking ? (
-                    <div className="flex items-center gap-1.5 text-xs text-text-muted">
-                      <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 12a9 9 0 00-9-9" />
+                  <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">
+                    {revealedInstId === inst.id ? inst.modpackUrl : '••••••••••••••••••••••••••••••••••••'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button onClick={() => setRevealedInstId(prev => prev === inst.id ? '' : inst.id)} className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title={revealedInstId === inst.id ? 'Ocultar' : 'Mostrar URL'}>
+                    {revealedInstId === inst.id
+                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                  </button>
+                  <button onClick={() => copyInstanceUrl(inst)} className="w-7 h-7 flex items-center justify-center transition-colors" title="Copiar URL">
+                    {copiedInstId === inst.id
+                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400"><polyline points="20 6 9 17 4 12"/></svg>
+                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted hover:text-text-primary"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    }
+                  </button>
+                  <div className="w-8 flex items-center justify-center">
+                    {status?.checking ? (
+                      <svg className="animate-spin w-4 h-4 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+                    ) : status?.hasUpdate ? (
+                      <button onClick={() => handleUpdate(inst)} title={`Actualizar a v${status.latestVersion}`}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-accent hover:bg-accent-hover text-white transition-colors">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+                        </svg>
+                      </button>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400">
+                        <polyline points="20 6 9 17 4 12"/>
                       </svg>
-                      Checking...
-                    </div>
-                  ) : status?.hasUpdate ? (
-                    <button
-                      onClick={() => handleUpdate(inst)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <polyline points="23 4 23 10 17 10" />
-                        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-                      </svg>
-                      Update to v{status.latestVersion}
-                    </button>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs text-green-400">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                      Up to date
-                    </span>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Published modpacks */}
+      {published.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-sm font-semibold text-text-secondary mb-3">Mis Modpacks Publicados</h2>
+          <div className="space-y-3">
+            {Object.entries(
+              published.reduce<Record<string, PublishedModpack[]>>((acc, mp) => {
+                ;(acc[mp.name] ??= []).push(mp)
+                return acc
+              }, {})
+            ).map(([groupName, versions]) => {
+              const isCollapsed = collapsedGroups.has(groupName)
+              const toggleCollapse = () => setCollapsedGroups(prev => {
+                const next = new Set(prev)
+                next.has(groupName) ? next.delete(groupName) : next.add(groupName)
+                return next
+              })
+              return (
+                <div key={groupName} className="bg-bg-card border border-border rounded-xl overflow-hidden">
+                  <button onClick={toggleCollapse} className="w-full px-4 py-2.5 flex items-center gap-2 hover:bg-bg-hover transition-colors">
+                    <p className="text-sm font-semibold text-text-primary">{groupName}</p>
+                    <span className="text-[10px] text-text-muted bg-bg-hover px-1.5 py-0.5 rounded-full">{versions.length} versión{versions.length !== 1 ? 'es' : ''}</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`ml-auto text-text-muted transition-transform ${isCollapsed ? '-rotate-90' : ''}`}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </button>
+                  {!isCollapsed && (
+                    <div className="divide-y divide-border/40 border-t border-border/60">
+                      {versions.sort((a, b) => b.publishedAt - a.publishedAt).map(mp => (
+                        <div key={mp.id} className="flex items-center gap-3 px-4 py-2.5">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[10px] bg-accent/15 text-accent px-1.5 py-0.5 rounded-full flex-shrink-0">v{mp.version}</span>
+                              <span className="text-xs text-text-muted flex-shrink-0">MC {mp.minecraft} · {mp.modloader}</span>
+                            </div>
+                            <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">
+                              {revealedId === mp.id ? mp.url : '••••••••••••••••••••••••••••••••••••'}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button onClick={() => setRevealedId(prev => prev === mp.id ? '' : mp.id)} className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title={revealedId === mp.id ? 'Ocultar' : 'Mostrar URL'}>
+                              {revealedId === mp.id
+                                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                              }
+                            </button>
+                            <button onClick={() => copyPublishedUrl(mp)} className="w-7 h-7 flex items-center justify-center transition-colors" title="Copiar URL">
+                              {copiedId === mp.id
+                                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400"><polyline points="20 6 9 17 4 12"/></svg>
+                                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted hover:text-text-primary"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                              }
+                            </button>
+                            <button onClick={() => deletePublished(mp.id)} className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors" title="Eliminar">
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -273,49 +360,63 @@ export default function ModpacksPage() {
                   {fetchedManifest.description && (
                     <p className="text-xs text-text-secondary mt-2">{fetchedManifest.description}</p>
                   )}
-                  <p className="text-xs text-text-muted mt-2">{fetchedManifest.mods.length} mods</p>
+                  <p className="text-xs text-text-muted mt-2">
+                    {fetchedManifest.files?.length ?? fetchedManifest.mods?.length ?? 0} archivos
+                  </p>
                 </div>
               )}
 
               {fetchedManifest && (
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">Install to Instance</label>
-                  {instancesWithoutPack.length === 0 ? (
-                    <p className="text-xs text-text-muted">No instances without a modpack. Create one first.</p>
-                  ) : (
-                    <select
-                      value={targetInstanceId}
-                      onChange={(e) => setTargetInstanceId(e.target.value)}
-                      className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
-                    >
-                      <option value="">Select instance...</option>
-                      {instancesWithoutPack.map((i) => (
-                        <option key={i.id} value={i.id}>
-                          {i.name} (MC {i.minecraft})
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  <label className="block text-xs text-text-muted mb-1.5">Nombre de la instancia</label>
+                  <input
+                    value={instanceName}
+                    onChange={(e) => setInstanceName(e.target.value)}
+                    placeholder={fetchedManifest.name}
+                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                  />
+                  <p className="text-[11px] text-text-muted mt-1">Se creará una nueva instancia automáticamente con MC {fetchedManifest.minecraft} · {fetchedManifest.modloader}</p>
                 </div>
               )}
             </div>
+
+            {installProgress && (
+              <div className="mt-3">
+                <div className="flex justify-between items-center text-xs text-text-muted mb-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <svg className="animate-spin w-3 h-3 flex-shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+                    <span className="truncate">{installProgress.message}</span>
+                  </div>
+                  <span className="flex-shrink-0 ml-2">
+                    {installProgress.total > 0 ? `${Math.round((installProgress.current / installProgress.total) * 100)}%` : ''}
+                  </span>
+                </div>
+                <div className="w-full h-1.5 bg-bg-hover rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-accent rounded-full transition-all duration-300"
+                    style={{ width: installProgress.total > 0 ? `${Math.round((installProgress.current / installProgress.total) * 100)}%` : '20%' }}
+                  />
+                </div>
+              </div>
+            )}
 
             {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
 
             <div className="flex gap-3 mt-5">
               <button
                 onClick={() => setModal(null)}
-                className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors"
+                disabled={loading}
+                className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary disabled:opacity-40 rounded-lg text-sm transition-colors"
               >
                 Cancel
               </button>
               {fetchedManifest && (
                 <button
                   onClick={handleInstall}
-                  disabled={loading || !targetInstanceId}
+                  disabled={loading}
                   className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-medium transition-colors"
                 >
-                  {loading ? 'Installing...' : 'Install Modpack'}
+                  {loading ? 'Instalando...' : 'Instalar Modpack'}
                 </button>
               )}
             </div>

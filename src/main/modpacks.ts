@@ -2,7 +2,9 @@ import axios from 'axios'
 import fs from 'fs-extra'
 import path from 'path'
 import crypto from 'crypto'
-import type { ModpackManifest, PackFile, Modloader } from '../shared/types'
+import os from 'os'
+import AdmZip from 'adm-zip'
+import type { ModpackManifest, PackFile, Modloader, PublishedModpack } from '../shared/types'
 import { getInstanceGameDir, resolveInstanceDir, updateInstance, loadInstances } from './instances'
 import { downloadFile, fileMatchesHash, fileExists } from './downloader'
 import type { ProgressCallback } from './downloader'
@@ -85,19 +87,38 @@ export async function installModpack(
   onProgress?: ProgressCallback
 ): Promise<void> {
   const gameDir = await getInstanceGameDir(instanceId)
-  const files = getEffectiveFiles(manifest)
 
-  for (let i = 0; i < files.length; i++) {
-    checkCancel()
-    const file = files[i]
-    const destPath = path.join(gameDir, file.path)
-    onProgress?.(i, files.length, `Descargando ${path.basename(file.path)}...`)
-    await fs.ensureDir(path.dirname(destPath))
-
-    const exists = await fileExists(destPath)
-    const valid = exists && file.sha256 ? await fileMatchesHash(destPath, file.sha256) : exists
-    if (!valid) {
-      await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256)
+  if (manifest.filesZip) {
+    const tmpZip = path.join(os.tmpdir(), `modpack-${instanceId}-${Date.now()}.zip`)
+    try {
+      checkCancel()
+      onProgress?.(0, 2, 'Descargando modpack...')
+      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip, onProgress)
+      checkCancel()
+      onProgress?.(1, 2, 'Extrayendo archivos...')
+      const zip = new AdmZip(tmpZip)
+      for (const entry of zip.getEntries()) {
+        if (entry.isDirectory) continue
+        const destPath = path.join(gameDir, entry.entryName)
+        await fs.ensureDir(path.dirname(destPath))
+        await fs.writeFile(destPath, entry.getData())
+      }
+    } finally {
+      await fs.remove(tmpZip).catch(() => {})
+    }
+  } else {
+    const files = getEffectiveFiles(manifest)
+    for (let i = 0; i < files.length; i++) {
+      checkCancel()
+      const file = files[i]
+      const destPath = path.join(gameDir, file.path)
+      onProgress?.(i, files.length, `Descargando ${path.basename(file.path)}...`)
+      await fs.ensureDir(path.dirname(destPath))
+      const exists = await fileExists(destPath)
+      const valid = exists && file.sha256 ? await fileMatchesHash(destPath, file.sha256) : exists
+      if (!valid) {
+        await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256)
+      }
     }
   }
 
@@ -115,10 +136,10 @@ export async function installModpack(
       const instances = await loadInstances()
       const inst = instances.find(i => i.id === instanceId)
       if (inst) await updateInstance({ ...inst, icon: 'icon.png' })
-    } catch { /* thumbnail optional — ignore errors */ }
+    } catch { /* thumbnail optional */ }
   }
 
-  onProgress?.(files.length, files.length, '¡Modpack instalado!')
+  onProgress?.(2, 2, '¡Modpack instalado!')
 }
 
 // ── Update (delta) ─────────────────────────────────────────────────────────
@@ -129,10 +150,44 @@ export async function updateModpack(
   onProgress?: ProgressCallback
 ): Promise<{ added: string[]; removed: string[]; updated: string[] }> {
   const gameDir = await getInstanceGameDir(instanceId)
-  const newFiles = getEffectiveFiles(manifest)
   const oldManifest = await loadLocalManifest(instanceId)
   const oldFiles = oldManifest ? getEffectiveFiles(oldManifest) : []
 
+  if (manifest.filesZip) {
+    const newFiles = manifest.files ?? []
+    const newPaths = new Set(newFiles.map(f => f.path))
+    const removed: string[] = []
+    for (const old of oldFiles) {
+      if (!newPaths.has(old.path)) {
+        await fs.remove(path.join(gameDir, old.path)).catch(() => {})
+        removed.push(old.path)
+      }
+    }
+
+    const tmpZip = path.join(os.tmpdir(), `modpack-update-${instanceId}-${Date.now()}.zip`)
+    try {
+      checkCancel()
+      onProgress?.(0, 2, 'Descargando actualización...')
+      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip)
+      checkCancel()
+      onProgress?.(1, 2, 'Extrayendo archivos...')
+      const zip = new AdmZip(tmpZip)
+      for (const entry of zip.getEntries()) {
+        if (entry.isDirectory) continue
+        const destPath = path.join(gameDir, entry.entryName)
+        await fs.ensureDir(path.dirname(destPath))
+        await fs.writeFile(destPath, entry.getData())
+      }
+    } finally {
+      await fs.remove(tmpZip).catch(() => {})
+    }
+
+    await saveLocalManifest(instanceId, manifest)
+    onProgress?.(2, 2, '¡Actualización completada!')
+    return { added: newFiles.map(f => f.path), removed, updated: [] }
+  }
+
+  const newFiles = getEffectiveFiles(manifest)
   const newPaths = new Set(newFiles.map((f) => f.path))
   const oldMap = new Map(oldFiles.map((f) => [f.path, f]))
 
@@ -215,6 +270,7 @@ async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): 
     seen.add(relPath)
     try {
       const buf = await fs.readFile(absPath)
+      if (buf.length === 0) return
       entries.push({ localPath: absPath, relativePath: relPath, sha256: crypto.createHash('sha256').update(buf).digest('hex') })
     } catch { /* skip unreadable */ }
   }
@@ -248,58 +304,75 @@ async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): 
 }
 
 async function ghRequest<T>(method: string, url: string, token: string, data?: unknown): Promise<T> {
-  const res = await axios.request<T>({
-    method, url, data,
-    headers: {
-      Authorization: `token ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28'
-    },
-    timeout: 30_000
-  })
-  return res.data
+  try {
+    const res = await axios.request<T>({
+      method, url, data,
+      headers: {
+        Authorization: `token ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28'
+      },
+      timeout: 30_000
+    })
+    return res.data
+  } catch (e: unknown) {
+    const ghMsg = (e as { response?: { data?: { message?: string } } }).response?.data?.message
+    if (ghMsg) throw new Error(`GitHub: ${ghMsg}`)
+    throw e
+  }
 }
 
-async function ensureRepo(owner: string, repoName: string, token: string): Promise<void> {
+async function ensureRepo(owner: string, repoName: string, token: string): Promise<string> {
   try {
-    await ghRequest('GET', `https://api.github.com/repos/${owner}/${repoName}`, token)
+    const repo = await ghRequest<{ default_branch: string }>('GET', `https://api.github.com/repos/${owner}/${repoName}`, token)
+    return repo.default_branch ?? 'main'
   } catch {
     await ghRequest('POST', 'https://api.github.com/user/repos', token, {
       name: repoName, description: 'Modpack', private: false, auto_init: true
     })
-    await new Promise((r) => setTimeout(r, 2500))
+    // Wait for GitHub to initialize the repo with the first commit
+    await new Promise((r) => setTimeout(r, 6000))
+    const repo = await ghRequest<{ default_branch: string }>('GET', `https://api.github.com/repos/${owner}/${repoName}`, token)
+    return repo.default_branch ?? 'main'
   }
 }
 
-async function createGhRelease(owner: string, repo: string, version: string, changelog: string, token: string): Promise<{ id: number }> {
-  return ghRequest('POST', `https://api.github.com/repos/${owner}/${repo}/releases`, token, {
-    tag_name: `v${version}`, name: `v${version}`, body: changelog || '', draft: false, prerelease: false
+async function createGhRelease(owner: string, repo: string, version: string, changelog: string, token: string, branch: string): Promise<{ id: number }> {
+  return await ghRequest('POST', `https://api.github.com/repos/${owner}/${repo}/releases`, token, {
+    tag_name: `v${version}`, name: `v${version}`, body: changelog || '',
+    target_commitish: branch, draft: false, prerelease: false
   })
 }
 
-async function uploadAsset(releaseId: number, assetName: string, filePath: string, owner: string, repo: string, token: string): Promise<void> {
-  const buf = await fs.readFile(filePath)
-  await axios.post(
-    `https://uploads.github.com/repos/${owner}/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(assetName)}`,
-    buf,
-    {
-      headers: { Authorization: `token ${token}`, 'Content-Type': 'application/octet-stream', 'Content-Length': buf.length },
-      maxBodyLength: Infinity,
-      timeout: 300_000
-    }
-  )
+
+async function uploadAssetBuffer(releaseId: number, assetName: string, buf: Buffer, owner: string, repo: string, token: string): Promise<void> {
+  try {
+    await axios.post(
+      `https://uploads.github.com/repos/${owner}/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(assetName)}`,
+      buf,
+      {
+        headers: { Authorization: `token ${token}`, 'Content-Type': 'application/octet-stream', 'Content-Length': buf.length },
+        maxBodyLength: Infinity,
+        timeout: 600_000
+      }
+    )
+  } catch (e: unknown) {
+    const data = (e as { response?: { data?: unknown } }).response?.data
+    throw new Error(`Upload failed [${assetName}]: ${JSON.stringify(data)}`)
+  }
 }
 
-async function upsertRepoFile(owner: string, repo: string, filePath: string, content: string, token: string, message: string): Promise<void> {
+async function upsertRepoFile(owner: string, repo: string, filePath: string, content: string | Buffer, token: string, message: string): Promise<void> {
   let sha: string | undefined
   try {
     const existing = await ghRequest<{ sha: string }>('GET', `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, token)
     sha = existing.sha
   } catch { /* new file */ }
 
+  const encoded = Buffer.isBuffer(content) ? content.toString('base64') : Buffer.from(content).toString('base64')
   await ghRequest('PUT', `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`, token, {
     message,
-    content: Buffer.from(content).toString('base64'),
+    content: encoded,
     ...(sha ? { sha } : {})
   })
 }
@@ -313,28 +386,39 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
 
   if (files.length === 0) throw new Error('No se encontraron archivos en las categorías seleccionadas')
 
-  const totalSteps = files.length + 4
+  onProgress('Empaquetando archivos...', 0, 5)
+  const zip = new AdmZip()
+  const packFiles: PackFile[] = []
+  for (const file of files) {
+    const buf = await fs.readFile(file.localPath)
+    zip.addFile(file.relativePath, buf)
+    packFiles.push({ path: file.relativePath, sha256: file.sha256, url: '' })
+  }
+  const zipBuffer = zip.toBuffer()
 
-  onProgress('Conectando con GitHub...', 1, totalSteps)
+  onProgress('Conectando con GitHub...', 1, 5)
   const user = await ghRequest<{ login: string }>('GET', 'https://api.github.com/user', githubToken)
   const owner = user.login
 
-  onProgress('Preparando repositorio...', 2, totalSteps)
-  await ensureRepo(owner, repoName, githubToken)
+  onProgress('Preparando repositorio...', 2, 5)
+  const branch = await ensureRepo(owner, repoName, githubToken)
 
-  onProgress('Creando versión en GitHub...', 3, totalSteps)
-  const release = await createGhRelease(owner, repoName, version, changelog, githubToken)
+  onProgress('Eliminando versión anterior (si existe)...', 3, 5)
+  try {
+    const existing = await ghRequest<{ id: number }>('GET', `https://api.github.com/repos/${owner}/${repoName}/releases/tags/v${version}`, githubToken)
+    await ghRequest('DELETE', `https://api.github.com/repos/${owner}/${repoName}/releases/${existing.id}`, githubToken)
+  } catch { /* no existing release */ }
+  try {
+    await ghRequest('DELETE', `https://api.github.com/repos/${owner}/${repoName}/git/refs/tags/v${version}`, githubToken)
+  } catch { /* no existing tag */ }
 
-  const packFiles: PackFile[] = []
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    onProgress(`Subiendo ${path.basename(file.localPath)} (${i + 1}/${files.length})`, 4 + i, totalSteps)
-    const assetName = file.relativePath.replace(/\//g, '__')
-    await uploadAsset(release.id, assetName, file.localPath, owner, repoName, githubToken)
-    const downloadUrl = `https://github.com/${owner}/${repoName}/releases/download/v${version}/${encodeURIComponent(assetName)}`
-    packFiles.push({ path: file.relativePath, url: downloadUrl, sha256: file.sha256 })
-  }
+  onProgress('Creando versión en GitHub...', 3, 5)
+  const release = await createGhRelease(owner, repoName, version, changelog, githubToken, branch)
 
+  onProgress(`Subiendo modpack (${files.length} archivos)...`, 4, 5)
+  await uploadAssetBuffer(release.id, 'files.zip', zipBuffer, owner, repoName, githubToken)
+
+  const zipUrl = `https://github.com/${owner}/${repoName}/releases/download/v${version}/files.zip`
   const manifest: ModpackManifest = {
     id: repoName, name, version,
     description: description || undefined,
@@ -342,13 +426,51 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
     minecraft,
     modloader: modloader as Modloader,
     modloaderVersion: modloaderVersion || undefined,
-    files: packFiles
+    filesZip: zipUrl,
+    files: packFiles.map(f => ({ ...f, url: zipUrl }))
   }
 
-  onProgress('Publicando manifiesto...', totalSteps - 1, totalSteps)
+  onProgress('Publicando manifiesto...', 4, 5)
+  try {
+    const instanceDir = await resolveInstanceDir(instanceId)
+    const instances = await loadInstances()
+    const inst = instances.find(i => i.id === instanceId)
+    const iconFileName = inst?.icon ? inst.icon.split('?')[0] : 'icon.png'
+    const iconPath = path.join(instanceDir, iconFileName)
+    if (await fs.pathExists(iconPath)) {
+      const iconBuf = await fs.readFile(iconPath)
+      await upsertRepoFile(owner, repoName, 'thumbnail.png', iconBuf, githubToken, `Thumbnail v${version}`)
+      manifest.thumbnail = `https://raw.githubusercontent.com/${owner}/${repoName}/main/thumbnail.png`
+    }
+  } catch { /* thumbnail optional */ }
   await upsertRepoFile(owner, repoName, 'modpack.json', JSON.stringify(manifest, null, 2), githubToken, `Release v${version}`)
 
   return `https://raw.githubusercontent.com/${owner}/${repoName}/main/modpack.json`
+}
+
+// ── Published modpacks storage ─────────────────────────────────────────────
+
+import { app } from 'electron'
+
+function getPublishedModpacksPath(): string {
+  return path.join(app.getPath('userData'), 'published-modpacks.json')
+}
+
+export async function getPublishedModpacks(): Promise<PublishedModpack[]> {
+  const p = getPublishedModpacksPath()
+  if (!(await fs.pathExists(p))) return []
+  return fs.readJson(p).catch(() => [])
+}
+
+export async function savePublishedModpack(modpack: PublishedModpack): Promise<void> {
+  const list = await getPublishedModpacks()
+  list.unshift(modpack)
+  await fs.writeJson(getPublishedModpacksPath(), list, { spaces: 2 })
+}
+
+export async function deletePublishedModpack(id: string): Promise<void> {
+  const list = await getPublishedModpacks()
+  await fs.writeJson(getPublishedModpacksPath(), list.filter(m => m.id !== id), { spaces: 2 })
 }
 
 export async function getLocalModList(instanceId: string): Promise<string[]> {

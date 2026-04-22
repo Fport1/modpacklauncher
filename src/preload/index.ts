@@ -135,7 +135,9 @@ const api = {
       const handler = (_e: Electron.IpcRendererEvent, p: { message: string; current: number; total: number }) => cb(p)
       ipcRenderer.on('modpacks:export-progress', handler)
       return () => ipcRenderer.removeListener('modpacks:export-progress', handler)
-    }
+    },
+    getPublished: () => ipcRenderer.invoke('modpacks:get-published'),
+    deletePublished: (id: string) => ipcRenderer.invoke('modpacks:delete-published', id)
   },
 
   // Settings

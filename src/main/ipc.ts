@@ -6,8 +6,9 @@ import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
 import { checkJavaStatus, ensureJava } from './java'
 import { checkForUpdates, openDownloadPage, downloadAndInstall } from './updater'
-import { exportModpack } from './modpacks'
+import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack } from './modpacks'
 import type { ExportParams } from './modpacks'
+import type { PublishedModpack } from '../shared/types'
 import type { UpdateManifest } from './updater'
 import {
   loadInstances,
@@ -274,6 +275,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await installModpack(instanceId, manifest, (current, total, message) => {
         mainWindow.webContents.send('progress', { current, total, message, type: 'download' })
       })
+      sendDone(mainWindow, '¡Modpack instalado!')
     } catch (e) {
       if (e instanceof CancelError) { sendDone(mainWindow); return }
       throw e
@@ -302,7 +304,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
       instance.modpackVersion = manifest.version
       await updateInstance(instance)
-
+      sendDone(mainWindow, '¡Actualización completada!')
       return { upToDate: false, manifest, ...result }
     } catch (e) {
       if (e instanceof CancelError) { sendDone(mainWindow); return { upToDate: false, manifest } }
@@ -311,10 +313,23 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('modpacks:export', async (e, params: ExportParams) => {
-    return exportModpack(params, (message, current, total) => {
+    const url = await exportModpack(params, (message, current, total) => {
       e.sender.send('modpacks:export-progress', { message, current, total })
     })
+    await savePublishedModpack({
+      id: `${params.repoName}-${params.version}-${Date.now()}`,
+      name: params.name,
+      version: params.version,
+      minecraft: params.minecraft,
+      modloader: params.modloader,
+      url,
+      publishedAt: Date.now()
+    })
+    return url
   })
+
+  ipcMain.handle('modpacks:get-published', () => getPublishedModpacks())
+  ipcMain.handle('modpacks:delete-published', (_e, id: string) => deletePublishedModpack(id))
 
   ipcMain.handle('modpacks:check-update', async (_e, instanceId: string, manifestUrl: string) => {
     const manifest = await fetchManifest(manifestUrl)
