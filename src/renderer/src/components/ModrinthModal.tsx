@@ -130,10 +130,8 @@ function FilterRow({ checked, excluded, onChange, onExclude, label, icon }: Filt
       </button>
       {onExclude && !checked && (
         <button onClick={onExclude} title={excluded ? 'Quitar exclusión' : 'Excluir categoría'}
-          className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-all ${excluded ? 'opacity-100 text-red-400' : 'text-text-muted hover:text-red-400'}`}>
-          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
-          </svg>
+          className={`flex-shrink-0 w-5 h-5 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 transition-all ${excluded ? 'opacity-100' : 'hover:opacity-80'}`}>
+          <span className="text-[11px] leading-none">🚫</span>
         </button>
       )}
     </div>
@@ -172,11 +170,10 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const installFolder = TYPE_INSTALL_FOLDER[projectType]
 
   useEffect(() => {
-    if (projectType === 'mod') {
-      window.api.modrinth.getCategories().then(cats => {
-        setCategories((cats as ModrinthCategory[]).filter(c => !['fabric','forge','neoforge','quilt','liteloader','modloader','rift'].includes(c.name)))
-      }).catch(() => {})
-    }
+    const modrinthType = projectType === 'shader' ? 'shader' : projectType === 'resourcepack' ? 'resourcepack' : 'mod'
+    window.api.modrinth.getCategories(modrinthType).then(cats => {
+      setCategories((cats as ModrinthCategory[]).filter(c => !['fabric','forge','neoforge','quilt','liteloader','modloader','rift'].includes(c.name)))
+    }).catch(() => {})
     window.api.modrinth.getInstalledIds(instance.id, folder, exts).then(ids => {
       setInstalledIds(new Set(ids))
     }).catch(() => {}).finally(() => setLoadingInstalled(false))
@@ -308,7 +305,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     triggerSearch({ pageNum: clamped })
   }
 
-  const showSidebar = projectType === 'mod'
+  const showSidebar = true
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -372,32 +369,34 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                 )}
               </div>
 
-              {/* Environment */}
-              <div>
-                <button onClick={() => setEnvCollapsed(v => !v)}
-                  className="w-full flex items-center justify-between text-xs font-bold text-text-primary mb-2 hover:text-accent transition-colors">
-                  Entorno
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                    className={`transition-transform ${envCollapsed ? '-rotate-90' : ''}`}>
-                    <polyline points="6 9 12 15 18 9"/>
-                  </svg>
-                </button>
-                {!envCollapsed && (
-                  <div className="space-y-0.5">
-                    {(['any', 'client', 'server'] as const).map(e => (
-                      <FilterRow
-                        key={e}
-                        checked={environment === e}
-                        onChange={() => changeEnv(e)}
-                        label={e === 'any' ? 'Cualquiera' : e === 'client' ? 'Cliente' : 'Servidor'}
-                        icon={e !== 'any' ? ENV_ICONS[e] : undefined}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Environment — only for mods */}
+              {projectType === 'mod' && (
+                <div>
+                  <button onClick={() => setEnvCollapsed(v => !v)}
+                    className="w-full flex items-center justify-between text-xs font-bold text-text-primary mb-2 hover:text-accent transition-colors">
+                    Entorno
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                      className={`transition-transform ${envCollapsed ? '-rotate-90' : ''}`}>
+                      <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                  </button>
+                  {!envCollapsed && (
+                    <div className="space-y-0.5">
+                      {(['any', 'client', 'server'] as const).map(e => (
+                        <FilterRow
+                          key={e}
+                          checked={environment === e}
+                          onChange={() => changeEnv(e)}
+                          label={e === 'any' ? 'Cualquiera' : e === 'client' ? 'Cliente' : 'Servidor'}
+                          icon={e !== 'any' ? ENV_ICONS[e] : undefined}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
-              {(selectedCats.size > 0 || excludedCats.size > 0 || environment !== 'any') && (
+              {(selectedCats.size > 0 || excludedCats.size > 0 || (projectType === 'mod' && environment !== 'any')) && (
                 <button onClick={() => {
                   setSelectedCats(new Set()); setExcludedCats(new Set()); setEnvironment('any')
                   triggerSearch({ cats: new Set(), excCats: new Set(), env: 'any' })

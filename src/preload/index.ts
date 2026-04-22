@@ -154,8 +154,8 @@ const api = {
       ipcRenderer.invoke('modrinth:get-versions', projectId, mcVersion, loader) as Promise<any[]>,
     installMod: (instanceId: string, fileUrl: string, filename: string, subFolder?: string) =>
       ipcRenderer.invoke('modrinth:install-mod', instanceId, fileUrl, filename, subFolder) as Promise<void>,
-    getCategories: () =>
-      ipcRenderer.invoke('modrinth:get-categories') as Promise<any[]>,
+    getCategories: (projectType?: string) =>
+      ipcRenderer.invoke('modrinth:get-categories', projectType) as Promise<any[]>,
     getInstalledIds: (instanceId: string, subFolder?: string, extensions?: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-ids', instanceId, subFolder, extensions) as Promise<string[]>,
     getProjectVersion: (projectId: string, mcVersion: string, loader: string) =>

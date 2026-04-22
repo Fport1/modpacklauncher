@@ -92,12 +92,12 @@ export async function getModVersions(
   return data
 }
 
-export async function getModrinthCategories(): Promise<ModrinthCategory[]> {
+export async function getModrinthCategories(projectType = 'mod'): Promise<ModrinthCategory[]> {
   const { data } = await axios.get<ModrinthCategory[]>(`${BASE}/tag/category`, {
     headers: HEADERS,
     timeout: 10_000
   })
-  return data.filter(c => c.project_type === 'mod')
+  return data.filter(c => c.project_type === projectType)
 }
 
 export async function getInstalledProjectIds(instanceId: string, subFolder: string = 'mods', extensions: string[] = ['.jar', '.jar.disabled']): Promise<string[]> {

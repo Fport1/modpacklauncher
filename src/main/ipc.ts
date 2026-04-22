@@ -341,7 +341,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:install-mod', (_e, instanceId: string, fileUrl: string, filename: string, subFolder?: string) =>
     installModFromUrl(instanceId, fileUrl, filename, subFolder)
   )
-  ipcMain.handle('modrinth:get-categories', () => getModrinthCategories())
+  ipcMain.handle('modrinth:get-categories', (_e, projectType?: string) => getModrinthCategories(projectType ?? 'mod'))
   ipcMain.handle('modrinth:get-installed-ids', (_e, instanceId: string, subFolder?: string, extensions?: string[]) =>
     getInstalledProjectIds(instanceId, subFolder, extensions)
   )

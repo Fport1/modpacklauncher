@@ -926,14 +926,16 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                     <SortSelect value={sort} onChange={setSort} withDate />
                     <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                     <FolderBtn onClick={() => window.api.instances.openModsFolder(instance.id)} />
-                    <button
-                      onClick={() => setShowModrinth(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
-                      title="Buscar mods en Modrinth"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      Modrinth
-                    </button>
+                    {instance.modloader !== 'vanilla' && (
+                      <button
+                        onClick={() => setShowModrinth(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                        title="Buscar mods en Modrinth"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        Modrinth
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center justify-between flex-shrink-0">
                     <p className="text-xs text-text-muted">{sortedMods.length} mod{sortedMods.length !== 1 ? 's' : ''}</p>
@@ -1041,11 +1043,13 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                     <SortSelect value={sort} onChange={setSort} withDate />
                     <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                     <FolderBtn onClick={() => window.api.instances.openResourcepacksFolder(instance.id)} />
-                    <button onClick={() => setShowModrinthRp(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      Modrinth
-                    </button>
+                    {instance.modloader !== 'vanilla' && (
+                      <button onClick={() => setShowModrinthRp(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        Modrinth
+                      </button>
+                    )}
                   </div>
                   <p className="text-xs text-text-muted flex-shrink-0">{sortedRps.length} resource pack{sortedRps.length !== 1 ? 's' : ''}</p>
                   {loading ? <LoadSpinner /> : sortedRps.length === 0 ? <EmptyMsg msg="No hay resource packs instalados" /> : (
@@ -1100,11 +1104,13 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                     <SortSelect value={sort} onChange={setSort} withDate />
                     <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                     <FolderBtn onClick={() => window.api.instances.openShaderpacks(instance.id)} />
-                    <button onClick={() => setShowModrinthShader(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                      Modrinth
-                    </button>
+                    {instance.modloader !== 'vanilla' && (
+                      <button onClick={() => setShowModrinthShader(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        Modrinth
+                      </button>
+                    )}
                   </div>
                   <p className="text-xs text-text-muted flex-shrink-0">{sortedShaders.length} shaderpack{sortedShaders.length !== 1 ? 's' : ''}</p>
                   {loading ? <LoadSpinner /> : sortedShaders.length === 0 ? <EmptyMsg msg="No hay shaderpacks instalados" /> : (
