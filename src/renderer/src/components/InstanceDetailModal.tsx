@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
+import ModrinthModal from './ModrinthModal'
 
 type Tab = 'mods' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
 type SortKey = 'name-asc' | 'name-desc' | 'size-asc' | 'size-desc' | 'date-asc' | 'date-desc'
@@ -478,6 +479,7 @@ interface Props { instance: Instance; onClose: () => void }
 
 export default function InstanceDetailModal({ instance, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('mods')
+  const [showModrinth, setShowModrinth] = useState(false)
   const [mods, setMods] = useState<ModFile[]>([])
   const [worlds, setWorlds] = useState<WorldFolder[]>([])
   const [resourcepacks, setResourcepacks] = useState<ModFile[]>([])
@@ -860,6 +862,14 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                 <SortSelect value={sort} onChange={setSort} withDate />
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                 <FolderBtn onClick={() => window.api.instances.openModsFolder(instance.id)} />
+                <button
+                  onClick={() => setShowModrinth(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                  title="Buscar mods en Modrinth"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  Modrinth
+                </button>
               </div>
               <div className="flex items-center justify-between flex-shrink-0">
                 <p className="text-xs text-text-muted">{sortedMods.length} mod{sortedMods.length !== 1 ? 's' : ''}</p>
@@ -1195,6 +1205,13 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
           onClose={() => setLightboxIdx(null)}
           onChange={setLightboxIdx}
           onDelete={s => deleteScreenshotItems([s.filename])}
+        />
+      )}
+      {showModrinth && (
+        <ModrinthModal
+          instance={instance}
+          onClose={() => setShowModrinth(false)}
+          onInstalled={() => loadTab('mods')}
         />
       )}
     </div>
