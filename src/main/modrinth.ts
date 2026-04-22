@@ -1,6 +1,7 @@
 import axios from 'axios'
 import path from 'path'
 import fs from 'fs-extra'
+import crypto from 'crypto'
 import { getInstanceGameDir } from './instances'
 
 const BASE = 'https://api.modrinth.com/v2'
@@ -18,6 +19,8 @@ export interface ModrinthHit {
   display_categories: string[]
   versions: string[]
   date_modified: string
+  client_side: string
+  server_side: string
 }
 
 export interface ModrinthVersion {
@@ -32,6 +35,12 @@ export interface ModrinthVersion {
   dependencies: { project_id: string | null; dependency_type: 'required' | 'optional' | 'incompatible' }[]
 }
 
+export interface ModrinthCategory {
+  name: string
+  project_type: string
+  header: string
+}
+
 export interface ModrinthSearchResult {
   hits: ModrinthHit[]
   total_hits: number
@@ -43,6 +52,8 @@ export async function searchMods(
   query: string,
   mcVersion: string,
   loader: string,
+  categories: string[],
+  environment: string,
   limit = 20,
   offset = 0,
   index = 'relevance'
@@ -50,6 +61,9 @@ export async function searchMods(
   const facets: string[][] = [['project_type:mod']]
   if (mcVersion) facets.push([`versions:${mcVersion}`])
   if (loader && loader !== 'vanilla') facets.push([`categories:${loader}`])
+  for (const cat of categories) facets.push([`categories:${cat}`])
+  if (environment === 'client') facets.push(['client_side:required', 'client_side:optional'])
+  if (environment === 'server') facets.push(['server_side:required', 'server_side:optional'])
 
   const { data } = await axios.get<ModrinthSearchResult>(`${BASE}/search`, {
     params: { query, facets: JSON.stringify(facets), limit, offset, index },
@@ -74,6 +88,43 @@ export async function getModVersions(
     timeout: 15_000
   })
   return data
+}
+
+export async function getModrinthCategories(): Promise<ModrinthCategory[]> {
+  const { data } = await axios.get<ModrinthCategory[]>(`${BASE}/tag/category`, {
+    headers: HEADERS,
+    timeout: 10_000
+  })
+  return data.filter(c => c.project_type === 'mod')
+}
+
+export async function getInstalledProjectIds(instanceId: string): Promise<string[]> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const modsDir = path.join(gameDir, 'mods')
+  if (!(await fs.pathExists(modsDir))) return []
+
+  const files = (await fs.readdir(modsDir)).filter(f => f.endsWith('.jar') || f.endsWith('.jar.disabled'))
+  if (files.length === 0) return []
+
+  const hashes: string[] = []
+  for (const file of files) {
+    try {
+      const buf = await fs.readFile(path.join(modsDir, file))
+      hashes.push(crypto.createHash('sha1').update(buf).digest('hex'))
+    } catch { /* skip unreadable */ }
+  }
+  if (hashes.length === 0) return []
+
+  try {
+    const { data } = await axios.post<Record<string, { project_id: string }>>(
+      `${BASE}/version_files`,
+      { hashes, algorithm: 'sha1' },
+      { headers: HEADERS, timeout: 15_000 }
+    )
+    return [...new Set(Object.values(data).map(v => v.project_id))]
+  } catch {
+    return []
+  }
 }
 
 export async function installModFromUrl(

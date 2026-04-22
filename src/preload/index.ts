@@ -142,12 +142,16 @@ const api = {
 
   // Modrinth
   modrinth: {
-    search: (query: string, mcVersion: string, loader: string, limit?: number, offset?: number, index?: string) =>
-      ipcRenderer.invoke('modrinth:search', query, mcVersion, loader, limit ?? 20, offset ?? 0, index ?? 'relevance') as Promise<import('../main/modrinth').ModrinthSearchResult>,
+    search: (query: string, mcVersion: string, loader: string, categories: string[], environment: string, limit?: number, offset?: number, index?: string) =>
+      ipcRenderer.invoke('modrinth:search', query, mcVersion, loader, categories, environment, limit ?? 20, offset ?? 0, index ?? 'relevance') as Promise<import('../main/modrinth').ModrinthSearchResult>,
     getVersions: (projectId: string, mcVersion: string, loader: string) =>
       ipcRenderer.invoke('modrinth:get-versions', projectId, mcVersion, loader) as Promise<import('../main/modrinth').ModrinthVersion[]>,
     installMod: (instanceId: string, fileUrl: string, filename: string) =>
-      ipcRenderer.invoke('modrinth:install-mod', instanceId, fileUrl, filename) as Promise<void>
+      ipcRenderer.invoke('modrinth:install-mod', instanceId, fileUrl, filename) as Promise<void>,
+    getCategories: () =>
+      ipcRenderer.invoke('modrinth:get-categories') as Promise<import('../main/modrinth').ModrinthCategory[]>,
+    getInstalledIds: (instanceId: string) =>
+      ipcRenderer.invoke('modrinth:get-installed-ids', instanceId) as Promise<string[]>
   },
 
   // Settings
