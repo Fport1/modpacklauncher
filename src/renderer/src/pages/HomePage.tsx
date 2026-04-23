@@ -18,6 +18,7 @@ function InstanceIcon({ instanceId }: { instanceId: string }) {
 export default function HomePage() {
   const account = useStore(activeAccount)
   const { setInstances } = useStore()
+  const runningInstances = useStore(s => s.runningInstances)
   const [recent, setRecent] = useState<Instance[]>([])
   const [launching, setLaunching] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -30,16 +31,20 @@ export default function HomePage() {
   }, [])
 
   async function play(instanceId: string) {
-    if (!account) { setError('Select an account in Settings first.'); return }
+    if (!account) { setError('Selecciona una cuenta en Ajustes primero.'); return }
     setError('')
     setLaunching(instanceId)
     try {
       await window.api.launcher.launch(instanceId)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Launch failed')
+      setError(e instanceof Error ? e.message : 'Error al lanzar')
     } finally {
       setLaunching(null)
     }
+  }
+
+  async function kill(instanceId: string) {
+    try { await window.api.launcher.kill(instanceId) } catch { }
   }
 
   return (
@@ -111,13 +116,28 @@ export default function HomePage() {
                     MC {inst.minecraft} · {inst.modloader}
                   </p>
                 </div>
-                <button
-                  onClick={() => play(inst.id)}
-                  disabled={!!launching}
-                  className="flex items-center gap-1.5 px-4 py-1.5 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white text-sm font-medium rounded-lg transition-colors"
-                >
-                  {launching === inst.id ? 'Launching...' : 'Play'}
-                </button>
+                {runningInstances.has(inst.id) ? (
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 text-green-400 text-xs font-medium rounded-lg border border-green-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                      En juego
+                    </span>
+                    <button
+                      onClick={() => kill(inst.id)}
+                      className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-sm font-medium rounded-lg border border-red-500/30 transition-colors"
+                    >
+                      Cerrar juego
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => play(inst.id)}
+                    disabled={!!launching}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    {launching === inst.id ? 'Iniciando...' : 'Jugar'}
+                  </button>
+                )}
               </div>
             ))}
           </div>
