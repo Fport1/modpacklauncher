@@ -409,7 +409,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('skin:get-head', async (_e, uuid: string) => {
     try {
       const axios = (await import('axios')).default
-      const url = `https://crafatar.com/renders/head/${uuid}?size=64&overlay=true`
+      const url = `https://mc-heads.net/avatar/${uuid}/64`
       const res = await axios.get<Buffer>(url, {
         responseType: 'arraybuffer',
         timeout: 8_000,

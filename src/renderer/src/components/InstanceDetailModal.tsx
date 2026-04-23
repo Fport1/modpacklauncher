@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
 import ModrinthModal from './ModrinthModal'
+import ZoomableImage from './ZoomableImage'
 import { nav } from '../nav'
 
 type Tab = 'mods' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
@@ -182,15 +183,6 @@ function Lightbox({ screenshots, index, onClose, onChange, onDelete }: {
 }) {
   const s = screenshots[index]
   const [copied, setCopied] = useState(false)
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-      if (e.key === 'ArrowLeft' && index > 0) onChange(index - 1)
-      if (e.key === 'ArrowRight' && index < screenshots.length - 1) onChange(index + 1)
-    }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [index, screenshots.length, onClose, onChange])
 
   async function copyImage() {
     await window.api.clipboard.writeImagePath(s.filePath)
@@ -198,55 +190,41 @@ function Lightbox({ screenshots, index, onClose, onChange, onDelete }: {
     setTimeout(() => setCopied(false), 1500)
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/96 z-[300] flex flex-col" onClick={onClose}>
-      {/* toolbar */}
-      <div className="flex items-center gap-3 px-5 py-3 bg-black/60 flex-shrink-0 border-b border-white/10"
-        onClick={e => e.stopPropagation()}>
-        <p className="text-white text-sm truncate flex-1">{s.filename}</p>
-        <span className="text-white/40 text-xs flex-shrink-0">{formatDate(s.date)} · {formatSize(s.size)}</span>
-        <button onClick={copyImage}
-          className="px-3 py-1.5 text-xs text-white/70 hover:text-white border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0">
-          {copied ? '¡Copiado!' : 'Copiar imagen'}
-        </button>
-        <button onClick={() => window.api.clipboard.writeText(s.filePath)}
-          className="px-3 py-1.5 text-xs text-white/70 hover:text-white border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0">
-          Copiar ruta
-        </button>
-        <button onClick={() => onDelete(s)}
-          className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0">
-          Eliminar
-        </button>
-        <button onClick={onClose}
-          className="w-7 h-7 flex items-center justify-center rounded-lg border border-white/20 text-white/50 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-          </svg>
-        </button>
-      </div>
-      {/* image */}
-      <div className="flex-1 flex items-center justify-center relative min-h-0 p-4" onClick={onClose}>
-        <img src={mediaUrl(s.filePath)} alt={s.filename}
-          className="max-w-full max-h-full object-contain rounded select-none"
-          onClick={e => e.stopPropagation()} />
-        {index > 0 && (
-          <button onClick={e => { e.stopPropagation(); onChange(index - 1) }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white text-lg transition-colors">
-            ‹
-          </button>
-        )}
-        {index < screenshots.length - 1 && (
-          <button onClick={e => { e.stopPropagation(); onChange(index + 1) }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-white text-lg transition-colors">
-            ›
-          </button>
-        )}
-      </div>
-      {/* filmstrip counter */}
-      <p className="text-center text-xs text-white/30 pb-3 flex-shrink-0">
-        {index + 1} / {screenshots.length}
-      </p>
+  const toolbar = (
+    <div className="flex items-center gap-3 px-5 py-3 bg-black/60 flex-shrink-0 border-b border-white/10">
+      <p className="text-white text-sm truncate flex-1">{s.filename}</p>
+      <span className="text-white/40 text-xs flex-shrink-0">{formatDate(s.date)} · {formatSize(s.size)}</span>
+      <button onClick={copyImage}
+        className="px-3 py-1.5 text-xs text-white/70 hover:text-white border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0">
+        {copied ? '¡Copiado!' : 'Copiar imagen'}
+      </button>
+      <button onClick={() => window.api.clipboard.writeText(s.filePath)}
+        className="px-3 py-1.5 text-xs text-white/70 hover:text-white border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0">
+        Copiar ruta
+      </button>
+      <button onClick={() => onDelete(s)}
+        className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-shrink-0">
+        Eliminar
+      </button>
+      <button onClick={onClose}
+        className="w-7 h-7 flex items-center justify-center rounded-lg border border-white/20 text-white/50 hover:text-white hover:bg-white/10 transition-colors flex-shrink-0">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
     </div>
+  )
+
+  return (
+    <ZoomableImage
+      src={mediaUrl(s.filePath)}
+      alt={s.filename}
+      onClose={onClose}
+      onPrev={index > 0 ? () => onChange(index - 1) : undefined}
+      onNext={index < screenshots.length - 1 ? () => onChange(index + 1) : undefined}
+      counter={`${index + 1} / ${screenshots.length}`}
+      toolbar={toolbar}
+    />
   )
 }
 
@@ -1443,15 +1421,14 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
       {ctx && (
         <CtxMenu x={ctx.x} y={ctx.y} items={ctx.items} onClose={() => setCtx(null)} />
       )}
-      {lightboxIdx !== null && sortedScreenshots.length > 0 && createPortal(
+      {lightboxIdx !== null && sortedScreenshots.length > 0 && (
         <Lightbox
           screenshots={sortedScreenshots}
           index={lightboxIdx}
           onClose={() => setLightboxIdx(null)}
           onChange={setLightboxIdx}
           onDelete={s => deleteScreenshotItems([s.filename])}
-        />,
-        document.body
+        />
       )}
       {showModrinth && (
         <ModrinthModal
@@ -1459,15 +1436,18 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
           onClose={() => setShowModrinth(false)}
           onInstalled={() => loadTab('mods')}
           projectVersionMap={Object.fromEntries(mods.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
+          projectFilenameMap={Object.fromEntries(mods.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.name]))}
         />
       )}
       {showModrinthRp && (
         <ModrinthModal instance={instance} projectType="resourcepack" onClose={() => setShowModrinthRp(false)} onInstalled={() => loadTab('resourcepacks')}
-          projectVersionMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))} />
+          projectVersionMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
+          projectFilenameMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.name]))} />
       )}
       {showModrinthShader && (
         <ModrinthModal instance={instance} projectType="shader" onClose={() => setShowModrinthShader(false)} onInstalled={() => loadTab('shaderpacks')}
-          projectVersionMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))} />
+          projectVersionMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
+          projectFilenameMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.name]))} />
       )}
       {unlinkConfirm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60]">

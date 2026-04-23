@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Instance } from '../../../shared/types'
 import { nav } from '../nav'
 import { marked } from 'marked'
+import ZoomableImage from './ZoomableImage'
 
 marked.use({ breaks: true, gfm: true } as Parameters<typeof marked.use>[0])
 
@@ -34,6 +35,7 @@ interface Props {
   onClose: () => void
   onInstalled: () => void
   projectVersionMap?: Record<string, string>
+  projectFilenameMap?: Record<string, string>
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -83,6 +85,22 @@ const SORT_OPTIONS = [
 
 const TYPE_LABELS: Record<string, string> = {
   mod: 'Mods', resourcepack: 'Resource Packs', shader: 'Shaders'
+}
+
+const YT_IFRAME_RE = /<iframe[^>]+src=["'](?:https?:)?\/\/(?:www\.)?youtube(?:-nocookie)?\.com\/embed\/([a-zA-Z0-9_-]+)[^"']*["'][^>]*>(?:<\/iframe>)?/gi
+
+function processBodyHtml(html: string): string {
+  return html.replace(YT_IFRAME_RE, (_, videoId: string) => {
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`
+    const thumb = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+    return `<a href="${watchUrl}" class="yt-card">` +
+      `<img src="${thumb}" alt="YouTube" />` +
+      `<span class="yt-play"><svg width="64" height="64" viewBox="0 0 68 48" fill="none" xmlns="http://www.w3.org/2000/svg">` +
+      `<rect width="68" height="48" rx="10" fill="#FF0000" fill-opacity="0.9"/>` +
+      `<polygon points="27,14 27,34 45,24" fill="white"/>` +
+      `</svg></span>` +
+      `</a>`
+  })
 }
 
 const TYPE_FOLDER: Record<string, { folder: string; exts: string[] }> = {
@@ -143,7 +161,7 @@ function FilterRow({ checked, excluded, onChange, onExclude, label, icon }: Filt
   )
 }
 
-export default function ModrinthModal({ instance, projectType = 'mod', onClose, onInstalled, projectVersionMap = {} }: Props) {
+export default function ModrinthModal({ instance, projectType = 'mod', onClose, onInstalled, projectVersionMap = {}, projectFilenameMap = {} }: Props) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('relevance')
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set())
@@ -163,9 +181,11 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
 
   const [selectedMod, setSelectedMod] = useState<ModrinthHit | null>(null)
   const [projectBody, setProjectBody] = useState<string | null>(null)
-  const [detailTab, setDetailTab] = useState<'desc' | 'versions'>('desc')
+  const [detailTab, setDetailTab] = useState<'desc' | 'versions' | 'gallery'>('desc')
   const [versions, setVersions] = useState<ModrinthVersion[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
+  const [gallery, setGallery] = useState<{ url: string; title: string | null; description: string | null; created: string }[]>([])
+  const [lightboxImg, setLightboxImg] = useState<string | null>(null)
   const [depNames, setDepNames] = useState<Record<string, string>>({})
   const [installingId, setInstallingId] = useState('')
   const [justInstalled, setJustInstalled] = useState<Set<string>>(new Set())
@@ -255,10 +275,11 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   }
 
   async function selectMod(mod: ModrinthHit) {
-    nav.push(() => { setSelectedMod(null); setProjectBody(null); setDepNames({}) })
+    nav.push(() => { setSelectedMod(null); setProjectBody(null); setDepNames({}); setGallery([]) })
     setSelectedMod(mod)
     setProjectBody(null)
     setDepNames({})
+    setGallery([])
     setDetailTab('desc')
     setVersions([])
     setLoadingVersions(true)
@@ -267,7 +288,10 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
         window.api.modrinth.getProject(mod.project_id).catch(() => null),
         window.api.modrinth.getVersions(mod.project_id, instance.minecraft, instance.modloader).catch(() => [] as ModrinthVersion[])
       ])
-      if (proj) setProjectBody((proj as any).body ?? null)
+      if (proj) {
+        setProjectBody((proj as any).body ?? null)
+        setGallery((proj as any).gallery ?? [])
+      }
       const vList = vers as ModrinthVersion[]
       setVersions(vList)
       const allDepIds = [...new Set(
@@ -289,13 +313,34 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     }
   }
 
-  async function installVersion(version: ModrinthVersion) {
+  async function installVersion(version: ModrinthVersion, isVersionChange = false) {
     const file = version.files.find(f => f.primary) ?? version.files[0]
     if (!file) return
+
+    if (isVersionChange) {
+      const ok = confirm(
+        `⚠️ Cambiar de versión puede causar incompatibilidades con otros mods.\n\n` +
+        `¿Seguro que quieres cambiar a "${version.name || version.version_number}"?\n\n` +
+        `Se eliminará la versión instalada actual.`
+      )
+      if (!ok) return
+    }
+
     setInstallingId(version.id)
     setError('')
     try {
-      if (projectType === 'mod') {
+      if (isVersionChange && selectedMod) {
+        const oldFilename = projectFilenameMap[selectedMod.project_id]
+        if (oldFilename) {
+          try {
+            if (projectType === 'mod') await window.api.instances.deleteMod(instance.id, oldFilename)
+            else if (projectType === 'resourcepack') await window.api.instances.deleteResourcepack(instance.id, oldFilename)
+            else if (projectType === 'shader') await window.api.instances.deleteShaderpack(instance.id, oldFilename)
+          } catch { /* ignore, still install new */ }
+        }
+      }
+
+      if (projectType === 'mod' && !isVersionChange) {
         const requiredDeps = version.dependencies?.filter(d => d.dependency_type === 'required' && d.project_id) ?? []
         for (const dep of requiredDeps) {
           if (dep.project_id && !installedIds.has(dep.project_id)) {
@@ -563,7 +608,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                 })()}
               </>
             ) : (
-              <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 flex flex-col overflow-hidden relative">
                 {/* Mod header */}
                 <div className="flex items-start gap-3 px-5 pt-4 pb-3 border-b border-border/40 flex-shrink-0">
                   {selectedMod.icon_url ? (
@@ -589,23 +634,49 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                 </div>
                 {/* Detail tabs */}
                 <div className="flex gap-0.5 px-5 pt-2 border-b border-border/30 flex-shrink-0">
-                  {(['desc', 'versions'] as const).map(dt => (
-                    <button key={dt} onClick={() => setDetailTab(dt)}
+                  {([['desc', 'Descripción'], ['versions', 'Versiones'], ...(gallery.length > 0 ? [['gallery', 'Galería']] : [])] as [string, string][]).map(([dt, label]) => (
+                    <button key={dt} onClick={() => setDetailTab(dt as 'desc' | 'versions' | 'gallery')}
                       className={`px-3 py-1.5 text-xs rounded-t-lg transition-colors ${detailTab === dt ? 'text-accent border-b-2 border-accent -mb-px font-medium' : 'text-text-muted hover:text-text-secondary'}`}>
-                      {dt === 'desc' ? 'Descripción' : 'Versiones'}
+                      {label}
                     </button>
                   ))}
                 </div>
+                {lightboxImg && (
+                  <ZoomableImage src={lightboxImg} onClose={() => setLightboxImg(null)} />
+                )}
                 <div className="flex-1 overflow-y-auto p-5">
                   {detailTab === 'desc' ? (
                     <div
                       className="modrinth-body"
-                      dangerouslySetInnerHTML={{ __html: marked.parse(projectBody ?? selectedMod.description) as string }}
+                      dangerouslySetInnerHTML={{ __html: processBodyHtml(marked.parse(projectBody ?? selectedMod.description) as string) }}
                       onClick={e => {
                         const a = (e.target as HTMLElement).closest('a')
                         if (a?.href) { e.preventDefault(); window.api.shell.openExternal(a.href) }
                       }}
                     />
+                  ) : detailTab === 'gallery' ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      {gallery.map((img, i) => (
+                        <button key={i} onClick={() => setLightboxImg(img.url)}
+                          className="group text-left bg-bg-card border border-border rounded-xl overflow-hidden hover:border-accent/40 transition-colors">
+                          <div className="aspect-video overflow-hidden bg-bg-hover">
+                            <img src={img.url} alt={img.title ?? ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" draggable={false} />
+                          </div>
+                          {(img.title || img.description || img.created) && (
+                            <div className="p-2.5">
+                              {img.title && <p className="text-xs font-semibold text-text-primary mb-0.5">{img.title}</p>}
+                              {img.description && <p className="text-[11px] text-text-muted line-clamp-2">{img.description}</p>}
+                              {img.created && (
+                                <p className="text-[10px] text-text-muted/60 mt-1 flex items-center gap-1">
+                                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                  {new Date(img.created).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   ) : (
                     <>
                       <p className="text-xs font-semibold text-text-secondary mb-3">
@@ -623,8 +694,10 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                           {versions.map(ver => {
                             const file = ver.files.find(f => f.primary) ?? ver.files[0]
                             const isInstalling = installingId === ver.id
-                            const isInstalled = justInstalled.has(ver.id)
+                            const isJustInstalled = justInstalled.has(ver.id)
                             const isCurrentlyInstalled = selectedMod ? projectVersionMap[selectedMod.project_id] === ver.id : false
+                            const modAlreadyInstalled = selectedMod ? installedIds.has(selectedMod.project_id) : false
+                            const isVersionChange = modAlreadyInstalled && !isCurrentlyInstalled
                             const requiredDeps = ver.dependencies?.filter(d => d.dependency_type === 'required' && d.project_id) ?? []
                             const optionalDeps = ver.dependencies?.filter(d => d.dependency_type === 'optional' && d.project_id) ?? []
                             return (
@@ -638,15 +711,24 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                                     </div>
                                     {file && <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">{file.filename} · {formatSize(file.size)}</p>}
                                   </div>
-                                  <button onClick={() => installVersion(ver)} disabled={isInstalling || isInstalled}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
-                                      isInstalled ? 'bg-green-500/15 text-green-400 cursor-default'
-                                        : 'bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white'
-                                    }`}>
-                                    {isInstalling ? (<><svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Instalando...</>)
-                                      : isInstalled ? (<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>Instalado</>)
-                                      : (<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>Instalar</>)}
-                                  </button>
+                                  {isCurrentlyInstalled ? (
+                                    <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent/10 text-accent flex-shrink-0 cursor-default">
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                                      Instalada
+                                    </span>
+                                  ) : (
+                                    <button onClick={() => installVersion(ver, isVersionChange)} disabled={isInstalling || isJustInstalled}
+                                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
+                                        isJustInstalled ? 'bg-green-500/15 text-green-400 cursor-default'
+                                          : isVersionChange ? 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30'
+                                          : 'bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white'
+                                      }`}>
+                                      {isInstalling ? (<><svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Instalando...</>)
+                                        : isJustInstalled ? (<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>Instalado</>)
+                                        : isVersionChange ? (<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/><line x1="2" y1="3" x2="22" y2="3"/></svg>Cambiar versión</>)
+                                        : (<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>Instalar</>)}
+                                    </button>
+                                  )}
                                 </div>
                                 {(requiredDeps.length > 0 || optionalDeps.length > 0) && (
                                   <div className="mt-2 pt-2 border-t border-border/40 flex flex-wrap gap-1.5">

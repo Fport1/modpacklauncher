@@ -64,3 +64,10 @@
 .modrinth-body pre code { background: none; padding: 0; }
 .modrinth-body blockquote { border-left: 3px solid #334155; padding-left: 0.75rem; color: #64748b; margin: 0.5rem 0; }
 .modrinth-body center, .modrinth-body [align="center"] { text-align: center; }
+.modrinth-body iframe { display: none; }
+.modrinth-body .yt-card { position: relative; display: block; border-radius: 10px; overflow: hidden; margin: 0.75rem 0; cursor: pointer; text-decoration: none !important; max-width: 560px; aspect-ratio: 16/9; background: #0f0f0f; }
+.modrinth-body .yt-card img { width: 100%; height: 100%; object-fit: cover; display: block; margin: 0; border-radius: 10px; transition: opacity 0.2s; }
+.modrinth-body .yt-card:hover img { opacity: 0.85; }
+.modrinth-body .yt-card .yt-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.modrinth-body .yt-card .yt-play svg { filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7)); transition: transform 0.15s; }
+.modrinth-body .yt-card:hover .yt-play svg { transform: scale(1.12); }
