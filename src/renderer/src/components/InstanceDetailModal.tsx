@@ -550,7 +550,16 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
       if (t === 'mods') setMods(await window.api.instances.listMods(instance.id))
       else if (t === 'worlds') setWorlds(await window.api.instances.listWorlds(instance.id))
       else if (t === 'resourcepacks') setResourcepacks(await window.api.instances.listResourcepacks(instance.id))
-      else if (t === 'shaderpacks') setShaderpacks(await window.api.instances.listShaderpacks(instance.id))
+      else if (t === 'shaderpacks') {
+        const files = await window.api.instances.listShaderpacks(instance.id)
+        setShaderpacks(files)
+        window.api.modrinth.getInstalledIcons(instance.id, 'shaderpacks', ['.zip', '.zip.disabled'])
+          .then(icons => setShaderpacks(prev => prev.map(s => ({
+            ...s,
+            meta: icons[s.filename] ? { ...s.meta, iconBase64: icons[s.filename]! } : s.meta
+          }))))
+          .catch(() => {})
+      }
       else if (t === 'screenshots') setScreenshots(await window.api.instances.listScreenshots(instance.id))
       else if (t === 'console') {
         const [log, list] = await Promise.all([

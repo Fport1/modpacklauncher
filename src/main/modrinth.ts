@@ -129,6 +129,55 @@ export async function getInstalledProjectIds(instanceId: string, subFolder: stri
   }
 }
 
+export async function getInstalledProjectIcons(instanceId: string, subFolder: string = 'shaderpacks', extensions: string[] = ['.zip', '.zip.disabled']): Promise<Record<string, string | null>> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const dir = path.join(gameDir, subFolder)
+  if (!(await fs.pathExists(dir))) return {}
+
+  const files = (await fs.readdir(dir)).filter(f => extensions.some(ext => f.endsWith(ext)))
+  if (files.length === 0) return {}
+
+  const fileHashMap: Record<string, string> = {}
+  for (const file of files) {
+    try {
+      const buf = await fs.readFile(path.join(dir, file))
+      fileHashMap[file] = crypto.createHash('sha1').update(buf).digest('hex')
+    } catch { }
+  }
+  const hashes = Object.values(fileHashMap)
+  if (hashes.length === 0) return {}
+
+  try {
+    const { data: versionFiles } = await axios.post<Record<string, { project_id: string }>>(
+      `${BASE}/version_files`,
+      { hashes, algorithm: 'sha1' },
+      { headers: HEADERS, timeout: 15_000 }
+    )
+
+    const hashToProjectId: Record<string, string> = {}
+    for (const [hash, v] of Object.entries(versionFiles)) hashToProjectId[hash] = v.project_id
+
+    const projectIds = [...new Set(Object.values(hashToProjectId))]
+    if (projectIds.length === 0) return {}
+
+    const { data: projects } = await axios.get<{ id: string; icon_url: string | null }[]>(
+      `${BASE}/projects`,
+      { params: { ids: JSON.stringify(projectIds) }, headers: HEADERS, timeout: 15_000 }
+    )
+    const projectIconMap: Record<string, string | null> = {}
+    for (const p of projects) projectIconMap[p.id] = p.icon_url
+
+    const result: Record<string, string | null> = {}
+    for (const [file, hash] of Object.entries(fileHashMap)) {
+      const projectId = hashToProjectId[hash]
+      result[file] = projectId ? (projectIconMap[projectId] ?? null) : null
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
 export async function getProjectVersionForInstall(projectId: string, mcVersion: string, loader: string): Promise<ModrinthVersion | null> {
   try {
     const versions = await getModVersions(projectId, mcVersion, loader)

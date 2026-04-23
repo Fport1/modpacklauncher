@@ -63,7 +63,7 @@ import {
   getNeoForgeVersions
 } from './launcher'
 import { fetchManifest, installModpack, updateModpack, compareVersions } from './modpacks'
-import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getProjectVersionForInstall } from './modrinth'
+import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall } from './modrinth'
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
 
 interface AccountsStore {
@@ -344,6 +344,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:get-categories', (_e, projectType?: string) => getModrinthCategories(projectType ?? 'mod'))
   ipcMain.handle('modrinth:get-installed-ids', (_e, instanceId: string, subFolder?: string, extensions?: string[]) =>
     getInstalledProjectIds(instanceId, subFolder, extensions)
+  )
+  ipcMain.handle('modrinth:get-installed-icons', (_e, instanceId: string, subFolder?: string, extensions?: string[]) =>
+    getInstalledProjectIcons(instanceId, subFolder, extensions)
   )
   ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string) =>
     getProjectVersionForInstall(projectId, mcVersion, loader)

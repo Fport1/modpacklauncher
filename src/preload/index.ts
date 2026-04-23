@@ -158,6 +158,8 @@ const api = {
       ipcRenderer.invoke('modrinth:get-categories', projectType) as Promise<any[]>,
     getInstalledIds: (instanceId: string, subFolder?: string, extensions?: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-ids', instanceId, subFolder, extensions) as Promise<string[]>,
+    getInstalledIcons: (instanceId: string, subFolder?: string, extensions?: string[]) =>
+      ipcRenderer.invoke('modrinth:get-installed-icons', instanceId, subFolder, extensions) as Promise<Record<string, string | null>>,
     getProjectVersion: (projectId: string, mcVersion: string, loader: string) =>
       ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader) as Promise<any | null>,
   },
