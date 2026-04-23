@@ -134,13 +134,22 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisibilityChange)
 
     // Handle mouse back/forward navigation buttons
+    let lastDomNavTime = 0
     const handleMouseNav = (e: MouseEvent) => {
       if (e.button === 3 || e.button === 4) {
         e.preventDefault()
-        if (e.button === 3) nav.pop()
+        if (e.button === 3) {
+          lastDomNavTime = Date.now()
+          nav.pop()
+        }
       }
     }
     document.addEventListener('mousedown', handleMouseNav, { capture: true })
+
+    // IPC fallback: Electron main process detected backwards in-page navigation
+    const unsubNavBack = window.api.onNavBack(() => {
+      if (Date.now() - lastDomNavTime > 200) nav.pop()
+    })
 
     // Handle close request from main process
     const unsubClose = window.api.window.onRequestClose(() => {
@@ -164,6 +173,7 @@ export default function App() {
       clearInterval(hourlyTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
       document.removeEventListener('mousedown', handleMouseNav, { capture: true })
+      unsubNavBack()
       unsubClose()
     }
   }, [])

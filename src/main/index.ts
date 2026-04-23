@@ -46,6 +46,17 @@ function createWindow(): void {
     event.preventDefault()
   })
 
+  let isUndoingNav = false
+  mainWindow.webContents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
+    if (!isMainFrame) return
+    if (isUndoingNav) { isUndoingNav = false; return }
+    if (mainWindow!.webContents.canGoForward()) {
+      isUndoingNav = true
+      mainWindow!.webContents.goForward()
+      mainWindow!.webContents.send('nav:back')
+    }
+  })
+
   // Titlebar window controls
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false))

@@ -193,6 +193,91 @@ export async function getInstalledProjectIcons(instanceId: string, subFolder: st
   }
 }
 
+export interface InstalledModMeta {
+  iconUrl?: string | null
+  clientSide?: string
+  serverSide?: string
+  projectId?: string
+  installedVersionId?: string
+  hasUpdate?: boolean
+}
+
+export async function getInstalledModsMeta(
+  instanceId: string,
+  mcVersion: string,
+  loader: string,
+  subFolder = 'mods',
+  extensions = ['.jar', '.jar.disabled']
+): Promise<Record<string, InstalledModMeta>> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const dir = path.join(gameDir, subFolder)
+  if (!(await fs.pathExists(dir))) return {}
+
+  const files = (await fs.readdir(dir)).filter(f => extensions.some(ext => f.endsWith(ext)))
+  if (files.length === 0) return {}
+
+  const fileHashMap: Record<string, string> = {}
+  for (const file of files) {
+    try {
+      const buf = await fs.readFile(path.join(dir, file))
+      fileHashMap[file] = crypto.createHash('sha1').update(buf).digest('hex')
+    } catch { }
+  }
+  const hashes = Object.values(fileHashMap)
+  if (hashes.length === 0) return {}
+
+  try {
+    const updateBody: Record<string, unknown> = { hashes, algorithm: 'sha1' }
+    if (mcVersion) updateBody.game_versions = [mcVersion]
+    if (loader && loader !== 'vanilla') updateBody.loaders = [loader]
+
+    const [installedRes, latestRes] = await Promise.allSettled([
+      axios.post<Record<string, { id: string; project_id: string }>>(
+        `${BASE}/version_files`, { hashes, algorithm: 'sha1' }, { headers: HEADERS, timeout: 15_000 }
+      ),
+      axios.post<Record<string, { id: string; project_id: string }>>(
+        `${BASE}/version_files/update`, updateBody, { headers: HEADERS, timeout: 15_000 }
+      )
+    ])
+
+    const installedData: Record<string, { id: string; project_id: string }> =
+      installedRes.status === 'fulfilled' ? installedRes.value.data : {}
+    const latestData: Record<string, { id: string; project_id: string }> =
+      latestRes.status === 'fulfilled' ? latestRes.value.data : {}
+
+    const projectIds = [...new Set(Object.values(installedData).map(v => v.project_id).filter(Boolean))]
+    let projectMeta: Record<string, { icon_url: string | null; client_side: string; server_side: string }> = {}
+
+    if (projectIds.length > 0) {
+      try {
+        const { data: projects } = await axios.get<{ id: string; icon_url: string | null; client_side: string; server_side: string }[]>(
+          `${BASE}/projects`,
+          { params: { ids: JSON.stringify(projectIds) }, headers: HEADERS, timeout: 15_000 }
+        )
+        for (const p of projects) projectMeta[p.id] = p
+      } catch { }
+    }
+
+    const result: Record<string, InstalledModMeta> = {}
+    for (const [file, hash] of Object.entries(fileHashMap)) {
+      const installed = installedData[hash]
+      const latest = latestData[hash]
+      const project = installed ? projectMeta[installed.project_id] : undefined
+      result[file] = {
+        iconUrl: project?.icon_url ?? null,
+        clientSide: project?.client_side,
+        serverSide: project?.server_side,
+        projectId: installed?.project_id,
+        installedVersionId: installed?.id,
+        hasUpdate: !!(installed && latest && installed.id !== latest.id)
+      }
+    }
+    return result
+  } catch {
+    return {}
+  }
+}
+
 export async function getProjectVersionForInstall(projectId: string, mcVersion: string, loader: string): Promise<ModrinthVersion | null> {
   try {
     const versions = await getModVersions(projectId, mcVersion, loader)

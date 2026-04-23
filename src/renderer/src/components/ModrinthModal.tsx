@@ -33,6 +33,7 @@ interface Props {
   projectType?: ProjectType
   onClose: () => void
   onInstalled: () => void
+  projectVersionMap?: Record<string, string>
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -142,7 +143,7 @@ function FilterRow({ checked, excluded, onChange, onExclude, label, icon }: Filt
   )
 }
 
-export default function ModrinthModal({ instance, projectType = 'mod', onClose, onInstalled }: Props) {
+export default function ModrinthModal({ instance, projectType = 'mod', onClose, onInstalled, projectVersionMap = {} }: Props) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('relevance')
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set())
@@ -623,15 +624,17 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                             const file = ver.files.find(f => f.primary) ?? ver.files[0]
                             const isInstalling = installingId === ver.id
                             const isInstalled = justInstalled.has(ver.id)
+                            const isCurrentlyInstalled = selectedMod ? projectVersionMap[selectedMod.project_id] === ver.id : false
                             const requiredDeps = ver.dependencies?.filter(d => d.dependency_type === 'required' && d.project_id) ?? []
                             const optionalDeps = ver.dependencies?.filter(d => d.dependency_type === 'optional' && d.project_id) ?? []
                             return (
-                              <div key={ver.id} className="bg-bg-card border border-border rounded-xl px-4 py-3">
+                              <div key={ver.id} className={`bg-bg-card border rounded-xl px-4 py-3 ${isCurrentlyInstalled ? 'border-accent/40' : 'border-border'}`}>
                                 <div className="flex items-center gap-3">
                                   <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                       <p className="text-sm font-medium text-text-primary truncate">{ver.name || ver.version_number}</p>
                                       <span className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full flex-shrink-0">{ver.version_number}</span>
+                                      {isCurrentlyInstalled && <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded-full flex-shrink-0 font-medium">Instalada</span>}
                                     </div>
                                     {file && <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">{file.filename} · {formatSize(file.size)}</p>}
                                   </div>

@@ -166,6 +166,8 @@ const api = {
       ipcRenderer.invoke('modrinth:get-installed-ids', instanceId, subFolder, extensions) as Promise<string[]>,
     getInstalledIcons: (instanceId: string, subFolder?: string, extensions?: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-icons', instanceId, subFolder, extensions) as Promise<Record<string, string | null>>,
+    getInstalledModsMeta: (instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[]) =>
+      ipcRenderer.invoke('modrinth:get-installed-mods-meta', instanceId, mcVersion, loader, subFolder, extensions) as Promise<Record<string, { iconUrl?: string | null; clientSide?: string; serverSide?: string; projectId?: string; installedVersionId?: string; hasUpdate?: boolean }>>,
     getProject: (projectId: string) =>
       ipcRenderer.invoke('modrinth:get-project', projectId) as Promise<any>,
     getProjects: (projectIds: string[]) =>
@@ -237,6 +239,13 @@ const api = {
   // Player skin
   skin: {
     getHead: (uuid: string) => ipcRenderer.invoke('skin:get-head', uuid) as Promise<string | null>
+  },
+
+  // Mouse back navigation signal from main process
+  onNavBack: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('nav:back', handler)
+    return () => ipcRenderer.removeListener('nav:back', handler)
   },
 
   // Cancel current operation

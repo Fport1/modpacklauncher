@@ -64,7 +64,7 @@ import {
   getNeoForgeVersions
 } from './launcher'
 import { fetchManifest, installModpack, updateModpack, compareVersions } from './modpacks'
-import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects } from './modrinth'
+import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta } from './modrinth'
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
 
 interface AccountsStore {
@@ -359,6 +359,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:get-size', (_e, instanceId: string) => getInstanceSize(instanceId))
   ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string) =>
     getProjectVersionForInstall(projectId, mcVersion, loader)
+  )
+  ipcMain.handle('modrinth:get-installed-mods-meta', (_e, instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[]) =>
+    getInstalledModsMeta(instanceId, mcVersion, loader, subFolder, extensions)
   )
 
   ipcMain.handle('modpacks:get-published', () => getPublishedModpacks())

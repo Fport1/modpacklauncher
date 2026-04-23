@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
 import ModrinthModal from './ModrinthModal'
@@ -7,7 +8,7 @@ import { nav } from '../nav'
 type Tab = 'mods' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
 type SortKey = 'name-asc' | 'name-desc' | 'size-asc' | 'size-desc' | 'date-asc' | 'date-desc'
 
-interface ModMeta { name?: string; author?: string; iconBase64?: string }
+interface ModMeta { name?: string; author?: string; iconBase64?: string; clientSide?: string; serverSide?: string; hasUpdate?: boolean; projectId?: string; installedVersionId?: string }
 interface ModFile { filename: string; size: number; enabled: boolean; date: number; meta?: ModMeta }
 interface WorldFolder { name: string; lastPlayed?: number; iconBase64?: string; size?: number }
 interface ScreenshotFile { filename: string; filePath: string; date: number; size: number }
@@ -506,6 +507,9 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const [sort, setSort] = useState<SortKey>('name-asc')
   const [filterEnabled, setFilterEnabled] = useState<'all' | 'active' | 'inactive'>('all')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [sideFilter, setSideFilter] = useState<'all' | 'client' | 'server' | 'both'>('all')
+  const [updatesOnly, setUpdatesOnly] = useState(false)
+  const [versionPicker, setVersionPicker] = useState<{ filename: string; projectId: string; installedVersionId?: string; subFolder: string; modLoader: string; modName: string } | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [ctx, setCtx] = useState<CtxState | null>(null)
@@ -548,7 +552,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   }, [])
 
   useEffect(() => { loadTab(tab) }, [tab, instance.id])
-  useEffect(() => { setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSelected(new Set()) }, [tab])
+  useEffect(() => { setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSideFilter('all'); setUpdatesOnly(false); setSelected(new Set()) }, [tab])
   useEffect(() => {
     if (tab === 'console' && consoleView === 'live' && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
@@ -558,17 +562,49 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   async function loadTab(t: Tab) {
     setLoading(true)
     try {
-      if (t === 'mods') setMods(await window.api.instances.listMods(instance.id))
+      if (t === 'mods') {
+        const mods = await window.api.instances.listMods(instance.id)
+        setMods(mods)
+        window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, instance.modloader)
+          .then(meta => setMods(prev => prev.map(m => {
+            const info = meta[m.filename]
+            if (!info) return m
+            return {
+              ...m,
+              meta: {
+                ...m.meta,
+                ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}),
+                clientSide: info.clientSide,
+                serverSide: info.serverSide,
+                hasUpdate: info.hasUpdate,
+                projectId: info.projectId,
+                installedVersionId: info.installedVersionId
+              }
+            }
+          })))
+          .catch(() => {})
+      }
       else if (t === 'worlds') setWorlds(await window.api.instances.listWorlds(instance.id))
-      else if (t === 'resourcepacks') setResourcepacks(await window.api.instances.listResourcepacks(instance.id))
+      else if (t === 'resourcepacks') {
+        const rps = await window.api.instances.listResourcepacks(instance.id)
+        setResourcepacks(rps)
+        window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'resourcepacks', ['.zip', '.zip.disabled'])
+          .then(meta => setResourcepacks(prev => prev.map(m => {
+            const info = meta[m.filename]
+            if (!info) return m
+            return { ...m, meta: { ...m.meta, ...(!m.meta?.iconBase64 && info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+          })))
+          .catch(() => {})
+      }
       else if (t === 'shaderpacks') {
         const files = await window.api.instances.listShaderpacks(instance.id)
         setShaderpacks(files)
-        window.api.modrinth.getInstalledIcons(instance.id, 'shaderpacks', ['.zip', '.zip.disabled'])
-          .then(icons => setShaderpacks(prev => prev.map(s => ({
-            ...s,
-            meta: icons[s.filename] ? { ...s.meta, iconBase64: icons[s.filename]! } : s.meta
-          }))))
+        window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'shaderpacks', ['.zip', '.zip.disabled'])
+          .then(meta => setShaderpacks(prev => prev.map(m => {
+            const info = meta[m.filename]
+            if (!info) return m
+            return { ...m, meta: { ...m.meta, ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+          })))
           .catch(() => {})
       }
       else if (t === 'screenshots') setScreenshots(await window.api.instances.listScreenshots(instance.id))
@@ -609,9 +645,22 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
     if (filterEnabled === 'inactive') return items.filter(i => !i.enabled)
     return items
   }
-  const sortedMods = applyEnabledFilter(filtered(applySort(mods, sort, { name: i => i.filename, size: i => i.size, date: i => i.date }), i => i.filename))
-  const sortedRps = applyEnabledFilter(filtered(applySort(resourcepacks, sort, { name: i => i.filename, size: i => i.size, date: i => i.date }), i => i.filename))
-  const sortedShaders = applyEnabledFilter(filtered(applySort(shaderpacks, sort, { name: i => i.filename, size: i => i.size, date: i => i.date }), i => i.filename))
+  function applySideFilter(items: ModFile[]): ModFile[] {
+    if (sideFilter === 'all') return items
+    return items.filter(m => {
+      const cs = m.meta?.clientSide; const ss = m.meta?.serverSide
+      if (!cs && !ss) return false
+      const onClient = cs === 'required' || cs === 'optional'
+      const onServer = ss === 'required' || ss === 'optional'
+      if (sideFilter === 'client') return onClient && !onServer
+      if (sideFilter === 'server') return onServer && !onClient
+      if (sideFilter === 'both') return onClient && onServer
+      return true
+    })
+  }
+  const sortedMods = applySideFilter(applyEnabledFilter(filtered(applySort(mods, sort, { name: i => i.filename, size: i => i.size, date: i => i.date }), i => i.filename)).filter(m => !updatesOnly || m.meta?.hasUpdate === true))
+  const sortedRps = applySideFilter(applyEnabledFilter(filtered(applySort(resourcepacks, sort, { name: i => i.filename, size: i => i.size, date: i => i.date }), i => i.filename)).filter(m => !updatesOnly || m.meta?.hasUpdate === true))
+  const sortedShaders = applySideFilter(applyEnabledFilter(filtered(applySort(shaderpacks, sort, { name: i => i.filename, size: i => i.size, date: i => i.date }), i => i.filename)).filter(m => !updatesOnly || m.meta?.hasUpdate === true))
   const sortedScreenshots = filtered(applySort(screenshots, sort, { name: i => i.filename, size: i => i.size, date: i => i.date }), i => i.filename)
   const filteredWorlds = filtered(worlds, i => i.name)
 
@@ -748,13 +797,15 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   // ── ModFile row (shared by mods, rp, shaders) ────────────────────────────
 
   function FileRow({
-    item, icon, onToggle, onDelete, onCtx
+    item, icon, onToggle, onDelete, onCtx, onChangeVersion, showSideBadges = true
   }: {
     item: ModFile
     icon: React.ReactNode
     onToggle?: () => void
     onDelete: () => void
     onCtx: (e: React.MouseEvent) => void
+    onChangeVersion?: () => void
+    showSideBadges?: boolean
   }) {
     const isSelected = selected.has(item.filename)
     const hasMeta = !!(item.meta?.name || item.meta?.iconBase64)
@@ -794,6 +845,39 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
 
         {/* Size */}
         {item.size > 0 && <span className="text-xs text-text-muted flex-shrink-0">{formatSize(item.size)}</span>}
+
+        {/* Side badges — only for mods */}
+        {showSideBadges && (item.meta?.clientSide || item.meta?.serverSide) && (() => {
+          const onClient = item.meta?.clientSide === 'required' || item.meta?.clientSide === 'optional'
+          const onServer = item.meta?.serverSide === 'required' || item.meta?.serverSide === 'optional'
+          return (
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              {onClient && <span title="Cliente" className="w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">C</span>}
+              {onServer && <span title="Servidor" className="w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">S</span>}
+            </div>
+          )
+        })()}
+
+        {/* Update indicator */}
+        {item.meta?.hasUpdate && (
+          <span title="Actualización disponible en Modrinth" className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-accent/15 border border-accent/40 text-accent">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="8 17 12 21 16 17" /><line x1="12" y1="21" x2="12" y2="3" />
+            </svg>
+          </span>
+        )}
+
+        {/* Change version button */}
+        {onChangeVersion && item.meta?.projectId && (
+          <button onClick={e => { e.stopPropagation(); onChangeVersion() }}
+            title="Cambiar versión"
+            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent hover:bg-accent/10 transition-colors">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/>
+              <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/>
+            </svg>
+          </button>
+        )}
 
         {/* Toggle pill */}
         {onToggle && (
@@ -931,7 +1015,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                 </div>
               )}
               {isRunning && <GameLockedBanner />}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <SearchBar value={search} onChange={setSearch} />
                 <SortSelect value={sort} onChange={setSort} withDate />
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
@@ -947,6 +1031,25 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                   </button>
                 )}
               </div>
+              <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+                {/* Side filter */}
+                <div className="flex rounded-lg border border-border overflow-hidden flex-shrink-0">
+                  {([['all', 'Todos'], ['client', 'C'], ['server', 'S'], ['both', 'C+S']] as const).map(([key, label]) => (
+                    <button key={key} onClick={() => setSideFilter(key)}
+                      title={key === 'all' ? 'Todos' : key === 'client' ? 'Solo cliente' : key === 'server' ? 'Solo servidor' : 'Ambos lados'}
+                      className={`px-2 py-1.5 text-xs transition-colors ${sideFilter === key ? 'bg-accent text-white' : 'text-text-muted hover:text-text-secondary bg-bg-primary'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {/* Updates filter */}
+                <button onClick={() => setUpdatesOnly(p => !p)}
+                  title="Mostrar solo mods con actualización disponible"
+                  className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
+                  Actualizables
+                </button>
+              </div>
               <div className="flex items-center justify-between flex-shrink-0">
                 <p className="text-xs text-text-muted">{sortedMods.length} mod{sortedMods.length !== 1 ? 's' : ''}</p>
               </div>
@@ -960,6 +1063,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                           doToggleModBulk(sortedMods.filter(m => selected.has(m.filename)).map(m => m.filename))
                         else doToggleMod(mod.filename)
                       }}
+                      onChangeVersion={mod.meta?.projectId ? () => setVersionPicker({ filename: mod.filename, projectId: mod.meta!.projectId!, installedVersionId: mod.meta?.installedVersionId, subFolder: 'mods', modLoader: instance.modloader, modName: mod.meta?.name || displayName(mod.filename) }) : undefined}
                       onDelete={() => deleteModFiles([mod.filename])}
                       onCtx={e => {
                         e.preventDefault()
@@ -1038,7 +1142,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                 </div>
               )}
               {isRunning && <GameLockedBanner />}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <SearchBar value={search} onChange={setSearch} />
                 <SortSelect value={sort} onChange={setSort} withDate />
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
@@ -1051,17 +1155,27 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                   </button>
                 )}
               </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button onClick={() => setUpdatesOnly(p => !p)}
+                  title="Mostrar solo resource packs con actualización disponible"
+                  className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
+                  Actualizables
+                </button>
+              </div>
               <p className="text-xs text-text-muted flex-shrink-0">{sortedRps.length} resource pack{sortedRps.length !== 1 ? 's' : ''}</p>
               {loading ? <LoadSpinner /> : sortedRps.length === 0 ? <EmptyMsg msg="No hay resource packs instalados" /> : (
                 <>
                   <SelectAllBar items={sortedRps.map(m => m.filename)} onDelete={deleteRpFiles} />
                   {sortedRps.map(rp => (
                     <FileRow key={rp.filename} item={rp} icon={<RpIcon className="text-purple-400" />}
+                      showSideBadges={false}
                       onToggle={isRunning ? undefined : () => {
                         if (selected.has(rp.filename) && selected.size > 1)
                           doToggleRpBulk(sortedRps.filter(m => selected.has(m.filename)).map(m => m.filename))
                         else doToggleRp(rp.filename)
                       }}
+                      onChangeVersion={rp.meta?.projectId ? () => setVersionPicker({ filename: rp.filename, projectId: rp.meta!.projectId!, installedVersionId: rp.meta?.installedVersionId, subFolder: 'resourcepacks', modLoader: 'vanilla', modName: rp.meta?.name || displayName(rp.filename) }) : undefined}
                       onDelete={() => deleteRpFiles([rp.filename])}
                       onCtx={e => {
                         e.preventDefault()
@@ -1089,7 +1203,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                 </div>
               )}
               {isRunning && <GameLockedBanner />}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <SearchBar value={search} onChange={setSearch} />
                 <SortSelect value={sort} onChange={setSort} withDate />
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
@@ -1102,17 +1216,27 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                   </button>
                 )}
               </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button onClick={() => setUpdatesOnly(p => !p)}
+                  title="Mostrar solo shaderpacks con actualización disponible"
+                  className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
+                  Actualizables
+                </button>
+              </div>
               <p className="text-xs text-text-muted flex-shrink-0">{sortedShaders.length} shaderpack{sortedShaders.length !== 1 ? 's' : ''}</p>
               {loading ? <LoadSpinner /> : sortedShaders.length === 0 ? <EmptyMsg msg="No hay shaderpacks instalados" /> : (
                 <>
                   <SelectAllBar items={sortedShaders.map(m => m.filename)} onDelete={deleteShaderFiles} />
                   {sortedShaders.map(s => (
                     <FileRow key={s.filename} item={s} icon={<ShaderIcon className="text-yellow-400" />}
+                      showSideBadges={false}
                       onToggle={isRunning ? undefined : () => {
                         if (selected.has(s.filename) && selected.size > 1)
                           doToggleShaderBulk(sortedShaders.filter(m => selected.has(m.filename)).map(m => m.filename))
                         else doToggleShader(s.filename)
                       }}
+                      onChangeVersion={s.meta?.projectId ? () => setVersionPicker({ filename: s.filename, projectId: s.meta!.projectId!, installedVersionId: s.meta?.installedVersionId, subFolder: 'shaderpacks', modLoader: 'vanilla', modName: s.meta?.name || displayName(s.filename) }) : undefined}
                       onDelete={() => deleteShaderFiles([s.filename])}
                       onCtx={e => {
                         e.preventDefault()
@@ -1292,6 +1416,25 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
         </div>
       </div>
 
+      {/* Version picker */}
+      {versionPicker && (
+        <VersionPickerModal
+          modName={versionPicker.modName}
+          projectId={versionPicker.projectId}
+          installedVersionId={versionPicker.installedVersionId}
+          currentFilename={versionPicker.filename}
+          instance={instance}
+          subFolder={versionPicker.subFolder}
+          loader={versionPicker.modLoader}
+          onClose={() => setVersionPicker(null)}
+          onInstalled={() => {
+            if (versionPicker.subFolder === 'mods') loadTab('mods')
+            else if (versionPicker.subFolder === 'resourcepacks') loadTab('resourcepacks')
+            else if (versionPicker.subFolder === 'shaderpacks') loadTab('shaderpacks')
+          }}
+        />
+      )}
+
       {/* Overlays */}
       {confirm && (
         <ConfirmDialog title={confirm.title} message={confirm.message}
@@ -1300,27 +1443,31 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
       {ctx && (
         <CtxMenu x={ctx.x} y={ctx.y} items={ctx.items} onClose={() => setCtx(null)} />
       )}
-      {lightboxIdx !== null && sortedScreenshots.length > 0 && (
+      {lightboxIdx !== null && sortedScreenshots.length > 0 && createPortal(
         <Lightbox
           screenshots={sortedScreenshots}
           index={lightboxIdx}
           onClose={() => setLightboxIdx(null)}
           onChange={setLightboxIdx}
           onDelete={s => deleteScreenshotItems([s.filename])}
-        />
+        />,
+        document.body
       )}
       {showModrinth && (
         <ModrinthModal
           instance={instance}
           onClose={() => setShowModrinth(false)}
           onInstalled={() => loadTab('mods')}
+          projectVersionMap={Object.fromEntries(mods.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
         />
       )}
       {showModrinthRp && (
-        <ModrinthModal instance={instance} projectType="resourcepack" onClose={() => setShowModrinthRp(false)} onInstalled={() => loadTab('resourcepacks')} />
+        <ModrinthModal instance={instance} projectType="resourcepack" onClose={() => setShowModrinthRp(false)} onInstalled={() => loadTab('resourcepacks')}
+          projectVersionMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))} />
       )}
       {showModrinthShader && (
-        <ModrinthModal instance={instance} projectType="shader" onClose={() => setShowModrinthShader(false)} onInstalled={() => loadTab('shaderpacks')} />
+        <ModrinthModal instance={instance} projectType="shader" onClose={() => setShowModrinthShader(false)} onInstalled={() => loadTab('shaderpacks')}
+          projectVersionMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))} />
       )}
       {unlinkConfirm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60]">
@@ -1355,4 +1502,108 @@ function LoadSpinner() {
 }
 function EmptyMsg({ msg }: { msg: string }) {
   return <div className="flex items-center justify-center py-12 text-text-muted text-sm">{msg}</div>
+}
+
+function VersionPickerModal({ modName, projectId, installedVersionId, currentFilename, instance, subFolder, loader, onClose, onInstalled }: {
+  modName: string; projectId: string; installedVersionId?: string; currentFilename: string
+  instance: import('../../../shared/types').Instance; subFolder: string; loader: string
+  onClose: () => void; onInstalled: () => void
+}) {
+  const [versions, setVersions] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    window.api.modrinth.getVersions(projectId, instance.minecraft, loader)
+      .then(v => setVersions(v as any[]))
+      .catch(() => setVersions([]))
+      .finally(() => setLoading(false))
+  }, [projectId])
+
+  async function installVersion(ver: any) {
+    const file = ver.files.find((f: any) => f.primary) ?? ver.files[0]
+    if (!file) return
+    setInstalling(ver.id); setError('')
+    try {
+      if (subFolder === 'mods') await window.api.instances.deleteMod(instance.id, currentFilename)
+      else if (subFolder === 'resourcepacks') await window.api.instances.deleteResourcepack(instance.id, currentFilename)
+      else if (subFolder === 'shaderpacks') await window.api.instances.deleteShaderpack(instance.id, currentFilename)
+      await window.api.modrinth.installMod(instance.id, file.url, file.filename, subFolder)
+      onInstalled(); onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al instalar')
+      setInstalling(null)
+    }
+  }
+
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80]" onClick={onClose}>
+      <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[540px] max-h-[72vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50 flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-xs text-text-muted">Cambiar versión</p>
+            <h3 className="font-semibold text-text-primary text-sm truncate">{modName}</h3>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover flex-shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1.5 min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-10 gap-2 text-text-muted text-sm">
+              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+              Cargando versiones...
+            </div>
+          ) : versions.length === 0 ? (
+            <div className="text-center py-10 text-text-muted text-sm">No hay versiones compatibles</div>
+          ) : versions.map((ver: any) => {
+            const isInstalled = ver.id === installedVersionId
+            const isInstalling = installing === ver.id
+            const file = ver.files.find((f: any) => f.primary) ?? ver.files[0]
+            return (
+              <button key={ver.id}
+                onClick={() => { if (!isInstalled && !installing) installVersion(ver) }}
+                disabled={!!installing}
+                className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${isInstalled ? 'bg-accent/10 border-accent/40 cursor-default' : 'bg-bg-card border-border hover:border-accent/40 hover:bg-bg-hover'} ${isInstalling ? 'opacity-70' : ''}`}>
+                <div className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-sm font-medium ${isInstalled ? 'text-accent' : 'text-text-primary'}`}>{ver.version_number}</span>
+                      {isInstalled && <span className="text-[10px] px-1.5 py-0.5 bg-accent text-white rounded-full font-medium">Instalada</span>}
+                      {ver.version_type && ver.version_type !== 'release' && (
+                        <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded-full border border-amber-500/30">{ver.version_type}</span>
+                      )}
+                    </div>
+                    {ver.name && ver.name !== ver.version_number && (
+                      <p className="text-xs text-text-muted truncate mt-0.5">{ver.name}</p>
+                    )}
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                      {(ver.game_versions as string[]).slice(0, 4).map((gv: string) => (
+                        <span key={gv} className="text-[10px] px-1.5 py-0.5 bg-bg-hover text-text-muted rounded border border-border/50">{gv}</span>
+                      ))}
+                      {ver.game_versions.length > 4 && <span className="text-[10px] text-text-muted">+{ver.game_versions.length - 4}</span>}
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0 flex flex-col items-end gap-1 pt-0.5">
+                    <span className="text-[10px] text-text-muted">{new Date(ver.date_published).toLocaleDateString()}</span>
+                    {file && <span className="text-[10px] text-text-muted font-mono">{(file.size / 1024).toFixed(0)} KB</span>}
+                    {isInstalling && <span className="text-xs text-accent">Instalando...</span>}
+                    {!isInstalled && !installing && <span className="text-[10px] text-accent/70">Instalar →</span>}
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+        {error && <p className="text-xs text-red-400 px-4 pb-3 flex-shrink-0">{error}</p>}
+      </div>
+    </div>
+  )
 }
