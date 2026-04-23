@@ -1043,13 +1043,11 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                     <SortSelect value={sort} onChange={setSort} withDate />
                     <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                     <FolderBtn onClick={() => window.api.instances.openResourcepacksFolder(instance.id)} />
-                    {instance.modloader !== 'vanilla' && (
-                      <button onClick={() => setShowModrinthRp(true)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                        Modrinth
-                      </button>
-                    )}
+                    <button onClick={() => setShowModrinthRp(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                      Modrinth
+                    </button>
                   </div>
                   <p className="text-xs text-text-muted flex-shrink-0">{sortedRps.length} resource pack{sortedRps.length !== 1 ? 's' : ''}</p>
                   {loading ? <LoadSpinner /> : sortedRps.length === 0 ? <EmptyMsg msg="No hay resource packs instalados" /> : (
