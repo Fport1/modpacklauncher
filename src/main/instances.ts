@@ -427,12 +427,28 @@ export async function listResourcepacks(instanceId: string): Promise<ModFile[]> 
     if (!valid) continue
     let size = 0
     let date = 0
+    let iconBase64: string | undefined
+    const fullPath = path.join(rpDir, entry.name)
     try {
-      const stat = await fs.stat(path.join(rpDir, entry.name))
+      const stat = await fs.stat(fullPath)
       if (stat.isFile()) size = stat.size
       date = stat.mtimeMs
     } catch { /* ignore */ }
-    result.push({ filename: entry.name, size, enabled: !lower.endsWith('.disabled'), date })
+    try {
+      if (entry.isFile() && (lower.endsWith('.zip') || lower.endsWith('.pack') || lower.endsWith('.zip.disabled'))) {
+        const zip = new AdmZip(fullPath)
+        const icon = zip.getEntry('pack.png')
+        if (icon) iconBase64 = `data:image/png;base64,${icon.getData().toString('base64')}`
+      } else if (entry.isDirectory()) {
+        const iconPath = path.join(fullPath, 'pack.png')
+        if (await fs.pathExists(iconPath)) {
+          const buf = await fs.readFile(iconPath)
+          iconBase64 = `data:image/png;base64,${buf.toString('base64')}`
+        }
+      }
+    } catch { /* ignore */ }
+    const meta = iconBase64 ? { iconBase64 } : undefined
+    result.push({ filename: entry.name, size, enabled: !lower.endsWith('.disabled'), date, meta })
   }
   return result.sort((a, b) => a.filename.localeCompare(b.filename))
 }
