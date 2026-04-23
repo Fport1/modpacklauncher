@@ -83,7 +83,8 @@ const api = {
     listGameDir: (instanceId: string, subPath?: string) => ipcRenderer.invoke('instances:list-game-dir', instanceId, subPath) as Promise<Array<{ name: string; relativePath: string; isDir: boolean; size?: number }>>,
     getDefaultIcon: () => ipcRenderer.invoke('instances:get-default-icon') as Promise<string | null>,
     pickIconPreview: () => ipcRenderer.invoke('instances:pick-icon-preview') as Promise<{ filePath: string; base64: string } | null>,
-    applyPendingIcon: (instanceId: string, filePath: string) => ipcRenderer.invoke('instances:apply-pending-icon', instanceId, filePath) as Promise<void>
+    applyPendingIcon: (instanceId: string, filePath: string) => ipcRenderer.invoke('instances:apply-pending-icon', instanceId, filePath) as Promise<void>,
+    getSize: (instanceId: string) => ipcRenderer.invoke('instances:get-size', instanceId) as Promise<string>
   },
 
   // Clipboard
@@ -160,6 +161,10 @@ const api = {
       ipcRenderer.invoke('modrinth:get-installed-ids', instanceId, subFolder, extensions) as Promise<string[]>,
     getInstalledIcons: (instanceId: string, subFolder?: string, extensions?: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-icons', instanceId, subFolder, extensions) as Promise<Record<string, string | null>>,
+    getProject: (projectId: string) =>
+      ipcRenderer.invoke('modrinth:get-project', projectId) as Promise<any>,
+    getProjects: (projectIds: string[]) =>
+      ipcRenderer.invoke('modrinth:get-projects', projectIds) as Promise<any[]>,
     getProjectVersion: (projectId: string, mcVersion: string, loader: string) =>
       ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader) as Promise<any | null>,
   },

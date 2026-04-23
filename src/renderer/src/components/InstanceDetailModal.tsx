@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
 import ModrinthModal from './ModrinthModal'
+import { nav } from '../nav'
 
 type Tab = 'mods' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
 type SortKey = 'name-asc' | 'name-desc' | 'size-asc' | 'size-desc' | 'date-asc' | 'date-desc'
 
 interface ModMeta { name?: string; author?: string; iconBase64?: string }
 interface ModFile { filename: string; size: number; enabled: boolean; date: number; meta?: ModMeta }
-interface WorldFolder { name: string; lastPlayed?: number; iconBase64?: string }
+interface WorldFolder { name: string; lastPlayed?: number; iconBase64?: string; size?: number }
 interface ScreenshotFile { filename: string; filePath: string; date: number; size: number }
 interface CrashReport { filename: string; date: number }
 
@@ -197,7 +198,7 @@ function Lightbox({ screenshots, index, onClose, onChange, onDelete }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/96 z-[60] flex flex-col" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/96 z-[300] flex flex-col" onClick={onClose}>
       {/* toolbar */}
       <div className="flex items-center gap-3 px-5 py-3 bg-black/60 flex-shrink-0 border-b border-white/10"
         onClick={e => e.stopPropagation()}>
@@ -514,6 +515,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const logRef = useRef<HTMLDivElement>(null)
 
   const [isModpack, setIsModpack] = useState(!!instance.modpackUrl)
+  const [instanceSize, setInstanceSize] = useState<string | null>(null)
 
   async function handleCheckUpdate() {
     if (!instance.modpackUrl) return
@@ -537,6 +539,13 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
     setUnlinkConfirm(false)
     loadTab(tab)
   }
+
+  useEffect(() => {
+    const baseSize = nav.size()
+    nav.push(() => onClose())
+    window.api.instances.getSize(instance.id).then(s => setInstanceSize(s)).catch(() => {})
+    return () => { nav.clearFrom(baseSize) }
+  }, [])
 
   useEffect(() => { loadTab(tab) }, [tab, instance.id])
   useEffect(() => { setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSelected(new Set()) }, [tab])
@@ -861,6 +870,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
             <p className="text-xs text-text-muted capitalize">
               MC {instance.minecraft}
               {instance.modloader !== 'vanilla' && ` · ${instance.modloader}${instance.modloaderVersion ? ` ${instance.modloaderVersion}` : ''}`}
+              {instanceSize && ` · ${instanceSize}`}
             </p>
           </div>
           {isRunning && (
@@ -881,7 +891,9 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
         {/* Tabs */}
         <div className="flex gap-0.5 px-4 pt-2 border-b border-border/30 flex-shrink-0 overflow-x-auto">
           {TABS.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => {
+              if (t.key !== tab) { const prev = tab; nav.push(() => setTab(prev)); setTab(t.key) }
+            }}
               className={`px-3 py-1.5 text-xs whitespace-nowrap rounded-t-lg transition-colors ${
                 tab === t.key ? 'text-accent border-b-2 border-accent -mb-px font-medium' : 'text-text-muted hover:text-text-secondary'
               } ${t.key === 'console' && isRunning ? 'text-green-400' : ''}`}>
@@ -926,7 +938,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                 <FolderBtn onClick={() => window.api.instances.openModsFolder(instance.id)} />
                 {!isModpack && instance.modloader !== 'vanilla' && (
                   <button
-                    onClick={() => setShowModrinth(true)}
+                    onClick={() => { nav.push(() => setShowModrinth(false)); setShowModrinth(true) }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
                     title="Buscar mods en Modrinth"
                   >
@@ -1001,7 +1013,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                         }
                         <div className="flex-1 overflow-hidden">
                           <p className="text-sm text-text-primary truncate">{w.name}</p>
-                          <p className="text-xs text-text-muted">{formatDate(w.lastPlayed)}</p>
+                          <p className="text-xs text-text-muted">{formatDate(w.lastPlayed)}{w.size ? ` · ${formatSize(w.size)}` : ''}</p>
                         </div>
                         <button onClick={e => { e.stopPropagation(); deleteWorldItems([w.name]) }}
                           title="Eliminar"
@@ -1032,7 +1044,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                 <FolderBtn onClick={() => window.api.instances.openResourcepacksFolder(instance.id)} />
                 {!isModpack && (
-                  <button onClick={() => setShowModrinthRp(true)}
+                  <button onClick={() => { nav.push(() => setShowModrinthRp(false)); setShowModrinthRp(true) }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     Modrinth
@@ -1083,7 +1095,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                 <FolderBtn onClick={() => window.api.instances.openShaderpacks(instance.id)} />
                 {!isModpack && instance.modloader !== 'vanilla' && (
-                  <button onClick={() => setShowModrinthShader(true)}
+                  <button onClick={() => { nav.push(() => setShowModrinthShader(false)); setShowModrinthShader(true) }}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     Modrinth

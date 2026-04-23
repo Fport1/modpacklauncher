@@ -129,6 +129,21 @@ export async function getInstalledProjectIds(instanceId: string, subFolder: stri
   }
 }
 
+export async function getProject(projectId: string): Promise<any> {
+  const { data } = await axios.get(`${BASE}/project/${projectId}`, { headers: HEADERS, timeout: 10_000 })
+  return data
+}
+
+export async function getProjects(projectIds: string[]): Promise<any[]> {
+  if (projectIds.length === 0) return []
+  const { data } = await axios.get<any[]>(`${BASE}/projects`, {
+    params: { ids: JSON.stringify(projectIds) },
+    headers: HEADERS,
+    timeout: 10_000
+  })
+  return data
+}
+
 export async function getInstalledProjectIcons(instanceId: string, subFolder: string = 'shaderpacks', extensions: string[] = ['.zip', '.zip.disabled']): Promise<Record<string, string | null>> {
   const gameDir = await getInstanceGameDir(instanceId)
   const dir = path.join(gameDir, subFolder)

@@ -49,7 +49,8 @@ import {
   toggleShaderpack,
   deleteShaderpack,
   deleteWorld,
-  deleteScreenshot
+  deleteScreenshot,
+  getInstanceSize
 } from './instances'
 import {
   launchInstance,
@@ -63,7 +64,7 @@ import {
   getNeoForgeVersions
 } from './launcher'
 import { fetchManifest, installModpack, updateModpack, compareVersions } from './modpacks'
-import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall } from './modrinth'
+import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects } from './modrinth'
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
 
 interface AccountsStore {
@@ -348,6 +349,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:get-installed-icons', (_e, instanceId: string, subFolder?: string, extensions?: string[]) =>
     getInstalledProjectIcons(instanceId, subFolder, extensions)
   )
+  ipcMain.handle('modrinth:get-project', (_e, projectId: string) => getProject(projectId))
+  ipcMain.handle('modrinth:get-projects', (_e, projectIds: string[]) => getProjects(projectIds))
+  ipcMain.handle('instances:get-size', (_e, instanceId: string) => getInstanceSize(instanceId))
   ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string) =>
     getProjectVersionForInstall(projectId, mcVersion, loader)
   )

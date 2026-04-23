@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { nav } from './nav'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
@@ -132,11 +133,14 @@ export default function App() {
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
 
-    // Prevent mouse back/forward navigation (buttons 3 and 4)
-    const preventMouseNav = (e: MouseEvent) => {
-      if (e.button === 3 || e.button === 4) e.preventDefault()
+    // Handle mouse back/forward navigation buttons
+    const handleMouseNav = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) {
+        e.preventDefault()
+        if (e.button === 3) nav.pop()
+      }
     }
-    document.addEventListener('mousedown', preventMouseNav, { capture: true })
+    document.addEventListener('mousedown', handleMouseNav, { capture: true })
 
     // Handle close request from main process
     const unsubClose = window.api.window.onRequestClose(() => {
@@ -159,7 +163,7 @@ export default function App() {
       clearInterval(afkTimer)
       clearInterval(hourlyTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      document.removeEventListener('mousedown', preventMouseNav, { capture: true })
+      document.removeEventListener('mousedown', handleMouseNav, { capture: true })
       unsubClose()
     }
   }, [])

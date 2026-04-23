@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Instance } from '../../../shared/types'
+import { nav } from '../nav'
 
 type ProjectType = 'mod' | 'resourcepack' | 'shader'
 
@@ -157,8 +158,11 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const [loadingInstalled, setLoadingInstalled] = useState(true)
 
   const [selectedMod, setSelectedMod] = useState<ModrinthHit | null>(null)
+  const [projectBody, setProjectBody] = useState<string | null>(null)
+  const [detailTab, setDetailTab] = useState<'desc' | 'versions'>('desc')
   const [versions, setVersions] = useState<ModrinthVersion[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
+  const [depNames, setDepNames] = useState<Record<string, string>>({})
   const [installingId, setInstallingId] = useState('')
   const [justInstalled, setJustInstalled] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
@@ -170,6 +174,8 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const installFolder = TYPE_INSTALL_FOLDER[projectType]
 
   useEffect(() => {
+    const baseSize = nav.size()
+    nav.push(() => onClose())
     const modrinthType = projectType === 'shader' ? 'shader' : projectType === 'resourcepack' ? 'resourcepack' : 'mod'
     window.api.modrinth.getCategories(modrinthType).then(cats => {
       setCategories((cats as ModrinthCategory[]).filter(c => !['fabric','forge','neoforge','quilt','liteloader','modloader','rift'].includes(c.name)))
@@ -178,6 +184,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
       setInstalledIds(new Set(ids))
     }).catch(() => {}).finally(() => setLoadingInstalled(false))
     doSearch('', 'relevance', new Set(), new Set(), 'any', 0, 0)
+    return () => { nav.clearFrom(baseSize) }
   }, [])
 
   function scheduleSearch(q: string) {
@@ -244,12 +251,33 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   }
 
   async function selectMod(mod: ModrinthHit) {
+    nav.push(() => { setSelectedMod(null); setProjectBody(null); setDepNames({}) })
     setSelectedMod(mod)
+    setProjectBody(null)
+    setDepNames({})
+    setDetailTab('desc')
     setVersions([])
     setLoadingVersions(true)
     try {
-      const vers = await window.api.modrinth.getVersions(mod.project_id, instance.minecraft, instance.modloader)
-      setVersions(vers as ModrinthVersion[])
+      const [proj, vers] = await Promise.all([
+        window.api.modrinth.getProject(mod.project_id).catch(() => null),
+        window.api.modrinth.getVersions(mod.project_id, instance.minecraft, instance.modloader).catch(() => [] as ModrinthVersion[])
+      ])
+      if (proj) setProjectBody((proj as any).body ?? null)
+      const vList = vers as ModrinthVersion[]
+      setVersions(vList)
+      const allDepIds = [...new Set(
+        vList.flatMap(v => v.dependencies ?? [])
+          .filter(d => d.dependency_type !== 'incompatible' && d.project_id)
+          .map(d => d.project_id!)
+      )]
+      if (allDepIds.length > 0) {
+        window.api.modrinth.getProjects(allDepIds).then(projs => {
+          const m: Record<string, string> = {}
+          for (const p of projs as { id: string; title: string; icon_url?: string }[]) m[p.id] = p.title
+          setDepNames(m)
+        }).catch(() => {})
+      }
     } catch {
       setVersions([])
     } finally {
@@ -302,6 +330,9 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
 
   function goToPage(p: number) {
     const clamped = Math.max(0, Math.min(p, totalPages - 1))
+    if (clamped === page) return
+    const prev = page
+    nav.push(() => triggerSearch({ pageNum: prev }))
     triggerSearch({ pageNum: clamped })
   }
 
@@ -318,7 +349,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
             <span className="text-xs text-text-muted bg-bg-hover px-2 py-0.5 rounded-full">MC {instance.minecraft}{projectType === 'mod' ? ` · ${instance.modloader}` : ''}</span>
           </div>
           {selectedMod && (
-            <button onClick={() => { setSelectedMod(null); setError('') }}
+            <button onClick={() => { setSelectedMod(null); setProjectBody(null); setDepNames({}); setError('') }}
               className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary transition-colors px-2 py-1 rounded-lg hover:bg-bg-hover">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
               Volver
@@ -494,127 +525,145 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                   )}
                 </div>
 
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/50 flex-shrink-0">
-                    <span className="text-xs text-text-muted">{totalHits} resultados</span>
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => goToPage(0)} disabled={page === 0 || searching}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover disabled:opacity-40 transition-colors" title="Primera página">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
-                      </button>
-                      <button onClick={() => goToPage(page - 1)} disabled={page === 0 || searching}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover disabled:opacity-40 transition-colors">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
-                      </button>
-                      <span className="text-xs text-text-secondary px-1">{page + 1} / {totalPages}</span>
-                      <button onClick={() => goToPage(page + 1)} disabled={page >= totalPages - 1 || searching}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover disabled:opacity-40 transition-colors">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-                      </button>
-                      <button onClick={() => goToPage(totalPages - 1)} disabled={page >= totalPages - 1 || searching}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover disabled:opacity-40 transition-colors" title="Última página">
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
-                      </button>
+                {totalPages > 1 && (() => {
+                  const win = [page, page + 1, page + 2].filter(p => p < totalPages)
+                  const showLastSep = win[win.length - 1] < totalPages - 1
+                  const btnCls = (active: boolean, disabled = false) =>
+                    `min-w-[28px] h-7 px-1.5 flex items-center justify-center rounded-lg text-xs transition-colors ${disabled ? 'opacity-40 pointer-events-none' : ''} ${active ? 'bg-accent text-white font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`
+                  return (
+                    <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/50 flex-shrink-0">
+                      <span className="text-xs text-text-muted">{totalHits} resultados</span>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => goToPage(page - 1)} disabled={page === 0 || searching}
+                          className={btnCls(false, page === 0 || searching)}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        {win[0] > 0 && <>
+                          <button onClick={() => goToPage(0)} className={btnCls(false)}>1</button>
+                          {win[0] > 1 && <span className="text-xs text-text-muted px-0.5">…</span>}
+                        </>}
+                        {win.map(p => (
+                          <button key={p} onClick={() => goToPage(p)} className={btnCls(p === page)}>{p + 1}</button>
+                        ))}
+                        {showLastSep && <>
+                          {win[win.length - 1] < totalPages - 2 && <span className="text-xs text-text-muted px-0.5">…</span>}
+                          <button onClick={() => goToPage(totalPages - 1)} className={btnCls(false)}>{totalPages}</button>
+                        </>}
+                        <button onClick={() => goToPage(page + 1)} disabled={page >= totalPages - 1 || searching}
+                          className={btnCls(false, page >= totalPages - 1 || searching)}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
               </>
             ) : (
-              <div className="flex-1 overflow-y-auto p-5">
-                <div className="flex items-start gap-4 mb-5">
+              <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Mod header */}
+                <div className="flex items-start gap-3 px-5 pt-4 pb-3 border-b border-border/40 flex-shrink-0">
                   {selectedMod.icon_url ? (
-                    <img src={selectedMod.icon_url} alt="" className="w-16 h-16 rounded-xl flex-shrink-0 object-cover bg-bg-card" />
+                    <img src={selectedMod.icon_url} alt="" className="w-12 h-12 rounded-xl flex-shrink-0 object-cover bg-bg-card" />
                   ) : (
-                    <div className="w-16 h-16 rounded-xl flex-shrink-0 bg-bg-card flex items-center justify-center">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted">
-                        <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-                      </svg>
+                    <div className="w-12 h-12 rounded-xl flex-shrink-0 bg-bg-card flex items-center justify-center">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-base font-bold text-text-primary">{selectedMod.title}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-bold text-text-primary">{selectedMod.title}</p>
                       {installedIds.has(selectedMod.project_id) && (
                         <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full">Instalado</span>
                       )}
                     </div>
-                    <p className="text-sm text-text-muted mt-0.5">{selectedMod.description}</p>
-                    <div className="flex items-center gap-3 mt-2">
-                      <span className="flex items-center gap-1 text-xs text-text-muted">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
-                        {formatNum(selectedMod.downloads)} descargas
-                      </span>
-                    </div>
+                    <p className="text-xs text-text-muted mt-0.5 line-clamp-2">{selectedMod.description}</p>
+                    <span className="text-[11px] text-text-muted mt-1 flex items-center gap-1">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+                      {formatNum(selectedMod.downloads)}
+                    </span>
                   </div>
                 </div>
-
-                <p className="text-xs font-semibold text-text-secondary mb-3">
-                  Versiones compatibles con MC {instance.minecraft}{projectType === 'mod' ? ` · ${instance.modloader}` : ''}
-                </p>
-
-                {loadingVersions ? (
-                  <div className="flex items-center gap-2 py-8 justify-center text-text-muted text-sm">
-                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-                    Cargando versiones...
-                  </div>
-                ) : versions.length === 0 ? (
-                  <div className="text-center py-8 text-text-muted text-sm">No hay versiones compatibles</div>
-                ) : (
-                  <div className="space-y-2">
-                    {versions.map(ver => {
-                      const file = ver.files.find(f => f.primary) ?? ver.files[0]
-                      const isInstalling = installingId === ver.id
-                      const isInstalled = justInstalled.has(ver.id)
-                      const requiredDeps = ver.dependencies?.filter(d => d.dependency_type === 'required' && d.project_id) ?? []
-                      const optionalDeps = ver.dependencies?.filter(d => d.dependency_type === 'optional' && d.project_id) ?? []
-                      return (
-                        <div key={ver.id} className="bg-bg-card border border-border rounded-xl px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-medium text-text-primary truncate">{ver.name || ver.version_number}</p>
-                                <span className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full flex-shrink-0">{ver.version_number}</span>
-                              </div>
-                              {file && <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">{file.filename} · {formatSize(file.size)}</p>}
-                            </div>
-                            <button onClick={() => installVersion(ver)} disabled={isInstalling || isInstalled}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
-                                isInstalled ? 'bg-green-500/15 text-green-400 cursor-default'
-                                  : 'bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white'
-                              }`}>
-                              {isInstalling ? (
-                                <><svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Instalando...</>
-                              ) : isInstalled ? (
-                                <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>Instalado</>
-                              ) : (
-                                <><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>Instalar</>
-                              )}
-                            </button>
-                          </div>
-                          {projectType === 'mod' && (requiredDeps.length > 0 || optionalDeps.length > 0) && (
-                            <div className="mt-2 pt-2 border-t border-border/40 flex flex-wrap gap-1.5">
-                              {requiredDeps.map(d => (
-                                <span key={d.project_id} className="text-[10px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
-                                  Req: {d.project_id?.slice(0, 8)}
-                                </span>
-                              ))}
-                              {optionalDeps.map(d => (
-                                <span key={d.project_id} className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full">
-                                  Opt: {d.project_id?.slice(0, 8)}
-                                </span>
-                              ))}
-                              {requiredDeps.length > 0 && (
-                                <span className="text-[10px] text-red-400/70 italic">Las dependencias requeridas se instalarán automáticamente</span>
-                              )}
-                            </div>
-                          )}
+                {/* Detail tabs */}
+                <div className="flex gap-0.5 px-5 pt-2 border-b border-border/30 flex-shrink-0">
+                  {(['desc', 'versions'] as const).map(dt => (
+                    <button key={dt} onClick={() => setDetailTab(dt)}
+                      className={`px-3 py-1.5 text-xs rounded-t-lg transition-colors ${detailTab === dt ? 'text-accent border-b-2 border-accent -mb-px font-medium' : 'text-text-muted hover:text-text-secondary'}`}>
+                      {dt === 'desc' ? 'Descripción' : 'Versiones'}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex-1 overflow-y-auto p-5">
+                  {detailTab === 'desc' ? (
+                    <div className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">
+                      {projectBody ?? selectedMod.description}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold text-text-secondary mb-3">
+                        Versiones compatibles con MC {instance.minecraft}{projectType === 'mod' ? ` · ${instance.modloader}` : ''}
+                      </p>
+                      {loadingVersions ? (
+                        <div className="flex items-center gap-2 py-8 justify-center text-text-muted text-sm">
+                          <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+                          Cargando versiones...
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
-                {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
+                      ) : versions.length === 0 ? (
+                        <div className="text-center py-8 text-text-muted text-sm">No hay versiones compatibles</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {versions.map(ver => {
+                            const file = ver.files.find(f => f.primary) ?? ver.files[0]
+                            const isInstalling = installingId === ver.id
+                            const isInstalled = justInstalled.has(ver.id)
+                            const requiredDeps = ver.dependencies?.filter(d => d.dependency_type === 'required' && d.project_id) ?? []
+                            const optionalDeps = ver.dependencies?.filter(d => d.dependency_type === 'optional' && d.project_id) ?? []
+                            return (
+                              <div key={ver.id} className="bg-bg-card border border-border rounded-xl px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-medium text-text-primary truncate">{ver.name || ver.version_number}</p>
+                                      <span className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full flex-shrink-0">{ver.version_number}</span>
+                                    </div>
+                                    {file && <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">{file.filename} · {formatSize(file.size)}</p>}
+                                  </div>
+                                  <button onClick={() => installVersion(ver)} disabled={isInstalling || isInstalled}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-shrink-0 ${
+                                      isInstalled ? 'bg-green-500/15 text-green-400 cursor-default'
+                                        : 'bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white'
+                                    }`}>
+                                    {isInstalling ? (<><svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Instalando...</>)
+                                      : isInstalled ? (<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>Instalado</>)
+                                      : (<><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>Instalar</>)}
+                                  </button>
+                                </div>
+                                {(requiredDeps.length > 0 || optionalDeps.length > 0) && (
+                                  <div className="mt-2 pt-2 border-t border-border/40 flex flex-wrap gap-1.5">
+                                    {requiredDeps.map(d => (
+                                      <span key={d.project_id} className="text-[10px] bg-red-500/10 text-red-400 px-1.5 py-0.5 rounded-full flex items-center gap-1">
+                                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                                        Req: {depNames[d.project_id!] ?? d.project_id?.slice(0, 8)}
+                                      </span>
+                                    ))}
+                                    {optionalDeps.map(d => (
+                                      <span key={d.project_id} className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full">
+                                        Opt: {depNames[d.project_id!] ?? d.project_id?.slice(0, 8)}
+                                      </span>
+                                    ))}
+                                    {requiredDeps.length > 0 && (
+                                      <span className="text-[10px] text-red-400/70 italic">Las dependencias requeridas se instalan automáticamente</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -359,6 +359,7 @@ export interface WorldFolder {
   name: string
   lastPlayed?: number
   iconBase64?: string
+  size?: number
 }
 
 export interface ScreenshotFile {
@@ -410,7 +411,8 @@ export async function listWorlds(instanceId: string): Promise<WorldFolder[]> {
       }
     } catch { /* ignore */ }
 
-    result.push({ name: entry.name, lastPlayed, iconBase64 })
+    const size = await dirSize(path.join(savesDir, entry.name))
+    result.push({ name: entry.name, lastPlayed, iconBase64, size })
   }
   return result.sort((a, b) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0))
 }
@@ -484,11 +486,38 @@ export async function listShaderpacks(instanceId: string): Promise<ModFile[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true })
   const result: ModFile[] = []
   for (const entry of entries) {
+    const lower = entry.name.toLowerCase()
+    if (!entry.isDirectory() && !lower.endsWith('.zip') && !lower.endsWith('.zip.disabled')) continue
     const entryPath = path.join(dir, entry.name)
     const stat = await fs.stat(entryPath)
-    result.push({ filename: entry.name, size: stat.size, enabled: !entry.name.toLowerCase().endsWith('.disabled'), date: stat.mtimeMs })
+    result.push({ filename: entry.name, size: stat.isDirectory() ? 0 : stat.size, enabled: !lower.endsWith('.disabled'), date: stat.mtimeMs })
   }
   return result.sort((a, b) => a.filename.localeCompare(b.filename))
+}
+
+async function dirSize(dirPath: string): Promise<number> {
+  let total = 0
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true })
+    for (const e of entries) {
+      const full = path.join(dirPath, e.name)
+      if (e.isDirectory()) total += await dirSize(full)
+      else { try { total += (await fs.stat(full)).size } catch { } }
+    }
+  } catch { }
+  return total
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB`
+  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(0)} MB`
+  return `${(bytes / 1024).toFixed(0)} KB`
+}
+
+export async function getInstanceSize(instanceId: string): Promise<string> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const bytes = await dirSize(gameDir)
+  return formatBytes(bytes)
 }
 
 export async function openShaderpacks(instanceId: string): Promise<void> {
