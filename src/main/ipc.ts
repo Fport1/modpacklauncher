@@ -173,6 +173,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:pick-icon-preview', () => pickIconPreview(mainWindow))
   ipcMain.handle('instances:apply-pending-icon', (_e, instanceId: string, filePath: string) => applyPendingIcon(instanceId, filePath))
 
+  ipcMain.handle('shell:open-external', async (_e, url: string) => {
+    const { shell } = await import('electron')
+    await shell.openExternal(url)
+  })
+
   ipcMain.handle('clipboard:write-image-path', async (_e, filePath: string) => {
     const { clipboard, nativeImage } = await import('electron')
     const img = nativeImage.createFromPath(filePath)

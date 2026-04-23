@@ -93,6 +93,11 @@ const api = {
     writeText: (text: string) => ipcRenderer.invoke('clipboard:write-text', text)
   },
 
+  // Shell
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url)
+  },
+
   // Launcher
   launcher: {
     launch: (instanceId: string) => ipcRenderer.invoke('launcher:launch', instanceId),

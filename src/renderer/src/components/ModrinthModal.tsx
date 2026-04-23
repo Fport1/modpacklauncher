@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Instance } from '../../../shared/types'
 import { nav } from '../nav'
+import { marked } from 'marked'
+
+marked.use({ breaks: true, gfm: true } as Parameters<typeof marked.use>[0])
 
 type ProjectType = 'mod' | 'resourcepack' | 'shader'
 
@@ -594,9 +597,14 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                 </div>
                 <div className="flex-1 overflow-y-auto p-5">
                   {detailTab === 'desc' ? (
-                    <div className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">
-                      {projectBody ?? selectedMod.description}
-                    </div>
+                    <div
+                      className="modrinth-body"
+                      dangerouslySetInnerHTML={{ __html: marked.parse(projectBody ?? selectedMod.description) as string }}
+                      onClick={e => {
+                        const a = (e.target as HTMLElement).closest('a')
+                        if (a?.href) { e.preventDefault(); window.api.shell.openExternal(a.href) }
+                      }}
+                    />
                   ) : (
                     <>
                       <p className="text-xs font-semibold text-text-secondary mb-3">
