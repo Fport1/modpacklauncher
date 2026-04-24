@@ -10,6 +10,7 @@ import InstancesPage from './pages/InstancesPage'
 import ModpacksPage from './pages/ModpacksPage'
 import SettingsPage from './pages/SettingsPage'
 import SkinsPage from './pages/SkinsPage'
+import SkinEditorPage from './pages/SkinEditorPage'
 import { useStore } from './store'
 
 const AFK_THRESHOLD = 3 * 60 * 1000
@@ -208,6 +209,7 @@ export default function App() {
               <Route path="/modpacks" element={<ModpacksPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/skins" element={<SkinsPage />} />
+              <Route path="/skin-editor" element={<SkinEditorPage />} />
             </Routes>
           </main>
         </div>

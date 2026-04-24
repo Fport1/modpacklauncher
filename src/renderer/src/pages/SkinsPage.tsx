@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStore, activeAccount } from '../store'
 import * as skinview3d from 'skinview3d'
 import ZoomableImage from '../components/ZoomableImage'
@@ -263,6 +264,7 @@ function NewSkinModal({ onSave, onClose }: {
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function SkinsPage() {
+  const navigate = useNavigate()
   const account = useStore(activeAccount)
   const [tab, setTab] = useState<Tab>('mine')
 
@@ -489,6 +491,11 @@ export default function SkinsPage() {
               {t.label}
             </button>
           ))}
+          <button onClick={() => navigate('/skin-editor')}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg transition-colors font-medium">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Crear skin
+          </button>
         </div>
       </div>
 
@@ -700,6 +707,11 @@ export default function SkinsPage() {
                         <button onClick={() => setApplyModal(entry.data)}
                           className="flex-1 py-1.5 text-[11px] bg-accent/15 hover:bg-accent/25 text-accent rounded-lg transition-colors font-medium">
                           Aplicar
+                        </button>
+                        <button onClick={() => navigate('/skin-editor', { state: { skinData: entry.data, skinName: entry.name, skinModel: entry.model } })}
+                          title="Editar skin"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 hover:text-accent text-text-muted transition-colors">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
                         </button>
                         <button onClick={() => {
                           const a = document.createElement('a')
