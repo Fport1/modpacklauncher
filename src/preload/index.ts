@@ -249,6 +249,7 @@ const api = {
   skins: {
     listLibrary: () => ipcRenderer.invoke('skins:list-library') as Promise<{ id: string; name: string; model: 'classic' | 'slim'; data: string; addedAt: string }[]>,
     saveToLibrary: (entry: { name: string; model: 'classic' | 'slim'; data: string }) => ipcRenderer.invoke('skins:save-to-library', entry) as Promise<{ id: string; name: string; model: 'classic' | 'slim'; data: string; addedAt: string }>,
+    updateLibrary: (entry: { id: string; name: string; model: 'classic' | 'slim'; data?: string }) => ipcRenderer.invoke('skins:update-library', entry) as Promise<{ id: string; name: string; model: 'classic' | 'slim'; data: string; addedAt: string }>,
     deleteFromLibrary: (id: string) => ipcRenderer.invoke('skins:delete-from-library', id) as Promise<void>,
     pickFile: () => ipcRenderer.invoke('skins:pick-file') as Promise<string | null>,
     apply: (accessToken: string, skinBase64: string, model: 'classic' | 'slim') => ipcRenderer.invoke('skins:apply', accessToken, skinBase64, model) as Promise<void>,

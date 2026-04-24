@@ -506,6 +506,21 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return newEntry
   })
 
+  ipcMain.handle('skins:update-library', (_e, entry: { id: string; name: string; model: 'classic' | 'slim'; data?: string }) => {
+    const lib = readLibrary()
+    const index = lib.findIndex((e: any) => e.id === entry.id)
+    if (index === -1) throw new Error('Skin not found')
+    const updated = {
+      ...lib[index],
+      name: entry.name,
+      model: entry.model,
+      ...(entry.data ? { data: entry.data } : {})
+    }
+    lib[index] = updated
+    fs.writeFileSync(skinLibraryPath(), JSON.stringify(lib, null, 2))
+    return updated
+  })
+
   ipcMain.handle('skins:delete-from-library', (_e, id: string) => {
     const lib = readLibrary().filter((e: any) => e.id !== id)
     fs.writeFileSync(skinLibraryPath(), JSON.stringify(lib, null, 2))

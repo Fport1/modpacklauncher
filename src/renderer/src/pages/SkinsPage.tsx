@@ -84,8 +84,8 @@ function CapePreviewCanvas({ texture, width = 50, height = 80 }: { texture: stri
   return <canvas ref={canvasRef} width={width} height={height} style={{ imageRendering: 'pixelated' }} className="rounded" />
 }
 
-function SkinViewer3D({ skin, cape, width = 160, height = 220, autoRotate = true, interactive = false }: {
-  skin: string; cape?: string | null; width?: number; height?: number; autoRotate?: boolean; interactive?: boolean
+function SkinViewer3D({ skin, cape, width = 160, height = 220, autoRotate = true, interactive = false, model = 'classic' }: {
+  skin: string; cape?: string | null; width?: number; height?: number; autoRotate?: boolean; interactive?: boolean; model?: SkinModel
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewerRef = useRef<skinview3d.SkinViewer | null>(null)
@@ -95,6 +95,7 @@ function SkinViewer3D({ skin, cape, width = 160, height = 220, autoRotate = true
     viewerRef.current?.dispose()
     const v = new skinview3d.SkinViewer({
       canvas: canvasRef.current, width, height, skin,
+      model: model === 'slim' ? 'slim' : 'default',
       ...(cape ? { cape } : {}),
     })
     v.autoRotate = autoRotate
@@ -106,7 +107,7 @@ function SkinViewer3D({ skin, cape, width = 160, height = 220, autoRotate = true
     v.controls.enableRotate = interactive
     viewerRef.current = v
     return () => { v.dispose(); viewerRef.current = null }
-  }, [skin, cape, width, height, autoRotate, interactive])
+  }, [skin, cape, width, height, autoRotate, interactive, model])
 
   return <canvas ref={canvasRef} className={`rounded-xl ${interactive ? '' : 'pointer-events-none'}`} />
 }
@@ -132,7 +133,7 @@ function ApplySkinModal({ skinData, onApply, onClose }: {
       <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl p-6 flex flex-col items-center gap-5 w-[320px]"
         onClick={e => e.stopPropagation()}>
         <h3 className="text-base font-bold text-text-primary self-start">Aplicar skin</h3>
-        <SkinViewer3D skin={skinData} width={140} height={200} />
+        <SkinViewer3D skin={skinData} width={140} height={200} model={model} />
         <div className="flex gap-2 w-full">
           {(['classic', 'slim'] as SkinModel[]).map(m => (
             <button key={m} onClick={() => setModel(m)}
@@ -188,7 +189,7 @@ function NewSkinModal({ onSave, onClose }: {
         {/* Left: 3D preview */}
         <div className="w-[190px] flex-shrink-0 bg-bg-card/50 flex items-center justify-center p-4 border-r border-border">
           {skinData
-            ? <SkinViewer3D skin={skinData} width={155} height={215} autoRotate />
+            ? <SkinViewer3D skin={skinData} width={155} height={215} autoRotate model={model} />
             : (
               <div className="w-[155px] h-[215px] rounded-xl bg-bg-hover/50 flex flex-col items-center justify-center gap-2 text-text-muted/30">
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
@@ -263,6 +264,89 @@ function NewSkinModal({ onSave, onClose }: {
 
 // ── Main page ────────────────────────────────────────────────────────────────
 
+function EditLibrarySkinModal({ entry, onSave, onEditSkin, onClose }: {
+  entry: LibraryEntry
+  onSave: (entry: LibraryEntry) => Promise<LibraryEntry>
+  onEditSkin: (entry: LibraryEntry) => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState(entry.name)
+  const [model, setModel] = useState<SkinModel>(entry.model)
+  const [saving, setSaving] = useState(false)
+
+  async function saveChanges() {
+    setSaving(true)
+    try {
+      return await onSave({ ...entry, name: name.trim() || 'unnamed skin', model })
+    } finally { setSaving(false) }
+  }
+
+  async function handleSave() {
+    await saveChanges()
+    onClose()
+  }
+
+  async function handleEditSkin() {
+    const updated = await saveChanges()
+    onEditSkin(updated)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+      onClick={onClose}>
+      <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[580px] flex overflow-hidden"
+        onClick={e => e.stopPropagation()}>
+        <div className="w-[190px] flex-shrink-0 bg-bg-card/50 flex items-center justify-center p-4 border-r border-border">
+          <SkinViewer3D skin={entry.data} width={155} height={215} autoRotate model={model} />
+        </div>
+        <div className="flex-1 p-6 flex flex-col gap-5">
+          <h3 className="text-xs font-bold text-text-muted uppercase tracking-widest">Editar skin</h3>
+          <div>
+            <label className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-1.5 block">Nombre</label>
+            <input value={name} onChange={e => setName(e.target.value)}
+              className="w-full bg-bg-card border border-border focus:border-accent/50 rounded-lg px-3 py-2 text-sm text-text-primary outline-none transition-colors"
+              placeholder="unnamed skin" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 block">Modelo del jugador</label>
+            <div className="flex gap-2">
+              {([['classic', 'Ancho'], ['slim', 'Delgado']] as [SkinModel, string][]).map(([m, label]) => (
+                <button key={m} onClick={() => setModel(m)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-colors flex-1 ${model === m ? 'border-accent/60 bg-accent/10 text-accent' : 'border-border text-text-secondary hover:border-accent/30'}`}>
+                  <div className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${model === m ? 'border-accent bg-accent' : 'border-text-muted'}`} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2 block">Archivo de skin</label>
+            <p className="text-xs text-accent mt-1.5 flex items-center gap-1">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+              Skin guardada en libreria
+            </p>
+          </div>
+          <div className="flex gap-3 mt-auto pt-1">
+            <button onClick={onClose}
+              className="flex-1 py-2 border border-border hover:border-accent/40 rounded-lg text-sm text-text-secondary transition-colors">
+              Cancelar
+            </button>
+            <button onClick={handleEditSkin} disabled={saving}
+              className="flex-1 py-2 border border-accent/50 hover:border-accent text-accent rounded-lg text-sm transition-colors disabled:opacity-40">
+              Editar skin
+            </button>
+            <button onClick={handleSave} disabled={saving}
+              className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+              {saving && <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>}
+              {saving ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SkinsPage() {
   const navigate = useNavigate()
   const account = useStore(activeAccount)
@@ -287,6 +371,7 @@ export default function SkinsPage() {
   const [library, setLibrary] = useState<LibraryEntry[]>([])
   const [libLoading, setLibLoading] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [editingLibrarySkin, setEditingLibrarySkin] = useState<LibraryEntry | null>(null)
   const [defaultSkins, setDefaultSkins] = useState<{ name: string; model: SkinModel; data: string }[]>([])
   const [defaultsLoading, setDefaultsLoading] = useState(false)
 
@@ -436,6 +521,23 @@ export default function SkinsPage() {
     setLibrary(prev => prev.filter(e => e.id !== id))
   }
 
+  async function updateLibraryEntry(entry: LibraryEntry) {
+    const updated = await window.api.skins.updateLibrary({
+      id: entry.id,
+      name: entry.name,
+      model: entry.model,
+      data: entry.data
+    })
+    setLibrary(prev => prev.map(e => e.id === updated.id ? updated : e))
+    setEditingLibrarySkin(updated)
+    return updated
+  }
+
+  function editSkinInEditor(entry: LibraryEntry) {
+    setEditingLibrarySkin(null)
+    navigate('/skin-editor', { state: { skinData: entry.data, skinName: entry.name, skinModel: entry.model } })
+  }
+
   // ── Browse actions ──
   const doSearch = useCallback(async (q: string) => {
     setSearching(true)
@@ -491,9 +593,9 @@ export default function SkinsPage() {
               {t.label}
             </button>
           ))}
-          <div className="ml-auto relative group">
-            <button disabled
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/40 text-white/50 text-xs rounded-lg font-medium cursor-not-allowed">
+          <div className="ml-auto">
+            <button onClick={() => navigate('/skin-editor')}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg font-medium transition-colors">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
               Crear skin
             </button>
@@ -638,7 +740,7 @@ export default function SkinsPage() {
                 {defaultSkins.map(skin => (
                   <div key={skin.name} className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col hover:border-accent/40 transition-colors">
                     <div className="flex items-center justify-center pt-2 bg-bg-hover/20">
-                      <SkinViewer3D skin={skin.data} width={100} height={140} autoRotate={false} />
+                      <SkinViewer3D skin={skin.data} width={100} height={140} autoRotate={false} model={skin.model} />
                     </div>
                     <div className="px-3 pb-3 flex flex-col gap-2">
                       <p className="text-xs font-medium text-text-primary truncate mt-1">{skin.name}</p>
@@ -687,7 +789,7 @@ export default function SkinsPage() {
               {library.map(entry => (
                 <div key={entry.id} className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col group hover:border-accent/40 transition-colors">
                   <div className="flex items-center justify-center pt-2 bg-bg-hover/20">
-                    <SkinViewer3D skin={entry.data} width={110} height={150} autoRotate={false} />
+                    <SkinViewer3D skin={entry.data} width={110} height={150} autoRotate={false} model={entry.model} />
                   </div>
                   <div className="px-3 pb-3 flex flex-col gap-2">
                     <p className="text-xs font-medium text-text-primary truncate mt-1">{entry.name}</p>
@@ -713,7 +815,7 @@ export default function SkinsPage() {
                           className="flex-1 py-1.5 text-[11px] bg-accent/15 hover:bg-accent/25 text-accent rounded-lg transition-colors font-medium">
                           Aplicar
                         </button>
-                        <button onClick={() => navigate('/skin-editor', { state: { skinData: entry.data, skinName: entry.name, skinModel: entry.model } })}
+                        <button onClick={() => setEditingLibrarySkin(entry)}
                           title="Editar skin"
                           className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 hover:text-accent text-text-muted transition-colors">
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -813,6 +915,15 @@ export default function SkinsPage() {
       )}
 
       {/* ── Browse skin preview modal ── */}
+      {editingLibrarySkin && (
+        <EditLibrarySkinModal
+          entry={editingLibrarySkin}
+          onSave={updateLibraryEntry}
+          onEditSkin={editSkinInEditor}
+          onClose={() => setEditingLibrarySkin(null)}
+        />
+      )}
+
       {selectedBrowseSkin && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
           onClick={() => { setSelectedBrowseSkin(null); setBrowseSaveStatus('idle') }}>
