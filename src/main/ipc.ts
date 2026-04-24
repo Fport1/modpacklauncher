@@ -543,12 +543,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     // Anglosajones
     'Dream', 'Technoblade', 'Ph1LzA', 'TommyInnit', 'GeorgeNotFound', 'Sapnap',
     // España
-    'VegettaGaymer', 'Willyrex', 'AuronPlay', 'ElRichMC', 'Mikecrack',
+    'VegettaGaymer', 'Willyrex', 'SrAuronPlay', 'ElRichMC', 'Mikecrack',
     'alexby11', 'iRoier', 'sTaXxCraft', 'LuzuVlogs', 'Crisgreen',
-    'Conterstine', 'Shadoune777',
+    'Conterstine', 'Shadoune777', 'Rubius', 'iLuhy',
     // Latinoamérica
     'WestCOL', 'Quackity', 'KillerCreeper_55', 'Bobicraft', 'Spreen',
-    'ElJuaniquilador', 'Farfadox', 'dedreviil', 'EvilAFM', 'Devora60',
+    'ElJuaniquilador', 'Farfadox', 'dedreviil', 'EvilAFM',
+    // Siempre último
+    'Devora60',
   ]
 
   const MINECRAFT_DEFAULT_SKINS = [

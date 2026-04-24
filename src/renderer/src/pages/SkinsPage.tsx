@@ -296,6 +296,7 @@ export default function SkinsPage() {
   const [hasSearched, setHasSearched] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [selectedBrowseSkin, setSelectedBrowseSkin] = useState<SkindexResult | null>(null)
+  const [browseSaveStatus, setBrowseSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle')
 
   // ── Shared apply modal ──
   const [applyModal, setApplyModal] = useState<string | null>(null) // base64 of skin to apply
@@ -768,7 +769,7 @@ export default function SkinsPage() {
               <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3">
                 {searchResults.map(skin => (
                   <button key={skin.id}
-                    onClick={() => setSelectedBrowseSkin(skin)}
+                    onClick={() => { setSelectedBrowseSkin(skin); setBrowseSaveStatus('idle') }}
                     className={`bg-bg-card border rounded-xl overflow-hidden flex flex-col items-center hover:border-accent/40 transition-colors ${selectedBrowseSkin?.id === skin.id ? 'border-accent/60' : 'border-border'}`}>
                     <div className="w-full aspect-square bg-bg-secondary flex items-center justify-center overflow-hidden p-2">
                       {skin.textureData
@@ -797,31 +798,73 @@ export default function SkinsPage() {
       {/* ── Browse skin preview modal ── */}
       {selectedBrowseSkin && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedBrowseSkin(null)}>
+          onClick={() => { setSelectedBrowseSkin(null); setBrowseSaveStatus('idle') }}>
           <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl p-6 flex gap-5 items-start"
             onClick={e => e.stopPropagation()}>
             {selectedBrowseSkin.textureData && (
               <SkinViewer3D skin={selectedBrowseSkin.textureData} width={160} height={230} autoRotate interactive />
             )}
-            <div className="flex flex-col gap-4 pt-2">
+            <div className="flex flex-col gap-4 pt-2 min-w-[160px]">
               <div>
                 <p className="text-lg font-bold text-text-primary">{selectedBrowseSkin.name}</p>
                 <p className="text-xs text-text-muted mt-0.5">Jugador de Minecraft</p>
               </div>
               <div className="flex flex-col gap-2">
                 <button
-                  onClick={() => { if (selectedBrowseSkin.textureData) setApplyModal(selectedBrowseSkin.textureData); setSelectedBrowseSkin(null) }}
+                  onClick={() => { if (selectedBrowseSkin.textureData) setApplyModal(selectedBrowseSkin.textureData); setSelectedBrowseSkin(null); setBrowseSaveStatus('idle') }}
                   disabled={!selectedBrowseSkin.textureData}
                   className="px-5 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors disabled:opacity-40 font-medium">
                   Aplicar skin
                 </button>
-                <button
-                  onClick={async () => { if (selectedBrowseSkin.textureData) { await window.api.skins.saveToLibrary({ name: selectedBrowseSkin.name, model: 'classic', data: selectedBrowseSkin.textureData }); setSelectedBrowseSkin(null) } }}
-                  disabled={!selectedBrowseSkin.textureData}
-                  className="px-5 py-2.5 border border-border hover:border-accent/40 text-text-secondary hover:text-text-primary text-sm rounded-lg transition-colors disabled:opacity-40">
-                  Guardar en librería
-                </button>
-                <button onClick={() => setSelectedBrowseSkin(null)}
+
+                {browseSaveStatus === 'success' ? (
+                  <>
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-green-500/10 border border-green-500/30 rounded-lg">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                      <p className="text-xs text-green-400 font-medium">Guardada en librería</p>
+                    </div>
+                    <button onClick={() => { setSelectedBrowseSkin(null); setBrowseSaveStatus('idle'); setTab('library') }}
+                      className="px-5 py-2.5 border border-accent/50 hover:border-accent text-accent text-sm rounded-lg transition-colors font-medium">
+                      Ir a librería →
+                    </button>
+                  </>
+                ) : browseSaveStatus === 'error' ? (
+                  <>
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-red-500/10 border border-red-500/30 rounded-lg">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-red-400 flex-shrink-0"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      <p className="text-xs text-red-400 font-medium">Error al guardar</p>
+                    </div>
+                    <button onClick={async () => {
+                      if (!selectedBrowseSkin.textureData) return
+                      setBrowseSaveStatus('saving')
+                      try {
+                        const saved = await window.api.skins.saveToLibrary({ name: selectedBrowseSkin.name, model: 'classic', data: selectedBrowseSkin.textureData })
+                        setLibrary(prev => [...prev, saved])
+                        setBrowseSaveStatus('success')
+                      } catch { setBrowseSaveStatus('error') }
+                    }} className="px-5 py-2.5 border border-border hover:border-accent/40 text-text-secondary text-sm rounded-lg transition-colors">
+                      Reintentar
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      if (!selectedBrowseSkin.textureData) return
+                      setBrowseSaveStatus('saving')
+                      try {
+                        const saved = await window.api.skins.saveToLibrary({ name: selectedBrowseSkin.name, model: 'classic', data: selectedBrowseSkin.textureData })
+                        setLibrary(prev => [...prev, saved])
+                        setBrowseSaveStatus('success')
+                      } catch { setBrowseSaveStatus('error') }
+                    }}
+                    disabled={!selectedBrowseSkin.textureData || browseSaveStatus === 'saving'}
+                    className="px-5 py-2.5 border border-border hover:border-accent/40 text-text-secondary hover:text-text-primary text-sm rounded-lg transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+                    {browseSaveStatus === 'saving' && <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>}
+                    {browseSaveStatus === 'saving' ? 'Guardando...' : 'Guardar en librería'}
+                  </button>
+                )}
+
+                <button onClick={() => { setSelectedBrowseSkin(null); setBrowseSaveStatus('idle') }}
                   className="px-5 py-2 text-xs text-text-muted hover:text-text-secondary transition-colors">
                   Cancelar
                 </button>
