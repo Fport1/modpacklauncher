@@ -545,7 +545,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     // España
     'VegettaGaymer', 'Willyrex', 'SrAuronPlay', 'ElRichMC', 'Mikecrack',
     'alexby11', 'iRoier', 'sTaXxCraft', 'LuzuVlogs', 'Crisgreen',
-    'Conterstine', 'Shadoune777', 'Rubius', 'iLuhy',
+    'Conterstine', 'Shadoune777', 'Rubius', 'iLuh',
     // Latinoamérica
     'WestCOL', 'Quackity', 'KillerCreeper_55', 'Bobicraft', 'Spreen',
     'ElJuaniquilador', 'Farfadox', 'dedreviil', 'EvilAFM',
