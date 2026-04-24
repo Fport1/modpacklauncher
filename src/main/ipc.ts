@@ -1,5 +1,8 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, app, dialog } from 'electron'
 import os from 'os'
+import path from 'path'
+import fs from 'fs'
+import { v4 as uuidv4 } from 'uuid'
 import type { Instance, MinecraftAccount, Settings, ModpackManifest } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 import JsonStore from './store'
@@ -419,6 +422,225 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     } catch {
       return null
     }
+  })
+
+  ipcMain.handle('skin:get-profile-capes', async (_e, accessToken: string) => {
+    try {
+      const axios = (await import('axios')).default
+      const res = await axios.get('https://api.minecraftservices.com/minecraft/profile', {
+        headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'ModpackLauncher/1.0' },
+        timeout: 10_000
+      })
+      const capes = (res.data.capes ?? []) as { id: string; state: string; url: string; alias: string }[]
+      const results = await Promise.all(capes.map(async cape => {
+        try {
+          const img = await axios.get<Buffer>(cape.url, { responseType: 'arraybuffer', timeout: 8_000 })
+          return { ...cape, texture: `data:image/png;base64,${Buffer.from(img.data).toString('base64')}` }
+        } catch { return { ...cape, texture: null } }
+      }))
+      return results
+    } catch { return [] }
+  })
+
+  ipcMain.handle('skin:equip-cape', async (_e, accessToken: string, capeId: string) => {
+    const axios = (await import('axios')).default
+    await axios.put(
+      'https://api.minecraftservices.com/minecraft/profile/capes/active',
+      { capeId },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'User-Agent': 'ModpackLauncher/1.0' }, timeout: 10_000 }
+    )
+  })
+
+  ipcMain.handle('skin:remove-cape', async (_e, accessToken: string) => {
+    const axios = (await import('axios')).default
+    await axios.delete(
+      'https://api.minecraftservices.com/minecraft/profile/capes/active',
+      { headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'ModpackLauncher/1.0' }, timeout: 10_000 }
+    )
+  })
+
+  ipcMain.handle('skin:get-texture', async (_e, uuid: string) => {
+    try {
+      const axios = (await import('axios')).default
+      const profile = await axios.get(
+        `https://sessionserver.mojang.com/session/minecraft/profile/${uuid}`,
+        { timeout: 10_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+      )
+      const prop = (profile.data.properties as { name: string; value: string }[])
+        .find(p => p.name === 'textures')
+      if (!prop) return null
+      const textures = JSON.parse(Buffer.from(prop.value, 'base64').toString('utf-8'))
+      const skinUrl = textures?.textures?.SKIN?.url
+      const capeUrl = textures?.textures?.CAPE?.url ?? null
+      if (!skinUrl) return null
+
+      const fetchB64 = async (url: string) => {
+        const r = await axios.get<Buffer>(url, { responseType: 'arraybuffer', timeout: 10_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } })
+        return `data:image/png;base64,${Buffer.from(r.data).toString('base64')}`
+      }
+
+      const [skin, cape] = await Promise.all([
+        fetchB64(skinUrl),
+        capeUrl ? fetchB64(capeUrl).catch(() => null) : Promise.resolve(null)
+      ])
+      return { skin, cape }
+    } catch {
+      return null
+    }
+  })
+
+  // ── Skin library + browser ──────────────────────────────────────────────────
+
+  const skinLibraryPath = () => path.join(app.getPath('userData'), 'skins-library.json')
+  function readLibrary(): any[] {
+    try { return JSON.parse(fs.readFileSync(skinLibraryPath(), 'utf-8')) } catch { return [] }
+  }
+
+  ipcMain.handle('skins:list-library', () => readLibrary())
+
+  ipcMain.handle('skins:save-to-library', (_e, entry: { name: string; model: 'classic' | 'slim'; data: string }) => {
+    const lib = readLibrary()
+    const newEntry = { id: uuidv4(), name: entry.name, model: entry.model, data: entry.data, addedAt: new Date().toISOString() }
+    lib.push(newEntry)
+    fs.writeFileSync(skinLibraryPath(), JSON.stringify(lib, null, 2))
+    return newEntry
+  })
+
+  ipcMain.handle('skins:delete-from-library', (_e, id: string) => {
+    const lib = readLibrary().filter((e: any) => e.id !== id)
+    fs.writeFileSync(skinLibraryPath(), JSON.stringify(lib, null, 2))
+  })
+
+  ipcMain.handle('skins:pick-file', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Seleccionar skin PNG',
+      filters: [{ name: 'PNG', extensions: ['png'] }],
+      properties: ['openFile']
+    })
+    if (canceled || !filePaths[0]) return null
+    const data = fs.readFileSync(filePaths[0])
+    return `data:image/png;base64,${data.toString('base64')}`
+  })
+
+  ipcMain.handle('skins:apply', async (_e, accessToken: string, skinBase64: string, model: 'classic' | 'slim') => {
+    const base64Data = skinBase64.replace(/^data:image\/png;base64,/, '')
+    const skinBuffer = Buffer.from(base64Data, 'base64')
+    const formData = new FormData()
+    formData.append('variant', model)
+    formData.append('file', new Blob([skinBuffer], { type: 'image/png' }), 'skin.png')
+    const res = await fetch('https://api.minecraftservices.com/minecraft/profile/skins', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: formData
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  })
+
+  // Popular skin creators — used when no search query (usernames verified via NameMC)
+  const POPULAR_PLAYERS = [
+    // Devs de Minecraft
+    'Notch', 'jeb_', 'Dinnerbone', 'Grumm',
+    // Anglosajones
+    'Dream', 'Technoblade', 'Ph1LzA', 'TommyInnit', 'GeorgeNotFound', 'Sapnap',
+    // España
+    'VEGETTA777', 'Willyrex', 'AuronPlay', 'ElRichMC', 'Mikecrack',
+    'alexby11', 'roier', 'sTaXxCraft', 'LuzuVlogs', 'Crisgreen',
+    'Conterstine', 'Shadoune666',
+    // Latinoamérica
+    'WestCOL', 'Quackity', 'killercreper_55', 'Bobicraft', 'Spreen',
+    'JuanSGuarnizo', 'Farfadox', 'ElDed', 'alexelcapo',
+  ]
+
+  const MINECRAFT_DEFAULT_SKINS = [
+    { name: 'Steve',   model: 'classic' as const, file: 'steve'   },
+    { name: 'Alex',    model: 'slim'    as const, file: 'alex'    },
+    { name: 'Ari',     model: 'slim'    as const, file: 'ari'     },
+    { name: 'Efe',     model: 'classic' as const, file: 'efe'     },
+    { name: 'Kai',     model: 'slim'    as const, file: 'kai'     },
+    { name: 'Makena',  model: 'slim'    as const, file: 'makena'  },
+    { name: 'Noor',    model: 'slim'    as const, file: 'noor'    },
+    { name: 'Sunny',   model: 'classic' as const, file: 'sunny'   },
+    { name: 'Zuri',    model: 'classic' as const, file: 'zuri'    },
+  ]
+
+  ipcMain.handle('skins:get-defaults', async () => {
+    const axios = (await import('axios')).default
+    const results = await Promise.allSettled(MINECRAFT_DEFAULT_SKINS.map(async skin => {
+      const res = await axios.get<Buffer>(
+        `https://assets.mojang.com/SkinTemplates/${skin.file}.png`,
+        { responseType: 'arraybuffer', timeout: 10_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+      )
+      return { ...skin, data: `data:image/png;base64,${Buffer.from(res.data).toString('base64')}` }
+    }))
+    return results.filter(r => r.status === 'fulfilled').map((r: any) => r.value)
+  })
+
+  ipcMain.handle('skins:search-skindex', async (_e, query: string) => {
+    const axios = (await import('axios')).default
+
+    const fetchPlayer = async (name: string) => {
+      const profRes = await axios.get(
+        `https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(name)}`,
+        { timeout: 8_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+      )
+      const { id: uuid, name: realName } = profRes.data
+      const fullRes = await axios.get(
+        `https://sessionserver.mojang.com/session/minecraft/profile/${uuid}`,
+        { timeout: 8_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+      )
+      const prop = (fullRes.data.properties as any[]).find((p: any) => p.name === 'textures')
+      const textures = JSON.parse(Buffer.from(prop.value, 'base64').toString('utf-8'))
+      const skinUrl = textures.textures?.SKIN?.url
+      if (!skinUrl) throw new Error('no skin')
+      const [imgRes, avatarRes] = await Promise.all([
+        axios.get<Buffer>(skinUrl, {
+          responseType: 'arraybuffer', timeout: 8_000,
+          headers: { 'User-Agent': 'ModpackLauncher/1.0' }
+        }),
+        axios.get<Buffer>(`https://crafatar.com/avatars/${uuid}?size=96&overlay`, {
+          responseType: 'arraybuffer', timeout: 8_000,
+          headers: { 'User-Agent': 'ModpackLauncher/1.0' }
+        }).catch(() => null)
+      ])
+      return {
+        id: uuid,
+        name: realName as string,
+        renderUrl: avatarRes ? `data:image/png;base64,${Buffer.from(avatarRes.data).toString('base64')}` : '',
+        textureData: `data:image/png;base64,${Buffer.from(imgRes.data).toString('base64')}`
+      }
+    }
+
+    if (query.trim()) {
+      const result = await fetchPlayer(query.trim())
+      return [result]
+    }
+
+    // Popular players (best-effort, ignore individual failures)
+    const results = await Promise.allSettled(POPULAR_PLAYERS.map(fetchPlayer))
+    const skins = results.filter(r => r.status === 'fulfilled').map((r: any) => r.value)
+    if (skins.length === 0) throw new Error('No se pudieron cargar los jugadores populares')
+    return skins
+  })
+
+  ipcMain.handle('skins:fetch-skin-png', async (_e, skinId: string, renderUrl?: string) => {
+    const axios = (await import('axios')).default
+    // Try Nova Skin texture first
+    const urls = [
+      `https://minecraft.novaskin.me/skin/texture/${skinId}`,
+      renderUrl,
+      `https://www.minecraftskins.com/skin/download/${skinId}/`,
+    ].filter(Boolean) as string[]
+    for (const url of urls) {
+      try {
+        const res = await axios.get<Buffer>(url, {
+          responseType: 'arraybuffer', timeout: 10_000,
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        })
+        if (res.data.byteLength > 100)
+          return `data:image/png;base64,${Buffer.from(res.data).toString('base64')}`
+      } catch { /* try next */ }
+    }
+    throw new Error('No se pudo descargar la skin')
   })
 
   // ── System ──────────────────────────────────────────────────────────────────
