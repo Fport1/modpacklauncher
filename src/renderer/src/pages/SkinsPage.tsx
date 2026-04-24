@@ -769,13 +769,13 @@ export default function SkinsPage() {
                 {searchResults.map(skin => (
                   <button key={skin.id}
                     onClick={() => setSelectedBrowseSkin(skin)}
-                    className={`bg-bg-card border rounded-xl overflow-hidden flex flex-col hover:border-accent/40 transition-colors text-left ${selectedBrowseSkin?.id === skin.id ? 'border-accent/60' : 'border-border'}`}>
-                    <div className="aspect-square bg-bg-secondary flex items-center justify-center overflow-hidden">
+                    className={`bg-bg-card border rounded-xl overflow-hidden flex flex-col items-center hover:border-accent/40 transition-colors ${selectedBrowseSkin?.id === skin.id ? 'border-accent/60' : 'border-border'}`}>
+                    <div className="w-full aspect-square bg-bg-secondary flex items-center justify-center overflow-hidden p-2">
                       {skin.textureData
-                        ? <SkinHeadCanvas skin={skin.textureData} size={96} />
-                        : <div className="w-full h-full bg-bg-hover/40" />}
+                        ? <SkinHeadCanvas skin={skin.textureData} size={80} />
+                        : <div className="w-full h-full bg-bg-hover/40 rounded" />}
                     </div>
-                    <p className="text-[11px] text-text-primary px-2 py-1.5 truncate font-medium">{skin.name}</p>
+                    <p className="text-[11px] text-text-primary px-2 py-1.5 w-full text-center truncate font-medium">{skin.name}</p>
                   </button>
                 ))}
               </div>
