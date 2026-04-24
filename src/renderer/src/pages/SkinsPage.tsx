@@ -491,11 +491,16 @@ export default function SkinsPage() {
               {t.label}
             </button>
           ))}
-          <button onClick={() => navigate('/skin-editor')}
-            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg transition-colors font-medium">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            Crear skin
-          </button>
+          <div className="ml-auto relative group">
+            <button disabled
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/40 text-white/50 text-xs rounded-lg font-medium cursor-not-allowed">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+              Crear skin
+            </button>
+            <div className="absolute bottom-full right-0 mb-1.5 px-2 py-1 bg-bg-card border border-border text-text-secondary text-[10px] rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg">
+              Próximamente
+            </div>
+          </div>
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 {
   "name": "modpack-launcher",
-  "version": "1.4.0",
+  "version": "1.3.5",
   "description": "Cross-platform Minecraft modpack launcher with auto-update support",
   "main": "out/main/index.js",
   "scripts": {
