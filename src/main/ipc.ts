@@ -472,6 +472,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       const textures = JSON.parse(Buffer.from(prop.value, 'base64').toString('utf-8'))
       const skinUrl = textures?.textures?.SKIN?.url
       const capeUrl = textures?.textures?.CAPE?.url ?? null
+      const model = textures?.textures?.SKIN?.metadata?.model === 'slim' ? 'slim' : 'classic'
       if (!skinUrl) return null
 
       const fetchB64 = async (url: string) => {
@@ -483,7 +484,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         fetchB64(skinUrl),
         capeUrl ? fetchB64(capeUrl).catch(() => null) : Promise.resolve(null)
       ])
-      return { skin, cape }
+      return { skin, cape, model }
     } catch {
       return null
     }
@@ -560,7 +561,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     // España
     'VegettaGaymer', 'Willyrex', 'SrAuronPlay', 'ElRichMC', 'Mikecrack',
     'alexby11', 'iRoier', 'sTaXxCraft', 'LuzuVlogs', 'Crisgreen',
-    'Conterstine', 'Shadoune777', 'Rubius', 'iLuh',
+    'Conterstine', 'Shadoune777', 'elrubius', 'iLuh',
     // Latinoamérica
     'WestCOL', 'Quackity', 'KillerCreeper_55', 'Bobicraft', 'Spreen',
     'ElJuaniquilador', 'Farfadox', 'dedreviil', 'EvilAFM',
@@ -658,6 +659,37 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       } catch { /* try next */ }
     }
     throw new Error('No se pudo descargar la skin')
+  })
+
+  // ── Status ──────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('status:check', async () => {
+    const axios = (await import('axios')).default
+    const checks = [
+      { id: 'minecraft.net',    name: 'Minecraft.net',           url: 'https://minecraft.net' },
+      { id: 'xbox',             name: 'Autenticación Xbox Live', url: 'https://account.xbox.com/' },
+      { id: 'api',              name: 'API de Mojang',           url: 'https://api.mojang.com/' },
+      { id: 'session',          name: 'Sesiones de juego',       url: 'https://sessionserver.mojang.com/' },
+      { id: 'textures',         name: 'Texturas y Skins',        url: 'https://textures.minecraft.net/' },
+      { id: 'libraries',        name: 'Librerías del juego',     url: 'https://libraries.minecraft.net/' },
+      { id: 'launchermeta',     name: 'Metadatos de versiones',  url: 'https://launchermeta.mojang.com/' },
+    ]
+    const results = await Promise.allSettled(checks.map(async (check) => {
+      const start = Date.now()
+      try {
+        await axios.get(check.url, {
+          timeout: 8_000,
+          headers: { 'User-Agent': 'ModpackLauncher/1.0' },
+          validateStatus: () => true,
+        })
+        return { ...check, status: 'up' as const, latency: Date.now() - start }
+      } catch {
+        return { ...check, status: 'down' as const, latency: Date.now() - start }
+      }
+    }))
+    return results.map((r, i) =>
+      r.status === 'fulfilled' ? r.value : { ...checks[i], status: 'down' as const, latency: 0 }
+    )
   })
 
   // ── System ──────────────────────────────────────────────────────────────────

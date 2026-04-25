@@ -105,6 +105,11 @@ function SkinViewer3D({ skin, cape, width = 160, height = 220, autoRotate = true
     v.controls.enableZoom = interactive
     v.controls.enablePan = interactive
     v.controls.enableRotate = interactive
+    const sk = v.playerObject.skin
+    for (const key of ['head', 'body', 'rightArm', 'leftArm', 'rightLeg', 'leftLeg'] as const) {
+      sk[key].innerLayer.visible = true
+      sk[key].outerLayer.visible = true
+    }
     viewerRef.current = v
     return () => { v.dispose(); viewerRef.current = null }
   }, [skin, cape, width, height, autoRotate, interactive, model])
@@ -353,7 +358,7 @@ export default function SkinsPage() {
   const [tab, setTab] = useState<Tab>('mine')
 
   // ── My Skin state ──
-  const [skinData, setSkinData] = useState<{ skin: string; cape: string | null } | null>(null)
+  const [skinData, setSkinData] = useState<{ skin: string; cape: string | null; model: SkinModel } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
@@ -390,15 +395,17 @@ export default function SkinsPage() {
   const [newSkinModal, setNewSkinModal] = useState(false)
 
   // ── Load current skin ──
-  useEffect(() => {
+  function loadSkin() {
     if (!account || account.type !== 'microsoft') return
     setLoading(true)
     setError('')
     window.api.skin.getTexture(account.uuid)
-      .then(data => { if (data) setSkinData(data); else setError('No se pudo obtener la skin') })
+      .then(data => { if (data) setSkinData(data as any); else setError('No se pudo obtener la skin') })
       .catch(() => setError('Error al cargar la skin'))
       .finally(() => setLoading(false))
-  }, [account?.uuid])
+  }
+
+  useEffect(() => { loadSkin() }, [account?.uuid])
 
   // ── Load library when tab changes ──
   useEffect(() => {
@@ -418,7 +425,9 @@ export default function SkinsPage() {
     viewerRef.current?.dispose()
     const viewer = new skinview3d.SkinViewer({
       canvas: canvasRef.current, width: 300, height: 420,
-      skin: skinData.skin, ...(skinData.cape ? { cape: skinData.cape } : {}),
+      skin: skinData.skin,
+      model: skinData.model === 'slim' ? 'slim' : 'default',
+      ...(skinData.cape ? { cape: skinData.cape } : {}),
     })
     viewer.controls.enableZoom = true
     viewer.controls.enableRotate = true
@@ -464,14 +473,18 @@ export default function SkinsPage() {
   }
 
   async function openCapeSelector() {
+    if (!account) return
     const activeCape = allCapes.find(c => c.state === 'ACTIVE')
     setSelectedCapeId(activeCape?.id ?? null)
     setCapeSelector(true)
     if (allCapes.length > 0) return
-    if (!account?.accessToken) return
     setLoadingCapes(true)
     try {
-      const capes = await window.api.skin.getProfileCapes(account.accessToken)
+      let token = account.accessToken
+      if (account.type === 'microsoft') {
+        try { token = (await window.api.auth.refresh(account)).accessToken } catch { /* use current */ }
+      }
+      const capes = await window.api.skin.getProfileCapes(token)
       setAllCapes(capes)
       setSelectedCapeId(capes.find(c => c.state === 'ACTIVE')?.id ?? null)
     } catch { /* ignore */ }
@@ -509,7 +522,7 @@ export default function SkinsPage() {
   async function saveCurrentToLibrary() {
     if (!skinData) return
     const name = account?.username ?? 'Mi skin'
-    await window.api.skins.saveToLibrary({ name, model: 'classic', data: skinData.skin })
+    await window.api.skins.saveToLibrary({ name, model: skinData.model, data: skinData.skin })
     if (tab === 'library') {
       const updated = await window.api.skins.listLibrary()
       setLibrary(updated)
@@ -685,6 +698,15 @@ export default function SkinsPage() {
                     </button>
                   </div>
 
+                  {/* Reload skin */}
+                  <button onClick={loadSkin} disabled={loading}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] border border-border hover:border-accent/40 rounded-lg text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50">
+                    <svg className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                    </svg>
+                    Recargar
+                  </button>
+
                   {/* Save to library */}
                   <button onClick={saveCurrentToLibrary}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] border border-border hover:border-accent/40 rounded-lg text-text-secondary hover:text-text-primary transition-colors">
@@ -727,42 +749,7 @@ export default function SkinsPage() {
             </button>
           </div>
 
-          {/* ── Skins por defecto de Minecraft ── */}
-          <div className="mb-6">
-            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest mb-3">Skins de Minecraft</p>
-            {defaultsLoading ? (
-              <div className="flex items-center gap-2 text-text-muted text-sm">
-                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-                Cargando...
-              </div>
-            ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
-                {defaultSkins.map(skin => (
-                  <div key={skin.name} className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col hover:border-accent/40 transition-colors">
-                    <div className="flex items-center justify-center pt-2 bg-bg-hover/20">
-                      <SkinViewer3D skin={skin.data} width={100} height={140} autoRotate={false} model={skin.model} />
-                    </div>
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      <p className="text-xs font-medium text-text-primary truncate mt-1">{skin.name}</p>
-                      <p className="text-[10px] text-text-muted">{skin.model === 'slim' ? 'Brazos delgados' : 'Brazos gruesos'}</p>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setApplyModal(skin.data)}
-                          className="flex-1 py-1.5 text-[11px] bg-accent/15 hover:bg-accent/25 text-accent rounded-lg transition-colors font-medium">
-                          Aplicar
-                        </button>
-                        <button onClick={() => window.api.skins.saveToLibrary({ name: skin.name, model: skin.model, data: skin.data }).then(e => setLibrary(prev => [...prev, e]))}
-                          title="Guardar en librería"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 hover:text-accent text-text-muted transition-colors">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
+          {/* ── Tus skins guardadas ── */}
           <div className="flex items-center justify-between mb-4">
             <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest">Tus skins guardadas</p>
           </div>
@@ -775,7 +762,7 @@ export default function SkinsPage() {
           )}
 
           {!libLoading && library.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-text-muted gap-3">
+            <div className="flex flex-col items-center justify-center py-10 text-text-muted gap-3">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30">
                 <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
               </svg>
@@ -785,7 +772,7 @@ export default function SkinsPage() {
           )}
 
           {!libLoading && library.length > 0 && (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4 mb-8">
               {library.map(entry => (
                 <div key={entry.id} className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col group hover:border-accent/40 transition-colors">
                   <div className="flex items-center justify-center pt-2 bg-bg-hover/20">
@@ -840,6 +827,42 @@ export default function SkinsPage() {
               ))}
             </div>
           )}
+
+          {/* ── Skins por defecto de Minecraft ── */}
+          <div className="mt-8 mb-6">
+            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest mb-3">Skins de Minecraft</p>
+            {defaultsLoading ? (
+              <div className="flex items-center gap-2 text-text-muted text-sm">
+                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+                Cargando...
+              </div>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+                {defaultSkins.map(skin => (
+                  <div key={skin.name} className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col hover:border-accent/40 transition-colors">
+                    <div className="flex items-center justify-center pt-2 bg-bg-hover/20">
+                      <SkinViewer3D skin={skin.data} width={100} height={140} autoRotate={false} model={skin.model} />
+                    </div>
+                    <div className="px-3 pb-3 flex flex-col gap-2">
+                      <p className="text-xs font-medium text-text-primary truncate mt-1">{skin.name}</p>
+                      <p className="text-[10px] text-text-muted">{skin.model === 'slim' ? 'Brazos delgados' : 'Brazos gruesos'}</p>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => setApplyModal(skin.data)}
+                          className="flex-1 py-1.5 text-[11px] bg-accent/15 hover:bg-accent/25 text-accent rounded-lg transition-colors font-medium">
+                          Aplicar
+                        </button>
+                        <button onClick={() => window.api.skins.saveToLibrary({ name: skin.name, model: skin.model, data: skin.data }).then(e => setLibrary(prev => [...prev, e]))}
+                          title="Guardar en librería"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 hover:text-accent text-text-muted transition-colors">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

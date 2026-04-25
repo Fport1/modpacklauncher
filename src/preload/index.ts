@@ -239,7 +239,7 @@ const api = {
   // Player skin
   skin: {
     getHead: (uuid: string) => ipcRenderer.invoke('skin:get-head', uuid) as Promise<string | null>,
-    getTexture: (uuid: string) => ipcRenderer.invoke('skin:get-texture', uuid) as Promise<{ skin: string; cape: string | null } | null>,
+    getTexture: (uuid: string) => ipcRenderer.invoke('skin:get-texture', uuid) as Promise<{ skin: string; cape: string | null; model: 'classic' | 'slim' } | null>,
     getProfileCapes: (accessToken: string) => ipcRenderer.invoke('skin:get-profile-capes', accessToken) as Promise<{ id: string; state: string; url: string; alias: string; texture: string | null }[]>,
     equipCape: (accessToken: string, capeId: string) => ipcRenderer.invoke('skin:equip-cape', accessToken, capeId) as Promise<void>,
     removeCape: (accessToken: string) => ipcRenderer.invoke('skin:remove-cape', accessToken) as Promise<void>,
@@ -256,6 +256,11 @@ const api = {
     searchSkindex: (query: string, page: number) => ipcRenderer.invoke('skins:search-skindex', query, page) as Promise<{ id: string; name: string; renderUrl: string }[]>,
     fetchSkinPng: (skinId: string, renderUrl?: string) => ipcRenderer.invoke('skins:fetch-skin-png', skinId, renderUrl) as Promise<string>,
     getDefaults: () => ipcRenderer.invoke('skins:get-defaults') as Promise<{ name: string; model: 'classic' | 'slim'; data: string }[]>
+  },
+
+  // Status
+  status: {
+    check: () => ipcRenderer.invoke('status:check') as Promise<{ id: string; name: string; url: string; status: 'up' | 'down'; latency: number }[]>
   },
 
   // Mouse back navigation signal from main process
