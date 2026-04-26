@@ -6,13 +6,14 @@ import ModrinthModal from './ModrinthModal'
 import ZoomableImage from './ZoomableImage'
 import { nav } from '../nav'
 
-type Tab = 'mods' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
+type Tab = 'mods' | 'config' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
 type SortKey = 'name-asc' | 'name-desc' | 'size-asc' | 'size-desc' | 'date-asc' | 'date-desc'
 
 interface ModMeta { name?: string; author?: string; iconBase64?: string; clientSide?: string; serverSide?: string; hasUpdate?: boolean; projectId?: string; installedVersionId?: string }
 interface ModFile { filename: string; size: number; enabled: boolean; date: number; meta?: ModMeta }
 interface WorldFolder { name: string; lastPlayed?: number; iconBase64?: string; size?: number }
 interface ScreenshotFile { filename: string; filePath: string; date: number; size: number }
+interface ConfigFile { name: string; size: number; date: number; isDir: boolean }
 interface CrashReport { filename: string; date: number }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -467,6 +468,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<{ hasUpdate: boolean; version?: string } | null>(null)
   const [mods, setMods] = useState<ModFile[]>([])
+  const [configFiles, setConfigFiles] = useState<ConfigFile[]>([])
   const [worlds, setWorlds] = useState<WorldFolder[]>([])
   const [resourcepacks, setResourcepacks] = useState<ModFile[]>([])
   const [shaderpacks, setShaderpacks] = useState<ModFile[]>([])
@@ -540,7 +542,9 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   async function loadTab(t: Tab) {
     setLoading(true)
     try {
-      if (t === 'mods') {
+      if (t === 'config') {
+        setConfigFiles(await window.api.instances.listConfig(instance.id))
+      } else if (t === 'mods') {
         const mods = await window.api.instances.listMods(instance.id)
         setMods(mods)
         window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, instance.modloader)
@@ -907,6 +911,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
 
   const TABS: { key: Tab; label: string }[] = [
     { key: 'mods', label: 'Mods' },
+    { key: 'config', label: 'Config' },
     { key: 'worlds', label: 'Mundos' },
     { key: 'resourcepacks', label: 'Resource Packs' },
     { key: 'shaderpacks', label: 'Shaderpacks' },
@@ -1055,6 +1060,46 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                     />
                   ))}
                 </>
+              )}
+            </div>
+          )}
+
+          {/* ── CONFIG ── */}
+          {tab === 'config' && (
+            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <SearchBar value={search} onChange={setSearch} />
+                <FolderBtn onClick={() => window.api.instances.openConfigFolder(instance.id)} />
+              </div>
+              {loading ? <Spinner /> : configFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-text-muted text-sm gap-2">
+                  <p>La carpeta config está vacía.</p>
+                  <p className="text-xs">Lanza el juego una vez para que los mods generen sus archivos de configuración.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {configFiles.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).map(f => (
+                    <div key={f.name} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-bg-hover/50 transition-colors group">
+                      <div className="w-8 h-8 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
+                        {f.isDir ? (
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-yellow-400/70">
+                            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                          </svg>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted/50">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-text-primary truncate">{f.name}</p>
+                        <p className="text-[11px] text-text-muted">
+                          {f.isDir ? 'Carpeta' : formatSize(f.size)} · {new Date(f.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}

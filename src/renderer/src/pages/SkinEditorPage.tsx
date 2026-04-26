@@ -698,6 +698,7 @@ export default function SkinEditorPage() {
   const [saving, setSaving] = useState(false)
   const [saveModalOpen, setSaveModalOpen] = useState(false)
   const [applying, setApplying] = useState(false)
+  const [applyMsg, setApplyMsg] = useState<'success'|'error'|null>(null)
   const [saveMsg, setSaveMsg] = useState<'success'|'error'|null>(null)
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(false)
 
@@ -1185,9 +1186,17 @@ export default function SkinEditorPage() {
   async function applyToAccount() {
     if (!account?.accessToken) return
     setApplying(true)
-    try { await window.api.skins.apply(account.accessToken, pixelsToBase64(pixelsRef.current), skinModel) }
-    catch { /* ignore */ }
-    finally { setApplying(false) }
+    setApplyMsg(null)
+    try {
+      await window.api.skins.apply(account.accessToken, pixelsToBase64(pixelsRef.current), skinModel)
+      setApplyMsg('success')
+      setTimeout(() => setApplyMsg(null), 3000)
+    } catch {
+      setApplyMsg('error')
+      setTimeout(() => setApplyMsg(null), 3000)
+    } finally {
+      setApplying(false)
+    }
   }
 
   function clearCanvas() {
@@ -1248,6 +1257,13 @@ export default function SkinEditorPage() {
             </span>
           )}
           {saveMsg==='error' && <span className="text-xs text-red-400">Error al guardar</span>}
+          {applyMsg==='success' && (
+            <span className="flex items-center gap-1 text-xs text-green-400">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+              ¡Skin aplicado!
+            </span>
+          )}
+          {applyMsg==='error' && <span className="text-xs text-red-400">Error al aplicar</span>}
           <button onClick={clearCanvas}
             className="px-3 py-1.5 border border-border hover:border-red-500/40 hover:text-red-400 text-text-muted text-xs rounded-lg transition-colors">
             Limpiar
@@ -1257,6 +1273,16 @@ export default function SkinEditorPage() {
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             {saving ? 'Guardando...' : 'Guardar en libreria'}
           </button>
+          {account?.type === 'microsoft' && (
+            <button onClick={applyToAccount} disabled={applying}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg transition-colors disabled:opacity-50">
+              {applying
+                ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+                : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              }
+              {applying ? 'Aplicando...' : 'Aplicar al juego'}
+            </button>
+          )}
         </div>
       </div>
 

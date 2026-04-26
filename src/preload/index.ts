@@ -6,7 +6,7 @@ import type {
   ModpackManifest,
   DownloadProgress
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport } from '../main/instances'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile } from '../main/instances'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -65,6 +65,8 @@ const api = {
     readLatestLog: (instanceId: string) => ipcRenderer.invoke('instances:read-latest-log', instanceId) as Promise<string>,
     openLogsFolder: (instanceId: string) => ipcRenderer.invoke('instances:open-logs-folder', instanceId),
     openCrashReportsFolder: (instanceId: string) => ipcRenderer.invoke('instances:open-crash-reports-folder', instanceId),
+    listConfig: (instanceId: string) => ipcRenderer.invoke('instances:list-config', instanceId) as Promise<ConfigFile[]>,
+    openConfigFolder: (instanceId: string) => ipcRenderer.invoke('instances:open-config-folder', instanceId),
     readOptions: (instanceId: string) => ipcRenderer.invoke('instances:read-options', instanceId) as Promise<string>,
     writeOptions: (instanceId: string, content: string) => ipcRenderer.invoke('instances:write-options', instanceId, content),
     toggleMod: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:toggle-mod', instanceId, filename) as Promise<string>,

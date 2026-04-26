@@ -379,6 +379,13 @@ export interface ScreenshotFile {
   size: number
 }
 
+export interface ConfigFile {
+  name: string
+  size: number
+  date: number
+  isDir: boolean
+}
+
 export async function listMods(instanceId: string): Promise<ModFile[]> {
   const gameDir = await getInstanceGameDir(instanceId)
   const modsDir = path.join(gameDir, 'mods')
@@ -608,6 +615,31 @@ export async function openCrashReportsFolder(instanceId: string): Promise<void> 
   const { shell } = await import('electron')
   const gameDir = await getInstanceGameDir(instanceId)
   const dir = path.join(gameDir, 'crash-reports')
+  await fs.ensureDir(dir)
+  shell.openPath(dir)
+}
+
+export async function listConfigFiles(instanceId: string): Promise<ConfigFile[]> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const configDir = path.join(gameDir, 'config')
+  if (!(await fs.pathExists(configDir))) return []
+  const entries = await fs.readdir(configDir, { withFileTypes: true })
+  const result: ConfigFile[] = []
+  for (const entry of entries) {
+    const stat = await fs.stat(path.join(configDir, entry.name)).catch(() => null)
+    if (!stat) continue
+    result.push({ name: entry.name, size: stat.size, date: stat.mtimeMs, isDir: entry.isDirectory() })
+  }
+  return result.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+export async function openConfigFolder(instanceId: string): Promise<void> {
+  const { shell } = await import('electron')
+  const gameDir = await getInstanceGameDir(instanceId)
+  const dir = path.join(gameDir, 'config')
   await fs.ensureDir(dir)
   shell.openPath(dir)
 }

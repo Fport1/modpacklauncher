@@ -125,36 +125,57 @@ function ApplySkinModal({ skinData, onApply, onClose }: {
   onClose: () => void
 }) {
   const [model, setModel] = useState<SkinModel>('classic')
-  const [applying, setApplying] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'applying' | 'success' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
 
   async function confirm() {
-    setApplying(true)
-    try { await onApply(model) } finally { setApplying(false) }
+    setStatus('applying')
+    setErrorMsg('')
+    try {
+      await onApply(model)
+      setStatus('success')
+      setTimeout(onClose, 1500)
+    } catch (e: any) {
+      setStatus('error')
+      setErrorMsg(e?.message ?? 'Error desconocido')
+    }
   }
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}>
+      onClick={status === 'applying' ? undefined : onClose}>
       <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl p-6 flex flex-col items-center gap-5 w-[320px]"
         onClick={e => e.stopPropagation()}>
         <h3 className="text-base font-bold text-text-primary self-start">Aplicar skin</h3>
         <SkinViewer3D skin={skinData} width={140} height={200} model={model} />
         <div className="flex gap-2 w-full">
           {(['classic', 'slim'] as SkinModel[]).map(m => (
-            <button key={m} onClick={() => setModel(m)}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${model === m ? 'bg-accent/15 border-accent/60 text-accent' : 'border-border text-text-secondary hover:border-accent/40'}`}>
+            <button key={m} onClick={() => setModel(m)} disabled={status === 'applying' || status === 'success'}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${model === m ? 'bg-accent/15 border-accent/60 text-accent' : 'border-border text-text-secondary hover:border-accent/40'} disabled:opacity-50`}>
               {m === 'classic' ? 'Brazos gruesos' : 'Brazos delgados'}
             </button>
           ))}
         </div>
+        {status === 'error' && (
+          <div className="w-full px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-400 text-center">
+            {errorMsg || 'No se pudo aplicar el skin. ¿Token expirado?'}
+          </div>
+        )}
+        {status === 'success' && (
+          <div className="w-full px-3 py-2 bg-green-500/10 border border-green-500/30 rounded-lg text-xs text-green-400 text-center flex items-center justify-center gap-2">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            ¡Skin aplicado correctamente!
+          </div>
+        )}
         <div className="flex gap-3 w-full">
-          <button onClick={onClose} className="flex-1 py-2 text-sm border border-border hover:border-accent/40 rounded-lg text-text-secondary transition-colors">
+          <button onClick={onClose} disabled={status === 'applying'}
+            className="flex-1 py-2 text-sm border border-border hover:border-accent/40 rounded-lg text-text-secondary transition-colors disabled:opacity-40">
             Cancelar
           </button>
-          <button onClick={confirm} disabled={applying}
+          <button onClick={confirm} disabled={status === 'applying' || status === 'success'}
             className="flex-1 py-2 text-sm bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-            {applying && <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>}
-            {applying ? 'Aplicando...' : 'Aplicar'}
+            {status === 'applying' && <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>}
+            {status === 'applying' ? 'Aplicando...' : status === 'success' ? '¡Aplicado!' : 'Aplicar'}
           </button>
         </div>
       </div>

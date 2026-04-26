@@ -44,6 +44,8 @@ import {
   readLatestLog,
   openLogsFolder,
   openCrashReportsFolder,
+  listConfigFiles,
+  openConfigFolder,
   readOptionsFile,
   writeOptionsFile,
   toggleMod,
@@ -157,6 +159,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:read-latest-log', (_e, instanceId: string) => readLatestLog(instanceId))
   ipcMain.handle('instances:open-logs-folder', (_e, instanceId: string) => openLogsFolder(instanceId))
   ipcMain.handle('instances:open-crash-reports-folder', (_e, instanceId: string) => openCrashReportsFolder(instanceId))
+  ipcMain.handle('instances:list-config', (_e, instanceId: string) => listConfigFiles(instanceId))
+  ipcMain.handle('instances:open-config-folder', (_e, instanceId: string) => openConfigFolder(instanceId))
   ipcMain.handle('instances:read-options', (_e, instanceId: string) => readOptionsFile(instanceId))
   ipcMain.handle('instances:write-options', (_e, instanceId: string, content: string) => writeOptionsFile(instanceId, content))
   ipcMain.handle('instances:toggle-mod', (_e, instanceId: string, filename: string) => toggleMod(instanceId, filename))
