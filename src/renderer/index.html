@@ -9,6 +9,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body class="bg-bg-primary text-text-primary select-none overflow-hidden">
+    <div id="loading-splash" style="position:fixed;inset:0;background:#0f0f14;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:20px;font-family:'Inter',sans-serif;">
+      <svg width="56" height="56" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="56" height="56" rx="14" fill="#1a1a2e"/>
+        <rect x="6" y="6" width="44" height="44" rx="10" fill="#16213e"/>
+        <path d="M14 28 L28 18 L42 28 L28 38 Z" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M14 28 L14 36 L28 44 L42 36 L42 28" fill="none" stroke="#7c3aed" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M28 38 L28 44" stroke="#7c3aed" stroke-width="2.5"/>
+      </svg>
+      <div style="width:32px;height:32px;border-radius:50%;border:2.5px solid rgba(124,58,237,0.15);border-top-color:#7c3aed;animation:splash-spin 0.75s linear infinite;"></div>
+      <p style="color:#4b5563;font-size:12px;letter-spacing:0.05em;">Iniciando launcher…</p>
+    </div>
+    <style>@keyframes splash-spin{to{transform:rotate(360deg)}}</style>
     <div id="root"></div>
     <script type="module" src="./src/main.tsx"></script>
   </body>

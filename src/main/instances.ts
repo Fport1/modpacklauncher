@@ -619,14 +619,17 @@ export async function openCrashReportsFolder(instanceId: string): Promise<void> 
   shell.openPath(dir)
 }
 
-export async function listConfigFiles(instanceId: string): Promise<ConfigFile[]> {
+export async function listConfigFiles(instanceId: string, subPath = ''): Promise<ConfigFile[]> {
   const gameDir = await getInstanceGameDir(instanceId)
-  const configDir = path.join(gameDir, 'config')
-  if (!(await fs.pathExists(configDir))) return []
-  const entries = await fs.readdir(configDir, { withFileTypes: true })
+  const configRoot = path.join(gameDir, 'config')
+  const targetDir = subPath ? path.join(configRoot, subPath) : configRoot
+  // prevent path traversal
+  if (!targetDir.startsWith(configRoot)) return []
+  if (!(await fs.pathExists(targetDir))) return []
+  const entries = await fs.readdir(targetDir, { withFileTypes: true })
   const result: ConfigFile[] = []
   for (const entry of entries) {
-    const stat = await fs.stat(path.join(configDir, entry.name)).catch(() => null)
+    const stat = await fs.stat(path.join(targetDir, entry.name)).catch(() => null)
     if (!stat) continue
     result.push({ name: entry.name, size: stat.size, date: stat.mtimeMs, isDir: entry.isDirectory() })
   }
@@ -634,6 +637,22 @@ export async function listConfigFiles(instanceId: string): Promise<ConfigFile[]>
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
     return a.name.localeCompare(b.name)
   })
+}
+
+export async function readConfigFile(instanceId: string, filePath: string): Promise<string> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const configRoot = path.join(gameDir, 'config')
+  const fullPath = path.join(configRoot, filePath)
+  if (!fullPath.startsWith(configRoot)) throw new Error('Acceso denegado')
+  return fs.readFile(fullPath, 'utf-8')
+}
+
+export async function writeConfigFile(instanceId: string, filePath: string, content: string): Promise<void> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const configRoot = path.join(gameDir, 'config')
+  const fullPath = path.join(configRoot, filePath)
+  if (!fullPath.startsWith(configRoot)) throw new Error('Acceso denegado')
+  await fs.writeFile(fullPath, content, 'utf-8')
 }
 
 export async function openConfigFolder(instanceId: string): Promise<void> {

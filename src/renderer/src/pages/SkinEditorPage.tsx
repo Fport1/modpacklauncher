@@ -1184,11 +1184,11 @@ export default function SkinEditorPage() {
   }
 
   async function applyToAccount() {
-    if (!account?.accessToken) return
+    if (!account?.id) return
     setApplying(true)
     setApplyMsg(null)
     try {
-      await window.api.skins.apply(account.accessToken, pixelsToBase64(pixelsRef.current), skinModel)
+      await window.api.skins.apply(account.id, pixelsToBase64(pixelsRef.current), skinModel)
       setApplyMsg('success')
       setTimeout(() => setApplyMsg(null), 3000)
     } catch {

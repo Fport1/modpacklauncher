@@ -2,6 +2,8 @@ import { ipcMain, BrowserWindow, app, dialog } from 'electron'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
+import FormData from 'form-data'
+import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
 import type { Instance, MinecraftAccount, Settings, ModpackManifest } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
@@ -46,6 +48,8 @@ import {
   openCrashReportsFolder,
   listConfigFiles,
   openConfigFolder,
+  readConfigFile,
+  writeConfigFile,
   readOptionsFile,
   writeOptionsFile,
   toggleMod,
@@ -159,8 +163,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:read-latest-log', (_e, instanceId: string) => readLatestLog(instanceId))
   ipcMain.handle('instances:open-logs-folder', (_e, instanceId: string) => openLogsFolder(instanceId))
   ipcMain.handle('instances:open-crash-reports-folder', (_e, instanceId: string) => openCrashReportsFolder(instanceId))
-  ipcMain.handle('instances:list-config', (_e, instanceId: string) => listConfigFiles(instanceId))
+  ipcMain.handle('instances:list-config', (_e, instanceId: string, subPath?: string) => listConfigFiles(instanceId, subPath))
   ipcMain.handle('instances:open-config-folder', (_e, instanceId: string) => openConfigFolder(instanceId))
+  ipcMain.handle('instances:read-config-file', (_e, instanceId: string, filePath: string) => readConfigFile(instanceId, filePath))
+  ipcMain.handle('instances:write-config-file', (_e, instanceId: string, filePath: string, content: string) => writeConfigFile(instanceId, filePath, content))
   ipcMain.handle('instances:read-options', (_e, instanceId: string) => readOptionsFile(instanceId))
   ipcMain.handle('instances:write-options', (_e, instanceId: string, content: string) => writeOptionsFile(instanceId, content))
   ipcMain.handle('instances:toggle-mod', (_e, instanceId: string, filename: string) => toggleMod(instanceId, filename))
@@ -557,18 +563,25 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return `data:image/png;base64,${data.toString('base64')}`
   })
 
-  ipcMain.handle('skins:apply', async (_e, accessToken: string, skinBase64: string, model: 'classic' | 'slim') => {
+  ipcMain.handle('skins:apply', async (_e, accountId: string, skinBase64: string, model: 'classic' | 'slim') => {
+    const { accounts } = accountsStore.getAll()
+    let account = accounts.find(a => a.id === accountId)
+    if (!account || account.type !== 'microsoft') throw new Error('Cuenta Microsoft no encontrada')
+
+    if (isTokenExpired(account)) {
+      const settings = settingsStore.getAll()
+      account = await refreshMicrosoftToken(account, settings.azureClientId)
+      updateAccount(account)
+    }
+
     const base64Data = skinBase64.replace(/^data:image\/png;base64,/, '')
     const skinBuffer = Buffer.from(base64Data, 'base64')
-    const formData = new FormData()
-    formData.append('variant', model)
-    formData.append('file', new Blob([skinBuffer], { type: 'image/png' }), 'skin.png')
-    const res = await fetch('https://api.minecraftservices.com/minecraft/profile/skins', {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: formData
+    const form = new FormData()
+    form.append('variant', model)
+    form.append('file', skinBuffer, { filename: 'skin.png', contentType: 'image/png' })
+    await axios.post('https://api.minecraftservices.com/minecraft/profile/skins', form, {
+      headers: { Authorization: `Bearer ${account.accessToken}`, ...form.getHeaders() }
     })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
   })
 
   // Popular skin creators — used when no search query (usernames verified via NameMC)

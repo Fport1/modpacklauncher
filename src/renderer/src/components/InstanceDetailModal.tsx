@@ -5,6 +5,8 @@ import type { Instance } from '../../../shared/types'
 import ModrinthModal from './ModrinthModal'
 import ZoomableImage from './ZoomableImage'
 import { nav } from '../nav'
+import { lazy, Suspense } from 'react'
+const ConfigFileEditor = lazy(() => import('./ConfigFileEditor'))
 
 type Tab = 'mods' | 'config' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
 type SortKey = 'name-asc' | 'name-desc' | 'size-asc' | 'size-desc' | 'date-asc' | 'date-desc'
@@ -32,6 +34,17 @@ function mediaUrl(filePath: string): string {
 }
 function displayName(filename: string): string {
   return filename.endsWith('.disabled') ? filename.slice(0, -'.disabled'.length) : filename
+}
+
+function getMonacoLanguage(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+  if (['json', 'json5'].includes(ext)) return 'json'
+  if (['yaml', 'yml'].includes(ext)) return 'yaml'
+  if (ext === 'toml') return 'toml'
+  if (['ini', 'cfg', 'conf', 'properties'].includes(ext)) return 'ini'
+  if (ext === 'xml') return 'xml'
+  if (ext === 'lua') return 'lua'
+  return 'plaintext'
 }
 
 // ─── sub-components ─────────────────────────────────────────────────────────
@@ -469,6 +482,11 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const [updateStatus, setUpdateStatus] = useState<{ hasUpdate: boolean; version?: string } | null>(null)
   const [mods, setMods] = useState<ModFile[]>([])
   const [configFiles, setConfigFiles] = useState<ConfigFile[]>([])
+  const [configPath, setConfigPath] = useState<string[]>([])
+  const [editingConfigFile, setEditingConfigFile] = useState<{ path: string; name: string; content: string; savedContent: string } | null>(null)
+  const [configEditorSaving, setConfigEditorSaving] = useState(false)
+  const [configEditorMsg, setConfigEditorMsg] = useState<'success' | 'error' | null>(null)
+  const [unsavedConfirm, setUnsavedConfirm] = useState<{ onDiscard: () => void } | null>(null)
   const [worlds, setWorlds] = useState<WorldFolder[]>([])
   const [resourcepacks, setResourcepacks] = useState<ModFile[]>([])
   const [shaderpacks, setShaderpacks] = useState<ModFile[]>([])
@@ -497,6 +515,8 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const gameLogs = useStore(s => s.gameLogs[instance.id] ?? [])
   const isRunning = useStore(s => s.runningInstances.has(instance.id))
   const logRef = useRef<HTMLDivElement>(null)
+  const configLineNumRef = useRef<HTMLDivElement>(null)
+  const saveConfigFileRef = useRef<() => void>(() => {})
 
   const [isModpack, setIsModpack] = useState(!!instance.modpackUrl)
   const [instanceSize, setInstanceSize] = useState<string | null>(null)
@@ -532,7 +552,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   }, [])
 
   useEffect(() => { loadTab(tab) }, [tab, instance.id])
-  useEffect(() => { setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSideFilter('all'); setUpdatesOnly(false); setSelected(new Set()) }, [tab])
+  useEffect(() => { setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSideFilter('all'); setUpdatesOnly(false); setSelected(new Set()); setConfigPath([]); setEditingConfigFile(null) }, [tab])
   useEffect(() => {
     if (tab === 'console' && consoleView === 'live' && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
@@ -543,7 +563,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
     setLoading(true)
     try {
       if (t === 'config') {
-        setConfigFiles(await window.api.instances.listConfig(instance.id))
+        setConfigFiles(await window.api.instances.listConfig(instance.id, configPath.join('/')))
       } else if (t === 'mods') {
         const mods = await window.api.instances.listMods(instance.id)
         setMods(mods)
@@ -604,6 +624,67 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
       }
     } finally { setLoading(false) }
   }
+
+  async function navigateConfig(newPath: string[]) {
+    const doNavigate = async () => {
+      setUnsavedConfirm(null)
+      setEditingConfigFile(null)
+      setConfigPath(newPath)
+      setSearch('')
+      setLoading(true)
+      try {
+        setConfigFiles(await window.api.instances.listConfig(instance.id, newPath.join('/')))
+      } finally { setLoading(false) }
+    }
+    if (editingConfigFile && editingConfigFile.content !== editingConfigFile.savedContent) {
+      setUnsavedConfirm({ onDiscard: doNavigate })
+    } else {
+      doNavigate()
+    }
+  }
+
+  function attemptCloseEditor(onClose: () => void = () => setEditingConfigFile(null)) {
+    if (editingConfigFile && editingConfigFile.content !== editingConfigFile.savedContent) {
+      setUnsavedConfirm({ onDiscard: () => { setUnsavedConfirm(null); setEditingConfigFile(null); onClose() } })
+    } else {
+      setEditingConfigFile(null)
+      onClose()
+    }
+  }
+
+  function isEditableFile(name: string): boolean {
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
+    return ['json', 'json5', 'toml', 'yaml', 'yml', 'txt', 'cfg', 'conf', 'properties', 'ini', 'snbt'].includes(ext)
+  }
+
+  async function openConfigFile(file: ConfigFile) {
+    const filePath = [...configPath, file.name].join('/')
+    setLoading(true)
+    try {
+      const content = await window.api.instances.readConfigFile(instance.id, filePath)
+      setEditingConfigFile({ path: filePath, name: file.name, content, savedContent: content })
+    } catch {
+      // ignore — file may be unreadable
+    } finally { setLoading(false) }
+  }
+
+  async function saveConfigFile() {
+    if (!editingConfigFile) return
+    setConfigEditorSaving(true)
+    setConfigEditorMsg(null)
+    try {
+      await window.api.instances.writeConfigFile(instance.id, editingConfigFile.path, editingConfigFile.content)
+      setEditingConfigFile(prev => prev ? { ...prev, savedContent: prev.content } : null)
+      setConfigEditorMsg('success')
+    } catch {
+      setConfigEditorMsg('error')
+    } finally {
+      setConfigEditorSaving(false)
+      setTimeout(() => setConfigEditorMsg(null), 3000)
+    }
+  }
+  // Keep ref current so Monaco's onMount command always calls the latest version
+  saveConfigFileRef.current = saveConfigFile
 
   // ── sort/filter helpers ──────────────────────────────────────────────────
 
@@ -922,7 +1003,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[720px] max-h-[90vh] flex flex-col">
+      <div className="relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[720px] flex flex-col" style={{ height: '90vh', maxHeight: '780px', minHeight: '520px' }}>
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 flex-shrink-0">
@@ -959,7 +1040,14 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
         <div className="flex gap-0.5 px-4 pt-2 border-b border-border/30 flex-shrink-0 overflow-x-auto">
           {TABS.map(t => (
             <button key={t.key} onClick={() => {
-              if (t.key !== tab) { const prev = tab; nav.push(() => setTab(prev)); setTab(t.key) }
+              if (t.key !== tab) {
+                const doSwitch = () => { const prev = tab; nav.push(() => setTab(prev)); setTab(t.key) }
+                if (tab === 'config' && editingConfigFile && editingConfigFile.content !== editingConfigFile.savedContent) {
+                  setUnsavedConfirm({ onDiscard: () => { setUnsavedConfirm(null); doSwitch() } })
+                } else {
+                  doSwitch()
+                }
+              }
             }}
               className={`px-3 py-1.5 text-xs whitespace-nowrap rounded-t-lg transition-colors ${
                 tab === t.key ? 'text-accent border-b-2 border-accent -mb-px font-medium' : 'text-text-muted hover:text-text-secondary'
@@ -1066,42 +1154,198 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
 
           {/* ── CONFIG ── */}
           {tab === 'config' && (
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <SearchBar value={search} onChange={setSearch} />
-                <FolderBtn onClick={() => window.api.instances.openConfigFolder(instance.id)} />
-              </div>
-              {loading ? <Spinner /> : configFiles.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-text-muted text-sm gap-2">
-                  <p>La carpeta config está vacía.</p>
-                  <p className="text-xs">Lanza el juego una vez para que los mods generen sus archivos de configuración.</p>
+            editingConfigFile ? (
+              /* ── MONACO FILE EDITOR ── */
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                {/* Tab bar */}
+                <div className="flex items-center flex-shrink-0 border-b border-[#1e1e1e]" style={{ background: '#252526', minHeight: '35px' }}>
+                  {/* Back arrow */}
+                  <button
+                    onClick={() => attemptCloseEditor()}
+                    title="Volver"
+                    className="h-full px-2.5 flex items-center text-[#858585] hover:text-white hover:bg-white/5 transition-colors flex-shrink-0"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                  {/* File tab */}
+                  <div className="flex items-center gap-1.5 pl-3 pr-1 h-full border-r border-[#1e1e1e] bg-[#1e1e1e] text-[#cccccc] text-xs flex-shrink-0 select-none" style={{ borderTop: '1px solid #007acc', paddingTop: '7px', paddingBottom: '6px' }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#519aba', flexShrink: 0 }}>
+                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <span className="font-medium truncate" style={{ maxWidth: '200px' }}>{editingConfigFile.name}</span>
+                    <button
+                      onClick={() => attemptCloseEditor()}
+                      title="Cerrar"
+                      className="w-5 h-5 flex items-center justify-center rounded flex-shrink-0 transition-colors"
+                      style={{ color: editingConfigFile.content !== editingConfigFile.savedContent ? '#cccccc' : 'transparent' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.1)'; (e.currentTarget as HTMLElement).style.color = '#cccccc' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; (e.currentTarget as HTMLElement).style.color = editingConfigFile.content !== editingConfigFile.savedContent ? '#cccccc' : 'transparent' }}
+                    >
+                      {editingConfigFile.content !== editingConfigFile.savedContent
+                        ? <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#cccccc' }} />
+                        : <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      }
+                    </button>
+                  </div>
+                  {/* Spacer */}
+                  <div className="flex-1" />
+                  {/* Save feedback + button */}
+                  {configEditorMsg === 'success' && <span style={{ fontSize: '11px', color: '#4ec9b0', paddingRight: '8px' }}>✓ Guardado</span>}
+                  {configEditorMsg === 'error' && <span style={{ fontSize: '11px', color: '#f48771', paddingRight: '8px' }}>✗ Error al guardar</span>}
+                  <button
+                    onClick={saveConfigFile}
+                    disabled={configEditorSaving || editingConfigFile.content === editingConfigFile.savedContent}
+                    className="flex items-center gap-1 text-[11px] px-3 mr-2 py-1 rounded transition-colors flex-shrink-0"
+                    style={{ background: '#007acc', color: 'white', opacity: (configEditorSaving || editingConfigFile.content === editingConfigFile.savedContent) ? 0.35 : 1, cursor: (configEditorSaving || editingConfigFile.content === editingConfigFile.savedContent) ? 'not-allowed' : 'pointer' }}
+                  >
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    {configEditorSaving ? 'Guardando…' : 'Guardar'}
+                  </button>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {configFiles.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).map(f => (
-                    <div key={f.name} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-bg-hover/50 transition-colors group">
-                      <div className="w-8 h-8 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
-                        {f.isDir ? (
-                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-yellow-400/70">
-                            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                          </svg>
-                        ) : (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted/50">
-                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                          </svg>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-text-primary truncate">{f.name}</p>
-                        <p className="text-[11px] text-text-muted">
-                          {f.isDir ? 'Carpeta' : formatSize(f.size)} · {new Date(f.date).toLocaleDateString()}
-                        </p>
+
+                {/* Monaco Editor — lazy loaded, absolute-positioned so height is concrete */}
+                <div className="relative flex-1 min-h-0">
+                  <div className="absolute inset-0">
+                    <Suspense fallback={<div className="w-full h-full flex items-center justify-center" style={{ background: '#1e1e1e' }}><LoadSpinner /></div>}>
+                      <ConfigFileEditor
+                        language={getMonacoLanguage(editingConfigFile.name)}
+                        value={editingConfigFile.content}
+                        onChange={value => setEditingConfigFile(prev => prev ? { ...prev, content: value } : null)}
+                        onMount={(editor, monacoInstance) => {
+                          editor.addAction({
+                            id: 'save-config-file',
+                            label: 'Guardar archivo',
+                            keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS],
+                            run: () => saveConfigFileRef.current()
+                          })
+                          editor.focus()
+                        }}
+                        loadingNode={<div className="w-full h-full flex items-center justify-center" style={{ background: '#1e1e1e' }}><LoadSpinner /></div>}
+                      />
+                    </Suspense>
+                  </div>
+                </div>
+
+                {/* Status bar */}
+                <div className="flex-shrink-0 flex items-center px-3" style={{ height: '22px', fontSize: '12px', background: '#007acc', color: 'white' }}>
+                  <span style={{ opacity: 0.9 }}>{getMonacoLanguage(editingConfigFile.name).toUpperCase()}</span>
+                  <div className="flex-1" />
+                  <span style={{ opacity: 0.9 }}>UTF-8</span>
+                </div>
+
+                {/* Unsaved changes confirm overlay */}
+                {unsavedConfirm && (
+                  <div className="absolute inset-0 flex items-center justify-center z-10" style={{ background: 'rgba(0,0,0,0.55)' }}>
+                    <div className="bg-bg-secondary border border-border rounded-xl p-5 flex flex-col gap-3 shadow-2xl" style={{ width: '280px' }}>
+                      <p className="text-sm font-semibold text-text-primary">¿Descartar cambios?</p>
+                      <p className="text-xs text-text-muted">
+                        <span className="text-text-primary font-medium">{editingConfigFile.name}</span> tiene cambios sin guardar que se perderán.
+                      </p>
+                      <div className="flex gap-2 justify-end pt-1">
+                        <button
+                          onClick={() => setUnsavedConfirm(null)}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-border text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={unsavedConfirm.onDiscard}
+                          className="text-xs px-3 py-1.5 rounded-lg text-white hover:opacity-90 transition-colors"
+                          style={{ background: '#c72e0f' }}
+                        >
+                          Descartar
+                        </button>
                       </div>
                     </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* ── FILE BROWSER ── */
+              <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+                {/* Breadcrumb + open folder button */}
+                <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
+                  <button
+                    onClick={() => navigateConfig([])}
+                    className={`text-xs px-2 py-1 rounded-lg transition-colors ${configPath.length === 0 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
+                  >
+                    config
+                  </button>
+                  {configPath.map((seg, i) => (
+                    <div key={i} className="flex items-center gap-1.5">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/40 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                      <button
+                        onClick={() => navigateConfig(configPath.slice(0, i + 1))}
+                        className={`text-xs px-2 py-1 rounded-lg transition-colors ${i === configPath.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
+                      >
+                        {seg}
+                      </button>
+                    </div>
                   ))}
+                  <div className="ml-auto flex items-center gap-2">
+                    <SearchBar value={search} onChange={setSearch} />
+                    <FolderBtn onClick={() => window.api.instances.openConfigFolder(instance.id)} />
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {/* Back button when inside a subfolder */}
+                {configPath.length > 0 && (
+                  <button
+                    onClick={() => navigateConfig(configPath.slice(0, -1))}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-primary hover:bg-bg-hover/50 rounded-xl transition-colors self-start"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                    Volver
+                  </button>
+                )}
+
+                {loading ? <LoadSpinner /> : configFiles.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-text-muted text-sm gap-2">
+                    <p>{configPath.length === 0 ? 'La carpeta config está vacía.' : 'Esta carpeta está vacía.'}</p>
+                    {configPath.length === 0 && <p className="text-xs">Lanza el juego una vez para que los mods generen sus archivos de configuración.</p>}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {configFiles.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).map(f => {
+                      const canEdit = !f.isDir && isEditableFile(f.name)
+                      return (
+                        <div
+                          key={f.name}
+                          onClick={f.isDir ? () => navigateConfig([...configPath, f.name]) : canEdit ? () => openConfigFile(f) : undefined}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${f.isDir || canEdit ? 'cursor-pointer hover:bg-bg-hover/60 active:bg-bg-hover' : 'hover:bg-bg-hover/30'}`}
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
+                            {f.isDir ? (
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-yellow-400/70">
+                                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                              </svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={canEdit ? 'text-accent/60' : 'text-text-muted/50'}>
+                                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                              </svg>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-text-primary truncate">{f.name}</p>
+                            <p className="text-[11px] text-text-muted">
+                              {f.isDir ? 'Carpeta' : formatSize(f.size)} · {new Date(f.date).toLocaleDateString()}
+                            </p>
+                          </div>
+                          {f.isDir && (
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/30 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                          )}
+                          {canEdit && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted/30 flex-shrink-0">
+                              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
           )}
 
           {/* ── WORLDS ── */}

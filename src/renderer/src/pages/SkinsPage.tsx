@@ -121,7 +121,7 @@ function SkinViewer3D({ skin, cape, width = 160, height = 220, autoRotate = true
 
 function ApplySkinModal({ skinData, onApply, onClose }: {
   skinData: string
-  onApply: (model: SkinModel) => Promise<void>
+  onApply: (skinBase64: string, model: SkinModel) => Promise<void>
   onClose: () => void
 }) {
   const [model, setModel] = useState<SkinModel>('classic')
@@ -132,12 +132,13 @@ function ApplySkinModal({ skinData, onApply, onClose }: {
     setStatus('applying')
     setErrorMsg('')
     try {
-      await onApply(model)
+      await onApply(skinData, model)
       setStatus('success')
       setTimeout(onClose, 1500)
     } catch (e: any) {
       setStatus('error')
-      setErrorMsg(e?.message ?? 'Error desconocido')
+      const raw: string = e?.message ?? ''
+      setErrorMsg(raw.includes('401') ? 'Sesión expirada. Reinicia la app e intenta de nuevo.' : raw.includes('HTTP') ? `Error de servidor (${raw.match(/HTTP \d+/)?.[0] ?? 'desconocido'})` : 'No se pudo aplicar el skin.')
     }
   }
 
@@ -526,11 +527,9 @@ export default function SkinsPage() {
   }
 
   async function applySkin(skinBase64: string, model: SkinModel) {
-    if (!account?.accessToken) throw new Error('No access token')
-    await window.api.skins.apply(account.accessToken, skinBase64, model)
-    const data = await window.api.skin.getTexture(account.uuid)
-    if (data) setSkinData(data)
-    setApplyModal(null)
+    if (!account?.id) throw new Error('No account')
+    await window.api.skins.apply(account.id, skinBase64, model)
+    window.api.skin.getTexture(account.uuid).then(data => { if (data) setSkinData(data) }).catch(() => {})
   }
 
   // ── Library actions ──
