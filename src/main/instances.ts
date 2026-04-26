@@ -3,6 +3,7 @@ import fs from 'fs-extra'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import AdmZip from 'adm-zip'
+import axios from 'axios'
 import type { Instance } from '../shared/types'
 
 export function getLauncherDir(): string {
@@ -204,6 +205,15 @@ export async function pickIconPreview(
 export async function applyPendingIcon(instanceId: string, filePath: string): Promise<void> {
   const dir = await resolveInstanceDir(instanceId)
   await fs.copy(filePath, path.join(dir, 'icon.png'), { overwrite: true })
+  const meta = await fs.readJson(path.join(dir, 'instance.json')) as Instance
+  meta.icon = `icon.png?v=${Date.now()}`
+  await fs.writeJson(path.join(dir, 'instance.json'), meta, { spaces: 2 })
+}
+
+export async function setInstanceIconFromUrl(instanceId: string, url: string): Promise<void> {
+  const dir = await resolveInstanceDir(instanceId)
+  const response = await axios.get<Buffer>(url, { responseType: 'arraybuffer', timeout: 15_000 })
+  await fs.writeFile(path.join(dir, 'icon.png'), Buffer.from(response.data))
   const meta = await fs.readJson(path.join(dir, 'instance.json')) as Instance
   meta.icon = `icon.png?v=${Date.now()}`
   await fs.writeJson(path.join(dir, 'instance.json'), meta, { spaces: 2 })

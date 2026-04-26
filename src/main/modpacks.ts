@@ -539,6 +539,59 @@ export async function deletePublishedModpack(id: string): Promise<void> {
   await fs.writeJson(getPublishedModpacksPath(), list.filter(m => m.id !== id), { spaces: 2 })
 }
 
+// ── Modrinth .mrpack installer ─────────────────────────────────────────────
+
+export async function installMrpackFiles(
+  instanceId: string,
+  mrpackUrl: string,
+  onProgress: ProgressCallback
+): Promise<void> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const tmpPath = path.join(os.tmpdir(), `mrpack-${Date.now()}.mrpack`)
+  try {
+    onProgress(0, 10, 'Descargando paquete...')
+    await downloadFile(mrpackUrl, tmpPath)
+
+    const zip = new AdmZip(tmpPath)
+
+    onProgress(1, 10, 'Extrayendo archivos base...')
+    for (const entry of zip.getEntries()) {
+      if (entry.isDirectory) continue
+      const name = entry.entryName
+      let rel: string | null = null
+      if (name.startsWith('overrides/')) rel = name.slice('overrides/'.length)
+      else if (name.startsWith('client-overrides/')) rel = name.slice('client-overrides/'.length)
+      if (!rel || !rel.trim()) continue
+      const dest = path.join(gameDir, rel)
+      await fs.ensureDir(path.dirname(dest))
+      await fs.writeFile(dest, entry.getData())
+    }
+
+    const manifestEntry = zip.getEntry('modrinth.index.json')
+    if (!manifestEntry) return
+
+    const manifest = JSON.parse(manifestEntry.getData().toString('utf-8')) as {
+      files?: Array<{ path: string; downloads: string[] }>
+    }
+    const files = manifest.files ?? []
+
+    for (let i = 0; i < files.length; i++) {
+      checkCancel()
+      const file = files[i]
+      onProgress(2 + i, 2 + files.length, `Descargando ${path.basename(file.path)}...`)
+      const dest = path.join(gameDir, file.path)
+      await fs.ensureDir(path.dirname(dest))
+      let ok = false
+      for (const url of file.downloads) {
+        try { await downloadFile(url, dest); ok = true; break } catch { /* try next */ }
+      }
+      if (!ok) console.warn(`No se pudo descargar: ${file.path}`)
+    }
+  } finally {
+    await fs.remove(tmpPath).catch(() => {})
+  }
+}
+
 export async function getLocalModList(instanceId: string): Promise<string[]> {
   const modsDir = path.join(await getInstanceGameDir(instanceId), 'mods')
   try {

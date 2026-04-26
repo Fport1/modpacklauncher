@@ -184,8 +184,8 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const [detailTab, setDetailTab] = useState<'desc' | 'versions' | 'gallery'>('desc')
   const [versions, setVersions] = useState<ModrinthVersion[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
-  const [gallery, setGallery] = useState<{ url: string; title: string | null; description: string | null; created: string }[]>([])
-  const [lightboxImg, setLightboxImg] = useState<string | null>(null)
+  const [gallery, setGallery] = useState<{ url: string; raw_url?: string; title: string | null; description: string | null; created: string }[]>([])
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [depNames, setDepNames] = useState<Record<string, string>>({})
   const [installingId, setInstallingId] = useState('')
   const [justInstalled, setJustInstalled] = useState<Set<string>>(new Set())
@@ -641,8 +641,15 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                     </button>
                   ))}
                 </div>
-                {lightboxImg && (
-                  <ZoomableImage src={lightboxImg} onClose={() => setLightboxImg(null)} />
+                {lightboxIdx !== null && gallery[lightboxIdx] && (
+                  <ZoomableImage
+                    src={gallery[lightboxIdx].raw_url ?? gallery[lightboxIdx].url}
+                    alt={gallery[lightboxIdx].title ?? undefined}
+                    onClose={() => setLightboxIdx(null)}
+                    onPrev={lightboxIdx > 0 ? () => setLightboxIdx(i => Math.max(0, (i ?? 1) - 1)) : undefined}
+                    onNext={lightboxIdx < gallery.length - 1 ? () => setLightboxIdx(i => Math.min(gallery.length - 1, (i ?? 0) + 1)) : undefined}
+                    counter={`${lightboxIdx + 1} / ${gallery.length}`}
+                  />
                 )}
                 <div className="flex-1 overflow-y-auto p-5">
                   {detailTab === 'desc' ? (
@@ -657,7 +664,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                   ) : detailTab === 'gallery' ? (
                     <div className="grid grid-cols-3 gap-3">
                       {gallery.map((img, i) => (
-                        <button key={i} onClick={() => setLightboxImg(img.url)}
+                        <button key={i} onClick={() => setLightboxIdx(i)}
                           className="group text-left bg-bg-card border border-border rounded-xl overflow-hidden hover:border-accent/40 transition-colors">
                           <div className="aspect-video overflow-hidden bg-bg-hover">
                             <img src={img.url} alt={img.title ?? ''} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" draggable={false} />

@@ -84,6 +84,7 @@ const api = {
     getDefaultIcon: () => ipcRenderer.invoke('instances:get-default-icon') as Promise<string | null>,
     pickIconPreview: () => ipcRenderer.invoke('instances:pick-icon-preview') as Promise<{ filePath: string; base64: string } | null>,
     applyPendingIcon: (instanceId: string, filePath: string) => ipcRenderer.invoke('instances:apply-pending-icon', instanceId, filePath) as Promise<void>,
+    setIconFromUrl: (instanceId: string, url: string) => ipcRenderer.invoke('instances:set-icon-from-url', instanceId, url) as Promise<void>,
     getSize: (instanceId: string) => ipcRenderer.invoke('instances:get-size', instanceId) as Promise<string>
   },
 
@@ -174,6 +175,8 @@ const api = {
       ipcRenderer.invoke('modrinth:get-projects', projectIds) as Promise<any[]>,
     getProjectVersion: (projectId: string, mcVersion: string, loader: string) =>
       ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader) as Promise<any | null>,
+    installMrpack: (instanceId: string, mrpackUrl: string) =>
+      ipcRenderer.invoke('modrinth:install-mrpack', instanceId, mrpackUrl) as Promise<void>,
   },
 
   // Settings

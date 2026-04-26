@@ -62,7 +62,7 @@ export async function searchMods(
   const facets: string[][] = [[`project_type:${projectType}`]]
   if (mcVersion && projectType === 'mod') facets.push([`versions:${mcVersion}`])
   else if (mcVersion) facets.push([`versions:${mcVersion}`])
-  if (loader && loader !== 'vanilla' && projectType === 'mod') facets.push([`categories:${loader}`])
+  if (loader) facets.push([`categories:${loader}`])
   for (const cat of categories) facets.push([`categories:${cat}`])
   if (environment === 'client') facets.push(['client_side:required', 'client_side:optional'])
   if (environment === 'server') facets.push(['server_side:required', 'server_side:optional'])

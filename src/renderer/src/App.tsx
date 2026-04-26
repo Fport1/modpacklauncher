@@ -12,6 +12,7 @@ import SettingsPage from './pages/SettingsPage'
 import SkinsPage from './pages/SkinsPage'
 import SkinEditorPage from './pages/SkinEditorPage'
 import StatusPage from './pages/StatusPage'
+import DiscoverPage from './pages/DiscoverPage'
 import { useStore } from './store'
 
 const AFK_THRESHOLD = 3 * 60 * 1000
@@ -212,6 +213,7 @@ export default function App() {
               <Route path="/skins" element={<SkinsPage />} />
               <Route path="/skin-editor" element={<SkinEditorPage />} />
               <Route path="/status" element={<StatusPage />} />
+              <Route path="/discover" element={<DiscoverPage />} />
             </Routes>
           </main>
         </div>

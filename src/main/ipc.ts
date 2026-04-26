@@ -27,6 +27,7 @@ import {
   listGameDirEntries,
   pickIconPreview,
   applyPendingIcon,
+  setInstanceIconFromUrl,
   openInstanceFolder,
   listMods,
   listWorlds,
@@ -66,7 +67,7 @@ import {
   getQuiltVersions,
   getNeoForgeVersions
 } from './launcher'
-import { fetchManifest, installModpack, updateModpack, compareVersions } from './modpacks'
+import { fetchManifest, installModpack, updateModpack, compareVersions, installMrpackFiles } from './modpacks'
 import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta } from './modrinth'
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
 
@@ -175,6 +176,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:get-default-icon', () => getDefaultIconBase64())
   ipcMain.handle('instances:pick-icon-preview', () => pickIconPreview(mainWindow))
   ipcMain.handle('instances:apply-pending-icon', (_e, instanceId: string, filePath: string) => applyPendingIcon(instanceId, filePath))
+  ipcMain.handle('instances:set-icon-from-url', (_e, instanceId: string, url: string) => setInstanceIconFromUrl(instanceId, url))
 
   ipcMain.handle('shell:open-external', async (_e, url: string) => {
     const { shell } = await import('electron')
@@ -366,6 +368,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:get-installed-mods-meta', (_e, instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[]) =>
     getInstalledModsMeta(instanceId, mcVersion, loader, subFolder, extensions)
   )
+
+  ipcMain.handle('modrinth:install-mrpack', async (_e, instanceId: string, mrpackUrl: string) => {
+    resetCancel()
+    try {
+      await installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => {
+        mainWindow.webContents.send('progress', { current, total, message, type: 'download' })
+      })
+      sendDone(mainWindow, '¡Modpack instalado!')
+    } catch (e) {
+      if (e instanceof CancelError) { sendDone(mainWindow); return }
+      throw e
+    }
+  })
 
   ipcMain.handle('modpacks:get-published', () => getPublishedModpacks())
   ipcMain.handle('modpacks:delete-published', (_e, id: string) => deletePublishedModpack(id))

@@ -86,6 +86,39 @@ export async function downloadAndInstall(
 
   onProgress(100)
 
-  spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
-  setTimeout(() => app.quit(), 500)
+  if (platform === 'win32') {
+    // NSIS installer: run and quit
+    spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
+    setTimeout(() => app.quit(), 500)
+  } else if (platform === 'linux') {
+    // AppImage needs execute permission before it can be launched
+    fs.chmodSync(dest, '755')
+    spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
+    setTimeout(() => app.quit(), 500)
+  } else if (platform === 'darwin') {
+    // Mount the DMG, copy the .app replacing the running one, relaunch
+    const appName = 'ModpackLauncher.app'
+    const mountPoint = path.join(os.tmpdir(), 'ModpackLauncherUpdate')
+    const currentAppPath = app.getAppPath().split('/Contents/')[0]
+    const applicationsPath = '/Applications/' + appName
+
+    // hdiutil attach mounts the DMG
+    spawn('hdiutil', ['attach', dest, '-mountpoint', mountPoint, '-nobrowse', '-quiet'], {
+      stdio: 'ignore'
+    }).on('close', () => {
+      const sourcePath = path.join(mountPoint, appName)
+      const targetPath = fs.existsSync(applicationsPath) ? applicationsPath : currentAppPath
+
+      // Remove quarantine from the new app, then replace atomically with ditto
+      spawn('xattr', ['-rd', 'com.apple.quarantine', sourcePath], { stdio: 'ignore' })
+        .on('close', () => {
+          spawn('ditto', [sourcePath, targetPath], { stdio: 'ignore' })
+            .on('close', () => {
+              spawn('hdiutil', ['detach', mountPoint, '-quiet'], { stdio: 'ignore' })
+              spawn('open', [targetPath], { detached: true, stdio: 'ignore' }).unref()
+              setTimeout(() => app.quit(), 1000)
+            })
+        })
+    })
+  }
 }
