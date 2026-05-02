@@ -693,6 +693,40 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     throw new Error('No se pudo descargar la skin')
   })
 
+  // ── Announcements ───────────────────────────────────────────────────────────
+
+  const ANNOUNCEMENTS_URL = 'https://raw.githubusercontent.com/Fport1/modpacklauncher/main/announcements.json'
+  let announcementsCache: { data: any; fetchedAt: number } | null = null
+
+  ipcMain.handle('announcements:fetch', async () => {
+    // Cache for 30 minutes per session
+    if (announcementsCache && Date.now() - announcementsCache.fetchedAt < 30 * 60 * 1000) {
+      return announcementsCache.data
+    }
+    try {
+      const axios = (await import('axios')).default
+      const res = await axios.get(ANNOUNCEMENTS_URL, { timeout: 8_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } })
+      announcementsCache = { data: res.data.announcements ?? [], fetchedAt: Date.now() }
+      return announcementsCache.data
+    } catch {
+      return announcementsCache?.data ?? []
+    }
+  })
+
+  ipcMain.handle('admin:publish-announcements', async (_e, announcements: any[]) => {
+    const settings = settingsStore.getAll()
+    const token = settings.githubToken
+    if (!token) throw new Error('No hay token de GitHub configurado en Ajustes')
+    const axiosLib = (await import('axios')).default
+    const headers = { Authorization: `Bearer ${token}`, 'User-Agent': 'ModpackLauncher/1.0', Accept: 'application/vnd.github+json' }
+    const apiUrl = 'https://api.github.com/repos/Fport1/modpacklauncher/contents/announcements.json'
+    const getRes = await axiosLib.get(apiUrl, { headers })
+    const sha: string = getRes.data.sha
+    const content = Buffer.from(JSON.stringify({ announcements }, null, 2) + '\n').toString('base64')
+    await axiosLib.put(apiUrl, { message: 'chore: update announcements', content, sha }, { headers })
+    announcementsCache = null
+  })
+
   // ── Status ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('status:check', async () => {

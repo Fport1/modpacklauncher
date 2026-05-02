@@ -265,6 +265,28 @@ const api = {
     getDefaults: () => ipcRenderer.invoke('skins:get-defaults') as Promise<{ name: string; model: 'classic' | 'slim'; data: string }[]>
   },
 
+  // Announcements
+  announcements: {
+    fetch: () => ipcRenderer.invoke('announcements:fetch') as Promise<{
+      id: string
+      type: 'update' | 'info' | 'warning' | 'event' | 'sponsor'
+      title: string
+      summary: string
+      date: string
+      imageUrl: string | null
+      linkUrl: string | null
+      linkLabel: string | null
+    }[]>
+  },
+
+  // Admin
+  admin: {
+    publishAnnouncements: (announcements: {
+      id: string; type: string; title: string; summary: string
+      date: string; imageUrl: string | null; linkUrl: string | null; linkLabel: string | null
+    }[]) => ipcRenderer.invoke('admin:publish-announcements', announcements) as Promise<void>
+  },
+
   // Status
   status: {
     check: () => ipcRenderer.invoke('status:check') as Promise<{ id: string; name: string; url: string; status: 'up' | 'down'; latency: number }[]>

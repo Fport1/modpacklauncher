@@ -1,0 +1,34 @@
+{
+  "announcements": [
+    {
+      "id": "sponsor-ejemplo",
+      "type": "sponsor",
+      "title": "¿Tu servidor aquí?",
+      "summary": "Llega a miles de jugadores que usan este launcher. Contáctanos para patrocinar.",
+      "date": "2026-05-01",
+      "imageUrl": null,
+      "linkUrl": "https://github.com/Fport1/modpacklauncher",
+      "linkLabel": "Contactar"
+    },
+    {
+      "id": "v1.4.5",
+      "type": "update",
+      "title": "Modpack Launcher v1.4.5",
+      "summary": "Panel de administración interno para gestionar anuncios y patrocinadores directamente desde el launcher.",
+      "date": "2026-05-01",
+      "imageUrl": null,
+      "linkUrl": "https://github.com/Fport1/modpacklauncher/releases/tag/v1.4.5",
+      "linkLabel": "Ver changelog"
+    },
+    {
+      "id": "welcome-open-beta",
+      "type": "info",
+      "title": "¡Bienvenido al launcher!",
+      "summary": "El launcher está en desarrollo activo. Si encuentras algún error o tienes sugerencias, puedes reportarlos directamente en GitHub.",
+      "date": "2026-04-15",
+      "imageUrl": null,
+      "linkUrl": "https://github.com/Fport1/modpacklauncher/issues",
+      "linkLabel": "Reportar un error"
+    }
+  ]
+}

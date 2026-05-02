@@ -47,8 +47,11 @@ const navItems = [
   }
 ]
 
+const OWNER = 'devora60'
+
 export default function Sidebar() {
   const account = useStore(activeAccount)
+  const isAdmin = account?.type === 'microsoft' && account.username.toLowerCase() === OWNER
 
   return (
     <aside className="w-52 flex flex-col bg-bg-secondary border-r border-border flex-shrink-0">
@@ -123,6 +126,26 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
+
+      {isAdmin && (
+        <div className="px-3 pb-1">
+          <NavLink
+            to="/admin"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+              }`
+            }
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
+            </svg>
+            Admin
+          </NavLink>
+        </div>
+      )}
 
       <div className="p-3 border-t border-border">
         {account ? (
