@@ -5,6 +5,7 @@ type AnnType = 'update' | 'info' | 'warning' | 'event' | 'sponsor'
 interface Announcement {
   id: string; type: AnnType; title: string; summary: string
   date: string; imageUrl: string | null; linkUrl: string | null; linkLabel: string | null
+  active?: boolean
 }
 
 const TYPE_OPTS: { value: AnnType; label: string; color: string }[] = [
@@ -236,7 +237,7 @@ export default function AdminPage() {
         <div className="space-y-2">
           {items.map((ann, idx) => (
             <div key={ann.id}>
-              <div className="flex items-center gap-3 bg-bg-card border border-border rounded-xl px-4 py-3 hover:border-border/60 transition-colors">
+              <div className={`flex items-center gap-3 border rounded-xl px-4 py-3 transition-colors ${ann.active === false ? 'bg-bg-primary border-border/40 opacity-60' : 'bg-bg-card border-border hover:border-border/60'}`}>
                 <div className="flex flex-col gap-0.5">
                   <button onClick={() => moveItem(idx, -1)} disabled={idx === 0}
                     className="text-text-muted hover:text-text-primary disabled:opacity-20 transition-colors leading-none">
@@ -252,8 +253,27 @@ export default function AdminPage() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-text-primary truncate">{ann.title}</p>
-                  <p className="text-xs text-text-muted truncate">{ann.id} · {ann.date}</p>
+                  <p className="text-xs text-text-muted truncate">
+                    {ann.id} · {ann.date}
+                    {ann.active === false && <span className="ml-2 text-amber-400/80">· oculto</span>}
+                  </p>
                 </div>
+                <button
+                  onClick={() => { setItems(prev => prev.map(a => a.id === ann.id ? { ...a, active: ann.active === false } : a)); setDirty(true) }}
+                  title={ann.active === false ? 'Mostrar' : 'Ocultar'}
+                  className={`p-1.5 transition-colors rounded-lg hover:bg-bg-hover ${ann.active === false ? 'text-amber-400 hover:text-amber-300' : 'text-text-muted hover:text-text-primary'}`}>
+                  {ann.active === false ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+                      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  )}
+                </button>
                 <button onClick={() => startEdit(ann)}
                   className="p-1.5 text-text-muted hover:text-text-primary transition-colors rounded-lg hover:bg-bg-hover">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

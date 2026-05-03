@@ -176,8 +176,9 @@ export default function HomePage() {
     setSeenIds(new Set(seen))
     window.api.announcements.fetch()
       .then(data => {
-        setSponsors(data.filter(a => a.type === 'sponsor'))
-        setNews(data.filter(a => a.type !== 'sponsor'))
+        const visible = data.filter((a: any) => a.active !== false)
+        setSponsors(visible.filter(a => a.type === 'sponsor'))
+        setNews(visible.filter(a => a.type !== 'sponsor'))
         setTimeout(() => {
           markSeen(data.map(a => a.id))
           setSeenIds(new Set(data.map(a => a.id)))
