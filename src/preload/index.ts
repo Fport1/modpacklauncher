@@ -284,7 +284,9 @@ const api = {
     publishAnnouncements: (announcements: {
       id: string; type: string; title: string; summary: string
       date: string; imageUrl: string | null; linkUrl: string | null; linkLabel: string | null
-    }[]) => ipcRenderer.invoke('admin:publish-announcements', announcements) as Promise<void>
+      active?: boolean
+    }[]) => ipcRenderer.invoke('admin:publish-announcements', announcements) as Promise<void>,
+    setVisibility: (id: string, active: boolean) => ipcRenderer.invoke('admin:set-visibility', id, active) as Promise<void>
   },
 
   // Status

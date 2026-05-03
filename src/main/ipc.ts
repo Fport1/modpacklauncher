@@ -697,20 +697,36 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   const ANNOUNCEMENTS_URL = 'https://raw.githubusercontent.com/Fport1/modpacklauncher/main/announcements.json'
   let announcementsCache: { data: any; fetchedAt: number } | null = null
+  const visibilityPath = path.join(app.getPath('userData'), 'announcement-visibility.json')
+
+  function readVisibility(): Record<string, boolean> {
+    try { return JSON.parse(fs.readFileSync(visibilityPath, 'utf-8')) } catch { return {} }
+  }
 
   ipcMain.handle('announcements:fetch', async () => {
-    // Cache for 30 minutes per session
     if (announcementsCache && Date.now() - announcementsCache.fetchedAt < 30 * 60 * 1000) {
-      return announcementsCache.data
+      return applyVisibility(announcementsCache.data)
     }
     try {
       const axios = (await import('axios')).default
       const res = await axios.get(ANNOUNCEMENTS_URL, { timeout: 8_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } })
       announcementsCache = { data: res.data.announcements ?? [], fetchedAt: Date.now() }
-      return announcementsCache.data
+      return applyVisibility(announcementsCache.data)
     } catch {
-      return announcementsCache?.data ?? []
+      return applyVisibility(announcementsCache?.data ?? [])
     }
+  })
+
+  function applyVisibility(data: any[]): any[] {
+    const overrides = readVisibility()
+    return data.map(a => Object.prototype.hasOwnProperty.call(overrides, a.id) ? { ...a, active: overrides[a.id] } : a)
+  }
+
+  ipcMain.handle('admin:set-visibility', (_e, id: string, active: boolean) => {
+    const overrides = readVisibility()
+    overrides[id] = active
+    fs.writeFileSync(visibilityPath, JSON.stringify(overrides, null, 2))
+    announcementsCache = null
   })
 
   ipcMain.handle('admin:publish-announcements', async (_e, announcements: any[]) => {
@@ -724,6 +740,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const sha: string = getRes.data.sha
     const content = Buffer.from(JSON.stringify({ announcements }, null, 2) + '\n').toString('base64')
     await axiosLib.put(apiUrl, { message: 'chore: update announcements', content, sha }, { headers })
+    // Sync local visibility overrides with published active flags
+    const overrides = readVisibility()
+    announcements.forEach(a => { overrides[a.id] = a.active !== false })
+    fs.writeFileSync(visibilityPath, JSON.stringify(overrides, null, 2))
     announcementsCache = null
   })
 

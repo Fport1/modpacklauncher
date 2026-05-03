@@ -259,7 +259,7 @@ export default function AdminPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => { setItems(prev => prev.map(a => a.id === ann.id ? { ...a, active: ann.active === false } : a)); setDirty(true) }}
+                  onClick={() => { const next = ann.active !== false ? false : true; setItems(prev => prev.map(a => a.id === ann.id ? { ...a, active: next } : a)); setDirty(true); window.api.admin.setVisibility(ann.id, next) }}
                   title={ann.active === false ? 'Mostrar' : 'Ocultar'}
                   className={`p-1.5 transition-colors rounded-lg hover:bg-bg-hover ${ann.active === false ? 'text-amber-400 hover:text-amber-300' : 'text-text-muted hover:text-text-primary'}`}>
                   {ann.active === false ? (
