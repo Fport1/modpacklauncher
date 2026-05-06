@@ -275,8 +275,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         }
       } catch (e) {
         if (e instanceof CancelError) { sendDone(mainWindow); return }
+        sendDone(mainWindow, 'Error al instalar')
         throw e
       }
+      sendDone(mainWindow, '¡Versión instalada!')
     }
   )
 

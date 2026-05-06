@@ -352,6 +352,7 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
   const [versions, setVersions]                 = useState<MVersion[]>([])
   const [versionsLoading, setVLoading]          = useState(false)
   const [installVTypeFilter, setInstallVType]   = useState('')
+  const [installMcFilter, setInstallMcFilter]   = useState('')
   const [worlds, setWorlds]                     = useState<World[]>([])
   const [worldsLoading, setWLoading]            = useState(false)
   const [errorMsg, setErrorMsg]                 = useState('')
@@ -413,14 +414,18 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
           modloader: loader as Instance['modloader'],
           createdAt: Date.now(),
         })
-        // Install mrpack first — it returns the exact modloader version from the mrpack manifest
+        // Install mrpack first — it returns the exact modloader+MC version from the mrpack manifest
         const meta = await window.api.modrinth.installMrpack(inst.id, primary.url)
         const modloaderVersion = meta?.modloaderVersion
-        // Update instance with the exact modloader version so the game launches correctly
-        if (modloaderVersion) {
-          await window.api.instances.update({ ...inst, modloaderVersion })
-        }
-        await window.api.launcher.installVersion(mc, loader !== 'vanilla' ? loader : undefined, modloaderVersion)
+        const mcActual   = meta?.minecraft ?? mc
+        const loaderActual = (meta?.modloader ?? loader) as Instance['modloader']
+        // Update instance with data from the mrpack manifest (may override what Modrinth API said)
+        const updates: Partial<typeof inst> = {}
+        if (modloaderVersion)             updates.modloaderVersion = modloaderVersion
+        if (mcActual !== mc)              updates.minecraft        = mcActual
+        if (loaderActual !== inst.modloader) updates.modloader     = loaderActual
+        if (Object.keys(updates).length)  await window.api.instances.update({ ...inst, ...updates })
+        await window.api.launcher.installVersion(mcActual, loaderActual !== 'vanilla' ? loaderActual : undefined, modloaderVersion)
         if (project.icon_url) {
           await window.api.instances.setIconFromUrl(inst.id, project.icon_url).catch(() => {})
         }
@@ -515,7 +520,7 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
                 <p className="text-sm text-text-muted text-center py-10">No hay versiones compatibles con esta instancia.</p>
               ) : (
                 <>
-                  <div className="flex gap-1 mb-2">
+                  <div className="flex gap-1 mb-1.5 flex-wrap">
                     {([['', 'Todos'], ['release', 'Release'], ['beta', 'Beta'], ['alpha', 'Alpha']] as [string, string][]).map(([val, label]) => (
                       <button key={val} onClick={() => setInstallVType(val)}
                         className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${installVTypeFilter === val ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
@@ -523,8 +528,28 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
                       </button>
                     ))}
                   </div>
+                  {(() => {
+                    const mcVersions = [...new Set(versions.flatMap(v => v.game_versions))].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).slice(0, 10)
+                    return mcVersions.length > 1 ? (
+                      <div className="flex gap-1 mb-2 flex-wrap">
+                        <button onClick={() => setInstallMcFilter('')}
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${!installMcFilter ? 'bg-green-600 text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
+                          MC: Todos
+                        </button>
+                        {mcVersions.map(mc => (
+                          <button key={mc} onClick={() => setInstallMcFilter(mc)}
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${installMcFilter === mc ? 'bg-green-600 text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
+                            {mc}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null
+                  })()}
                 <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
-                  {versions.filter(v => !installVTypeFilter || (v as any).version_type === installVTypeFilter).slice(0, 30).map(v => {
+                  {versions.filter(v =>
+                    (!installVTypeFilter || (v as any).version_type === installVTypeFilter) &&
+                    (!installMcFilter || v.game_versions.includes(installMcFilter))
+                  ).slice(0, 30).map(v => {
                     const pf = primaryFile(v)
                     const vt: string = (v as any).version_type ?? ''
                     return (
