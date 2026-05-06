@@ -214,19 +214,38 @@ function resolveVersionId(instance: Instance): string {
 export async function getAvailableVersions(): Promise<
   Array<{ id: string; type: string; releaseTime: string }>
 > {
-  const { getVersionList } = await import('@xmcl/installer')
-  const list = await getVersionList()
-  return list.versions
-    .filter((v) => v.type === 'release' || v.type === 'snapshot')
-    .map((v) => ({ id: v.id, type: v.type, releaseTime: v.releaseTime }))
+  const axios = (await import('axios')).default
+  const { data } = await axios.get(
+    'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json',
+    { timeout: 10_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+  )
+  return (data.versions as Array<{ id: string; type: string; releaseTime: string }>)
+    .filter(v => v.type === 'release' || v.type === 'snapshot')
 }
 
 export async function getForgeVersions(minecraft: string): Promise<string[]> {
-  const { getForgeVersionList } = await import('@xmcl/installer')
-  const list = await getForgeVersionList()
-  const versions = list[minecraft]
-  if (!Array.isArray(versions)) return []
-  return versions.map((v: { version: string }) => v.version)
+  const axios = (await import('axios')).default
+  try {
+    const { data } = await axios.get<string>(
+      'https://maven.minecraftforge.net/net/minecraftforge/forge/maven-metadata.xml',
+      { timeout: 10_000, responseType: 'text', headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+    )
+    const prefix = `${minecraft}-`
+    const versions: string[] = []
+    const regex = /<version>([^<]+)<\/version>/g
+    let match
+    while ((match = regex.exec(data)) !== null) {
+      const v = match[1]
+      if (!v.startsWith(prefix)) continue
+      let forgeVer = v.slice(prefix.length)
+      // Old format: 1.7.10-10.13.4.1614-1.7.10 → strip trailing -minecraft suffix
+      if (forgeVer.endsWith(`-${minecraft}`)) forgeVer = forgeVer.slice(0, forgeVer.length - minecraft.length - 1)
+      versions.push(forgeVer)
+    }
+    return versions.reverse()
+  } catch {
+    return []
+  }
 }
 
 export async function getFabricVersions(): Promise<Array<{ version: string; stable: boolean }>> {

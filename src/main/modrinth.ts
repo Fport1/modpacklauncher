@@ -27,6 +27,7 @@ export interface ModrinthVersion {
   id: string
   version_number: string
   name: string
+  version_type: 'release' | 'beta' | 'alpha'
   loaders: string[]
   game_versions: string[]
   date_published: string

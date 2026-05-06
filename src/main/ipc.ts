@@ -382,10 +382,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:install-mrpack', async (_e, instanceId: string, mrpackUrl: string) => {
     resetCancel()
     try {
-      await installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => {
+      const meta = await installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => {
         mainWindow.webContents.send('progress', { current, total, message, type: 'download' })
       })
       sendDone(mainWindow, '¡Modpack instalado!')
+      return meta
     } catch (e) {
       if (e instanceof CancelError) { sendDone(mainWindow); return }
       throw e

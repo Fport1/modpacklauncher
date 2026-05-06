@@ -351,6 +351,7 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
   const [instanceName, setInstanceName]         = useState(project.title)
   const [versions, setVersions]                 = useState<MVersion[]>([])
   const [versionsLoading, setVLoading]          = useState(false)
+  const [installVTypeFilter, setInstallVType]   = useState('')
   const [worlds, setWorlds]                     = useState<World[]>([])
   const [worldsLoading, setWLoading]            = useState(false)
   const [errorMsg, setErrorMsg]                 = useState('')
@@ -412,8 +413,14 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
           modloader: loader as Instance['modloader'],
           createdAt: Date.now(),
         })
-        await window.api.launcher.installVersion(mc, loader !== 'vanilla' ? loader : undefined)
-        await window.api.modrinth.installMrpack(inst.id, primary.url)
+        // Install mrpack first — it returns the exact modloader version from the mrpack manifest
+        const meta = await window.api.modrinth.installMrpack(inst.id, primary.url)
+        const modloaderVersion = meta?.modloaderVersion
+        // Update instance with the exact modloader version so the game launches correctly
+        if (modloaderVersion) {
+          await window.api.instances.update({ ...inst, modloaderVersion })
+        }
+        await window.api.launcher.installVersion(mc, loader !== 'vanilla' ? loader : undefined, modloaderVersion)
         if (project.icon_url) {
           await window.api.instances.setIconFromUrl(inst.id, project.icon_url).catch(() => {})
         }
@@ -507,14 +514,28 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
               ) : versions.length === 0 ? (
                 <p className="text-sm text-text-muted text-center py-10">No hay versiones compatibles con esta instancia.</p>
               ) : (
-                <div className="flex flex-col gap-2 max-h-80 overflow-y-auto">
-                  {versions.slice(0, 30).map(v => {
+                <>
+                  <div className="flex gap-1 mb-2">
+                    {([['', 'Todos'], ['release', 'Release'], ['beta', 'Beta'], ['alpha', 'Alpha']] as [string, string][]).map(([val, label]) => (
+                      <button key={val} onClick={() => setInstallVType(val)}
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${installVTypeFilter === val ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
+                  {versions.filter(v => !installVTypeFilter || (v as any).version_type === installVTypeFilter).slice(0, 30).map(v => {
                     const pf = primaryFile(v)
+                    const vt: string = (v as any).version_type ?? ''
                     return (
                       <button key={v.id} onClick={() => handleSelectVersion(v)}
                         className="flex items-center gap-3 p-3 bg-bg-card border border-border hover:border-accent/40 rounded-xl transition-colors text-left w-full">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
+                            {vt === 'beta' && <span className="text-[9px] px-1.5 py-px rounded-full bg-amber-500/20 text-amber-400 font-semibold flex-shrink-0">Beta</span>}
+                            {vt === 'alpha' && <span className="text-[9px] px-1.5 py-px rounded-full bg-red-500/20 text-red-400 font-semibold flex-shrink-0">Alpha</span>}
+                          </div>
                           <p className="text-[11px] text-text-muted">
                             MC {v.game_versions.slice(0, 3).join(', ')}
                             {v.loaders.length > 0 && ` · ${v.loaders.join(', ')}`}
@@ -531,6 +552,7 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
                     )
                   })}
                 </div>
+                </>
               )}
             </div>
           )}
@@ -682,6 +704,7 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
   const [lightboxIdx, setLightboxIdx]   = useState<number | null>(null)
   const [vMcFilter, setVMcFilter]       = useState('')
   const [vLoaderFilter, setVLoader]     = useState('')
+  const [vTypeFilter, setVTypeFilter]   = useState('')
   const bodyRef                         = useRef<HTMLDivElement>(null)
 
   function changeTab(t: DetailTab) {
@@ -695,6 +718,7 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
     setVersions([])
     setVMcFilter('')
     setVLoader('')
+    setVTypeFilter('')
     Promise.all([
       window.api.modrinth.getProject(project.project_id),
       window.api.modrinth.getVersions(project.project_id, '', '')
@@ -717,6 +741,7 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
   const filteredVersions = versions.filter(v => {
     if (vMcFilter && !v.game_versions.includes(vMcFilter)) return false
     if (vLoaderFilter && !v.loaders.includes(vLoaderFilter)) return false
+    if (vTypeFilter && (v as any).version_type !== vTypeFilter) return false
     return true
   })
 
@@ -883,9 +908,17 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
                     {availableLoaders.map(l => <option key={l} value={l}>{loaderLabel(l)}</option>)}
                   </select>
                 )}
-                {(vMcFilter || vLoaderFilter) && (
+                <div className="flex gap-1">
+                  {([['', 'Todos'], ['release', 'Release'], ['beta', 'Beta'], ['alpha', 'Alpha']] as [string, string][]).map(([val, label]) => (
+                    <button key={val} onClick={() => setVTypeFilter(val)}
+                      className={`text-[10px] px-2 py-1 rounded-full font-medium transition-colors ${vTypeFilter === val ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {(vMcFilter || vLoaderFilter || vTypeFilter) && (
                   <button
-                    onClick={() => { setVMcFilter(''); setVLoader('') }}
+                    onClick={() => { setVMcFilter(''); setVLoader(''); setVTypeFilter('') }}
                     className="text-xs text-accent hover:underline"
                   >
                     Limpiar
@@ -906,7 +939,11 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
                   return (
                     <div key={v.id} className="flex items-center gap-3 p-3 bg-bg-card border border-border hover:border-accent/30 rounded-xl transition-colors">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
+                          {(v as any).version_type === 'beta' && <span className="text-[9px] px-1.5 py-px rounded-full bg-amber-500/20 text-amber-400 font-semibold flex-shrink-0">Beta</span>}
+                          {(v as any).version_type === 'alpha' && <span className="text-[9px] px-1.5 py-px rounded-full bg-red-500/20 text-red-400 font-semibold flex-shrink-0">Alpha</span>}
+                        </div>
                         <p className="text-[11px] text-text-muted mt-0.5">
                           MC {v.game_versions.slice(0, 5).join(', ')}
                           {v.loaders.length > 0 && ` · ${v.loaders.map(loaderLabel).join(', ')}`}

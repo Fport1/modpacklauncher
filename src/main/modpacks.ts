@@ -541,13 +541,20 @@ export async function deletePublishedModpack(id: string): Promise<void> {
 
 // ── Modrinth .mrpack installer ─────────────────────────────────────────────
 
+export interface MrpackMeta {
+  minecraft?: string
+  modloader?: string
+  modloaderVersion?: string
+}
+
 export async function installMrpackFiles(
   instanceId: string,
   mrpackUrl: string,
   onProgress: ProgressCallback
-): Promise<void> {
+): Promise<MrpackMeta> {
   const gameDir = await getInstanceGameDir(instanceId)
   const tmpPath = path.join(os.tmpdir(), `mrpack-${Date.now()}.mrpack`)
+  let meta: MrpackMeta = {}
   try {
     onProgress(0, 10, 'Descargando paquete...')
     await downloadFile(mrpackUrl, tmpPath)
@@ -568,13 +575,25 @@ export async function installMrpackFiles(
     }
 
     const manifestEntry = zip.getEntry('modrinth.index.json')
-    if (!manifestEntry) return
+    if (!manifestEntry) return meta
 
     const manifest = JSON.parse(manifestEntry.getData().toString('utf-8')) as {
       files?: Array<{ path: string; downloads: string[] }>
+      dependencies?: Record<string, string>
     }
-    const files = manifest.files ?? []
 
+    // Extract modloader version from mrpack dependencies
+    const deps = manifest.dependencies ?? {}
+    meta.minecraft = deps['minecraft']
+    for (const [key, ver] of Object.entries(deps)) {
+      if (key === 'minecraft') continue
+      if (key === 'fabric-loader') { meta.modloader = 'fabric'; meta.modloaderVersion = ver }
+      else if (key === 'forge') { meta.modloader = 'forge'; meta.modloaderVersion = ver }
+      else if (key === 'quilt-loader') { meta.modloader = 'quilt'; meta.modloaderVersion = ver }
+      else if (key === 'neoforge') { meta.modloader = 'neoforge'; meta.modloaderVersion = ver }
+    }
+
+    const files = manifest.files ?? []
     for (let i = 0; i < files.length; i++) {
       checkCancel()
       const file = files[i]
@@ -590,6 +609,7 @@ export async function installMrpackFiles(
   } finally {
     await fs.remove(tmpPath).catch(() => {})
   }
+  return meta
 }
 
 export async function getLocalModList(instanceId: string): Promise<string[]> {

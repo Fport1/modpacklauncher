@@ -184,6 +184,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const [detailTab, setDetailTab] = useState<'desc' | 'versions' | 'gallery'>('desc')
   const [versions, setVersions] = useState<ModrinthVersion[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
+  const [vTypeFilter, setVTypeFilter] = useState('')
   const [gallery, setGallery] = useState<{ url: string; raw_url?: string; title: string | null; description: string | null; created: string }[]>([])
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [depNames, setDepNames] = useState<Record<string, string>>({})
@@ -697,8 +698,17 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                       ) : versions.length === 0 ? (
                         <div className="text-center py-8 text-text-muted text-sm">No hay versiones compatibles</div>
                       ) : (
-                        <div className="space-y-2">
-                          {versions.map(ver => {
+                        <>
+                          <div className="flex gap-1 mb-2">
+                            {([['', 'Todos'], ['release', 'Release'], ['beta', 'Beta'], ['alpha', 'Alpha']] as [string, string][]).map(([val, label]) => (
+                              <button key={val} onClick={() => setVTypeFilter(val)}
+                                className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${vTypeFilter === val ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="space-y-2">
+                          {versions.filter(v => !vTypeFilter || v.version_type === vTypeFilter).map(ver => {
                             const file = ver.files.find(f => f.primary) ?? ver.files[0]
                             const isInstalling = installingId === ver.id
                             const isJustInstalled = justInstalled.has(ver.id)
@@ -714,6 +724,8 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <p className="text-sm font-medium text-text-primary truncate">{ver.name || ver.version_number}</p>
                                       <span className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full flex-shrink-0">{ver.version_number}</span>
+                                      {ver.version_type === 'beta' && <span className="text-[10px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded-full flex-shrink-0 font-medium">Beta</span>}
+                                      {ver.version_type === 'alpha' && <span className="text-[10px] bg-red-500/15 text-red-400 px-1.5 py-0.5 rounded-full flex-shrink-0 font-medium">Alpha</span>}
                                       {isCurrentlyInstalled && <span className="text-[10px] bg-accent text-white px-1.5 py-0.5 rounded-full flex-shrink-0 font-medium">Instalada</span>}
                                     </div>
                                     {file && <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">{file.filename} · {formatSize(file.size)}</p>}
@@ -758,7 +770,8 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                               </div>
                             )
                           })}
-                        </div>
+                          </div>
+                        </>
                       )}
                       {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
                     </>

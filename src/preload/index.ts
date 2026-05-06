@@ -180,7 +180,7 @@ const api = {
     getProjectVersion: (projectId: string, mcVersion: string, loader: string) =>
       ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader) as Promise<any | null>,
     installMrpack: (instanceId: string, mrpackUrl: string) =>
-      ipcRenderer.invoke('modrinth:install-mrpack', instanceId, mrpackUrl) as Promise<void>,
+      ipcRenderer.invoke('modrinth:install-mrpack', instanceId, mrpackUrl) as Promise<{ modloader?: string; modloaderVersion?: string } | undefined>,
   },
 
   // Settings
