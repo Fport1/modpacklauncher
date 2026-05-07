@@ -18,6 +18,9 @@ export default function ProgressModal() {
     progressStartedAt: s.progressStartedAt
   }))
   const [now, setNow] = useState(Date.now())
+  const [cancelling, setCancelling] = useState(false)
+
+  useEffect(() => { if (!progress) setCancelling(false) }, [progress])
 
   useEffect(() => {
     if (!progress) return
@@ -55,14 +58,15 @@ export default function ProgressModal() {
             <path d="M21 12a9 9 0 00-9-9" />
           </svg>
           <span className="text-sm font-semibold text-text-primary">
-            {typeLabel[progress.type] ?? 'Procesando'}
+            {cancelling ? 'Cancelando...' : (typeLabel[progress.type] ?? 'Procesando')}
           </span>
         </div>
         <button
-          onClick={() => window.api.cancel()}
-          className="text-xs text-text-muted hover:text-red-400 transition-colors px-2 py-0.5 rounded border border-border/60 hover:border-red-500/50"
+          onClick={() => { setCancelling(true); window.api.cancel() }}
+          disabled={cancelling}
+          className={`text-xs px-2 py-0.5 rounded border transition-colors ${cancelling ? 'text-text-muted border-border/40 cursor-not-allowed opacity-50' : 'text-text-muted hover:text-red-400 border-border/60 hover:border-red-500/50'}`}
         >
-          Cancelar
+          {cancelling ? 'Cancelando...' : 'Cancelar'}
         </button>
       </div>
 

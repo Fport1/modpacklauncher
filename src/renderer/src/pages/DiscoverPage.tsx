@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
 import ZoomableImage from '../components/ZoomableImage'
 import type { Instance } from '../../../shared/types'
@@ -345,19 +346,32 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
     ? (isModpack ? 'naming' : 'instance')
     : (isModpack ? 'version' : 'instance')
 
+  const navigate = useNavigate()
+
   const [step, setStep]                         = useState<InstallStep>(initialStep)
   const [selectedInstance, setSelectedInstance] = useState<Instance | null>(null)
   const [selectedVersion, setSelectedVersion]   = useState<MVersion | null>(preselectedVersion ?? null)
   const [instanceName, setInstanceName]         = useState(project.title)
   const [versions, setVersions]                 = useState<MVersion[]>([])
+  const [allVersions, setAllVersions]           = useState<MVersion[]>([])
   const [versionsLoading, setVLoading]          = useState(false)
   const [installVTypeFilter, setInstallVType]   = useState('')
   const [installMcFilter, setInstallMcFilter]   = useState('')
   const [worlds, setWorlds]                     = useState<World[]>([])
   const [worldsLoading, setWLoading]            = useState(false)
   const [errorMsg, setErrorMsg]                 = useState('')
+  const [createdInstanceId, setCreatedInstanceId] = useState<string | null>(null)
 
-  useEffect(() => { if (isModpack && !preselectedVersion) loadVersions() }, [])
+  // For modpacks: load versions unfiltered; for mods/etc: load all versions for compatibility check
+  useEffect(() => {
+    if (isModpack && !preselectedVersion) {
+      loadVersions()
+    } else if (!isModpack) {
+      window.api.modrinth.getVersions(project.project_id, '', '').then(vs => {
+        setAllVersions((vs as MVersion[]).filter(v => v.files.length > 0))
+      }).catch(() => {})
+    }
+  }, [])
 
   async function loadVersions(inst?: Instance) {
     setVLoading(true)
@@ -369,6 +383,17 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
     } catch { setVersions([]) }
     finally  { setVLoading(false) }
   }
+
+  // Filter instances to only show compatible ones for the content type
+  const compatibleInstances = instances.filter(inst => {
+    if (contentType === 'resourcepack' || contentType === 'datapack') return true
+    if (contentType === 'mod' && inst.modloader === 'vanilla') return false
+    if (allVersions.length === 0) return true
+    return allVersions.some(v =>
+      v.game_versions.includes(inst.minecraft) &&
+      (contentType !== 'mod' || v.loaders.includes(inst.modloader))
+    )
+  })
 
   async function handleSelectInstance(inst: Instance) {
     setSelectedInstance(inst)
@@ -414,6 +439,7 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
           modloader: loader as Instance['modloader'],
           createdAt: Date.now(),
         })
+        setCreatedInstanceId(inst.id)
         // Install mrpack first — it returns the exact modloader+MC version from the mrpack manifest
         const meta = await window.api.modrinth.installMrpack(inst.id, primary.url)
         const modloaderVersion = meta?.modloaderVersion
@@ -474,9 +500,11 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
               <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest mb-3">Seleccionar instancia</p>
               {instances.length === 0 ? (
                 <p className="text-sm text-text-muted text-center py-10">No tienes instancias creadas. Crea una primero.</p>
+              ) : compatibleInstances.length === 0 ? (
+                <p className="text-sm text-text-muted text-center py-10">Ninguna instancia compatible. Necesitas una instancia con el modloader y versión MC correctos.</p>
               ) : (
                 <div className="flex flex-col gap-2">
-                  {instances.map(inst => (
+                  {compatibleInstances.map(inst => (
                     <button key={inst.id} onClick={() => handleSelectInstance(inst)}
                       className="flex items-center gap-3 p-3 bg-bg-card border border-border hover:border-accent/40 rounded-xl transition-colors text-left w-full">
                       <div className="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center flex-shrink-0">
@@ -520,36 +548,32 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
                 <p className="text-sm text-text-muted text-center py-10">No hay versiones compatibles con esta instancia.</p>
               ) : (
                 <>
-                  <div className="flex gap-1 mb-1.5 flex-wrap">
-                    {([['', 'Todos'], ['release', 'Release'], ['beta', 'Beta'], ['alpha', 'Alpha']] as [string, string][]).map(([val, label]) => (
-                      <button key={val} onClick={() => setInstallVType(val)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${installVTypeFilter === val ? 'bg-accent text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
-                        {label}
-                      </button>
-                    ))}
-                  </div>
                   {(() => {
-                    const mcVersions = [...new Set(versions.flatMap(v => v.game_versions))].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })).slice(0, 10)
-                    return mcVersions.length > 1 ? (
-                      <div className="flex gap-1 mb-2 flex-wrap">
-                        <button onClick={() => setInstallMcFilter('')}
-                          className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${!installMcFilter ? 'bg-green-600 text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
-                          MC: Todos
-                        </button>
-                        {mcVersions.map(mc => (
-                          <button key={mc} onClick={() => setInstallMcFilter(mc)}
-                            className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${installMcFilter === mc ? 'bg-green-600 text-white' : 'bg-bg-hover text-text-muted hover:text-text-primary'}`}>
-                            {mc}
-                          </button>
-                        ))}
+                    const mcVersions = [...new Set(versions.flatMap(v => v.game_versions))].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+                    return (
+                      <div className="flex gap-2 mb-2 flex-wrap items-center">
+                        {mcVersions.length > 1 && (
+                          <select value={installMcFilter} onChange={e => setInstallMcFilter(e.target.value)}
+                            className="bg-bg-card border border-border rounded-lg px-2 py-1 text-xs text-text-secondary outline-none cursor-pointer hover:border-accent/40 transition-colors">
+                            <option value="">Todas las versiones MC</option>
+                            {mcVersions.map(mc => <option key={mc} value={mc}>{mc}</option>)}
+                          </select>
+                        )}
+                        <select value={installVTypeFilter} onChange={e => setInstallVType(e.target.value)}
+                          className="bg-bg-card border border-border rounded-lg px-2 py-1 text-xs text-text-secondary outline-none cursor-pointer hover:border-accent/40 transition-colors">
+                          <option value="">Todos (Release/Beta/Alpha)</option>
+                          <option value="release">Release</option>
+                          <option value="beta">Beta</option>
+                          <option value="alpha">Alpha</option>
+                        </select>
                       </div>
-                    ) : null
+                    )
                   })()}
                 <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
                   {versions.filter(v =>
                     (!installVTypeFilter || (v as any).version_type === installVTypeFilter) &&
                     (!installMcFilter || v.game_versions.includes(installMcFilter))
-                  ).slice(0, 30).map(v => {
+                  ).slice(0, 50).map(v => {
                     const pf = primaryFile(v)
                     const vt: string = (v as any).version_type ?? ''
                     return (
@@ -668,10 +692,19 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
                 </svg>
               </div>
               <p className="text-sm font-semibold text-text-primary">¡Instalado correctamente!</p>
-              <button onClick={onClose}
-                className="px-6 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm transition-colors">
-                Cerrar
-              </button>
+              <div className="flex gap-2">
+                {isModpack && createdInstanceId && (
+                  <button onClick={() => { onClose(); navigate('/instances') }}
+                    className="flex items-center gap-1.5 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    Ir a jugar
+                  </button>
+                )}
+                <button onClick={onClose}
+                  className="px-5 py-2 border border-border hover:border-accent/40 text-text-secondary rounded-lg text-sm transition-colors">
+                  Cerrar
+                </button>
+              </div>
             </div>
           )}
 
@@ -725,16 +758,25 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
   const [detail, setDetail]             = useState<any>(null)
   const [versions, setVersions]         = useState<MVersion[]>([])
   const [loading, setLoading]           = useState(true)
+  const [versionsLoading, setVersLoading] = useState(false)
   const [imgErr, setImgErr]             = useState(false)
   const [lightboxIdx, setLightboxIdx]   = useState<number | null>(null)
   const [vMcFilter, setVMcFilter]       = useState('')
   const [vLoaderFilter, setVLoader]     = useState('')
   const [vTypeFilter, setVTypeFilter]   = useState('')
   const bodyRef                         = useRef<HTMLDivElement>(null)
+  const versionsLoadedRef               = useRef(false)
 
   function changeTab(t: DetailTab) {
     setTab(t)
     bodyRef.current?.scrollTo({ top: 0 })
+    if (t === 'versions' && !versionsLoadedRef.current) {
+      versionsLoadedRef.current = true
+      setVersLoading(true)
+      window.api.modrinth.getVersions(project.project_id, '', '').then(vs => {
+        setVersions((vs as MVersion[]).filter(v => v.files.length > 0))
+      }).catch(() => {}).finally(() => setVersLoading(false))
+    }
   }
 
   useEffect(() => {
@@ -744,13 +786,11 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
     setVMcFilter('')
     setVLoader('')
     setVTypeFilter('')
-    Promise.all([
-      window.api.modrinth.getProject(project.project_id),
-      window.api.modrinth.getVersions(project.project_id, '', '')
-    ]).then(([d, vs]) => {
-      setDetail(d)
-      setVersions((vs as MVersion[]).filter(v => v.files.length > 0))
-    }).catch(() => {}).finally(() => setLoading(false))
+    versionsLoadedRef.current = false
+    window.api.modrinth.getProject(project.project_id)
+      .then(d => setDetail(d))
+      .catch(() => {})
+      .finally(() => setLoading(false))
   }, [project.project_id])
 
   const bodyHtml = detail?.body ? String(marked.parse(detail.body)) : ''
@@ -912,8 +952,14 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
         {/* Versions */}
         {!loading && tab === 'versions' && (
           <div className="px-6 py-4">
+            {versionsLoading && (
+              <div className="flex items-center justify-center gap-2 py-16 text-text-muted text-sm">
+                <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+                Cargando versiones...
+              </div>
+            )}
             {/* Filters */}
-            {versions.length > 0 && (
+            {!versionsLoading && versions.length > 0 && (
               <div className="flex gap-2 mb-4">
                 <select
                   value={vMcFilter}
@@ -955,7 +1001,7 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
               </div>
             )}
 
-            <div className="flex flex-col gap-2">
+            {!versionsLoading && <div className="flex flex-col gap-2">
               {filteredVersions.length === 0 ? (
                 <p className="text-sm text-text-muted text-center py-12">No hay versiones para estos filtros.</p>
               ) : (
@@ -991,7 +1037,7 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
                   )
                 })
               )}
-            </div>
+            </div>}
           </div>
         )}
       </div>
