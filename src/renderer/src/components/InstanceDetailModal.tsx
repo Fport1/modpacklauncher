@@ -511,6 +511,11 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [ctx, setCtx] = useState<CtxState | null>(null)
+  const [iconSrc, setIconSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.api.instances.getIcon(instance.id).then(setIconSrc).catch(() => setIconSrc(null))
+  }, [instance.id, instance.icon])
 
   const gameLogs = useStore(s => s.gameLogs[instance.id] ?? [])
   const isRunning = useStore(s => s.runningInstances.has(instance.id))
@@ -1007,11 +1012,14 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 flex-shrink-0">
-          <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
-              <rect x="2" y="3" width="20" height="14" rx="2" />
-              <line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-            </svg>
+          <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+            {iconSrc
+              ? <img src={iconSrc} alt="" className="w-full h-full object-cover" draggable={false} />
+              : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
+                  <rect x="2" y="3" width="20" height="14" rx="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
+            }
           </div>
           <div className="flex-1 overflow-hidden">
             <h2 className="font-semibold text-text-primary truncate">{instance.name}</h2>
