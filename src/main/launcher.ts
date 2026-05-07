@@ -56,13 +56,44 @@ export async function installModloader(
     onProgress?.(2, 2, 'Forge instalado!')
   } else if (instance.modloader === 'fabric' && instance.modloaderVersion) {
     onProgress?.(0, 2, 'Instalando Fabric...')
-    const { installFabric } = await import('@xmcl/installer')
-    await installFabric({ minecraftVersion: instance.minecraft, version: instance.modloaderVersion, minecraft: sharedDir })
+    const versionId = `fabric-loader-${instance.modloaderVersion}-${instance.minecraft}`
+    const destJson  = path.join(sharedDir, 'versions', versionId, `${versionId}.json`)
+    // Try @xmcl/installer first; some newer MC versions cause it to fail silently or use a different id
+    try {
+      const { installFabric } = await import('@xmcl/installer')
+      await installFabric({ minecraftVersion: instance.minecraft, version: instance.modloaderVersion, minecraft: sharedDir })
+    } catch { /* fall through to direct download */ }
+    // Fallback: download profile JSON directly from Fabric meta API if the file still doesn't exist
+    if (!(await fs.pathExists(destJson))) {
+      const axios = (await import('axios')).default
+      const { data } = await axios.get(
+        `https://meta.fabricmc.net/v2/versions/loader/${instance.minecraft}/${instance.modloaderVersion}/profile/json`,
+        { timeout: 20_000 }
+      )
+      // Ensure id matches our expected versionId so Version.parse can resolve it
+      data.id = versionId
+      await fs.ensureDir(path.dirname(destJson))
+      await fs.writeJson(destJson, data, { spaces: 2 })
+    }
     onProgress?.(2, 2, 'Fabric instalado!')
   } else if (instance.modloader === 'quilt' && instance.modloaderVersion) {
     onProgress?.(0, 2, 'Instalando Quilt...')
-    const { installQuiltVersion } = await import('@xmcl/installer')
-    await installQuiltVersion({ minecraftVersion: instance.minecraft, version: instance.modloaderVersion, minecraft: sharedDir })
+    const qVersionId = `quilt-loader-${instance.modloaderVersion}-${instance.minecraft}`
+    const qDestJson  = path.join(sharedDir, 'versions', qVersionId, `${qVersionId}.json`)
+    try {
+      const { installQuiltVersion } = await import('@xmcl/installer')
+      await installQuiltVersion({ minecraftVersion: instance.minecraft, version: instance.modloaderVersion, minecraft: sharedDir })
+    } catch { /* fall through to direct download */ }
+    if (!(await fs.pathExists(qDestJson))) {
+      const axios = (await import('axios')).default
+      const { data } = await axios.get(
+        `https://meta.quiltmc.org/v3/versions/loader/${instance.minecraft}/${instance.modloaderVersion}/profile/json`,
+        { timeout: 20_000 }
+      )
+      data.id = qVersionId
+      await fs.ensureDir(path.dirname(qDestJson))
+      await fs.writeJson(qDestJson, data, { spaces: 2 })
+    }
     onProgress?.(2, 2, 'Quilt instalado!')
   } else if (instance.modloader === 'neoforge' && instance.modloaderVersion) {
     onProgress?.(0, 2, 'Instalando NeoForge...')
