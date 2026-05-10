@@ -266,6 +266,41 @@ export default function InstancesPage() {
   const [loadingLoader, setLoadingLoader] = useState(false)
   const loaderFetchKey = useRef(0)
 
+  const [displays, setDisplays] = useState<{ id: number; label: string; bounds: { x: number; y: number; width: number; height: number }; isPrimary: boolean }[]>([])
+
+  // Local groups (from localStorage, merged with groups from instances)
+  const [localGroups, setLocalGroups] = useState<{ name: string; color: string }[]>(() => {
+    try { return JSON.parse(localStorage.getItem('ml-groups') ?? '[]') } catch { return [] }
+  })
+  const [showGroupModal, setShowGroupModal] = useState(false)
+  const [groupModalName, setGroupModalName] = useState('')
+  const [groupModalColor, setGroupModalColor] = useState('#6366f1')
+
+  function saveLocalGroups(groups: { name: string; color: string }[]) {
+    setLocalGroups(groups)
+    localStorage.setItem('ml-groups', JSON.stringify(groups))
+  }
+
+  function addLocalGroup() {
+    const name = groupModalName.trim()
+    if (!name) return
+    if (!localGroups.find(g => g.name === name)) {
+      saveLocalGroups([...localGroups, { name, color: groupModalColor }])
+    }
+    setGroupModalName('')
+    setGroupModalColor('#6366f1')
+    setShowGroupModal(false)
+  }
+
+  function deleteLocalGroup(name: string) {
+    saveLocalGroups(localGroups.filter(g => g.name !== name))
+  }
+
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([])
+  function toggleGroup(key: string) {
+    setCollapsedGroups(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
+  }
+
   const [form, setForm] = useState({
     name: '',
     minecraft: '1.20.1',
@@ -277,7 +312,11 @@ export default function InstancesPage() {
     javaPath: '',
     width: 0,
     height: 0,
-    resPreset: 0
+    resPreset: 0,
+    jvmArgs: '',
+    displayId: 0,
+    group: '',
+    groupColor: ''
   })
   const [pendingIcon, setPendingIcon] = useState<{ filePath: string; base64: string } | null>(null)
   const [formIconBase64, setFormIconBase64] = useState<string | null>(null)
@@ -297,6 +336,7 @@ export default function InstancesPage() {
     window.api.instances.list().then(setInstances)
     window.api.system.getRam().then(setSystemRam)
     window.api.instances.getDefaultIcon().then(setDefaultIconBase64).catch(() => {})
+    window.api.system.getDisplays().then(setDisplays).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -357,7 +397,7 @@ export default function InstancesPage() {
   }
 
   function openManual() {
-    setForm({ name: '', minecraft: mcVersions[0]?.id ?? '1.20.1', modloader: 'vanilla', modloaderVersion: '', description: '', maxMemory: 4096, minMemory: 512, javaPath: '', width: 0, height: 0, resPreset: 0 })
+    setForm({ name: '', minecraft: mcVersions[0]?.id ?? '1.20.1', modloader: 'vanilla', modloaderVersion: '', description: '', maxMemory: 4096, minMemory: 512, javaPath: '', width: 0, height: 0, resPreset: 0, jvmArgs: '', displayId: 0, group: '', groupColor: '' })
     setPendingIcon(null)
     setFormIconBase64(null)
     setFormError('')
@@ -383,7 +423,11 @@ export default function InstancesPage() {
       javaPath: inst.javaPath ?? '',
       width: w,
       height: h,
-      resPreset
+      resPreset,
+      jvmArgs: inst.jvmArgs ?? '',
+      displayId: inst.displayId ?? 0,
+      group: inst.group ?? '',
+      groupColor: inst.groupColor ?? ''
     })
     setPendingIcon(null)
     setFormIconBase64(null)
@@ -485,7 +529,11 @@ export default function InstancesPage() {
           minMemory: form.minMemory,
           javaPath: form.javaPath.trim() || undefined,
           width: res.width,
-          height: res.height
+          height: res.height,
+          jvmArgs: form.jvmArgs.trim() || undefined,
+          displayId: form.displayId || undefined,
+          group: form.group.trim() || undefined,
+          groupColor: form.groupColor.trim() || undefined
         }
         await window.api.instances.update(updated)
         if (pendingIcon) {
@@ -505,7 +553,11 @@ export default function InstancesPage() {
           minMemory: form.minMemory,
           javaPath: form.javaPath.trim() || undefined,
           width: res.width,
-          height: res.height
+          height: res.height,
+          jvmArgs: form.jvmArgs.trim() || undefined,
+          displayId: form.displayId || undefined,
+          group: form.group.trim() || undefined,
+          groupColor: form.groupColor.trim() || undefined
         })
         if (pendingIcon) {
           await window.api.instances.applyPendingIcon(inst.id, pendingIcon.filePath)
@@ -585,22 +637,40 @@ export default function InstancesPage() {
   }
 
   const visibleMcVersions = mcVersions.filter(v => showSnapshots || v.type === 'release')
-
   const customRes = form.resPreset === 3
+
+  const allKnownGroups = [
+    ...localGroups,
+    ...instances
+      .filter(i => i.group && !localGroups.find(g => g.name === i.group))
+      .map(i => ({ name: i.group!, color: i.groupColor || '#6366f1' }))
+  ]
 
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-text-primary">Instancias</h1>
-        <button
-          onClick={openChoose}
-          className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          Nueva Instancia
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowGroupModal(true)}
+            className="flex items-center gap-2 px-3 py-2 border border-border text-text-secondary hover:text-text-primary hover:border-border/80 text-sm font-medium rounded-lg transition-colors"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+            </svg>
+            Crear Grupo
+          </button>
+          <button
+            onClick={openChoose}
+            className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Nueva Instancia
+          </button>
+        </div>
       </div>
 
       {instances.length === 0 ? (
@@ -610,26 +680,95 @@ export default function InstancesPage() {
             Crear Instancia
           </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
-          {instances.map(inst => (
-            <InstanceCard
-              key={inst.id} instance={inst}
-              onPlay={() => handlePlay(inst.id)}
-              onKill={() => window.api.launcher.kill(inst.id)}
-              onEdit={() => openEdit(inst)}
-              onDelete={() => handleDelete(inst.id)}
-              onOpenFolder={() => window.api.instances.openFolder(inst.id)}
-              onDetails={() => setDetailInstance(inst)}
-              onExport={() => setExportInstance(inst)}
-              onDuplicate={() => setDuplicateSource(inst)}
-              onChangeIcon={() => setIconPickInstance(inst)}
-              isLaunching={launching === inst.id}
-              isRunning={runningInstances.has(inst.id)}
-            />
-          ))}
-        </div>
-      )}
+      ) : (() => {
+        // Merge localGroups (including empty ones) with groups derived from instances
+        const groupMap = new Map<string, { group: string; color: string; items: typeof instances }>()
+        for (const g of localGroups) {
+          groupMap.set(g.name, { group: g.name, color: g.color, items: [] })
+        }
+        const ungrouped: typeof instances = []
+        for (const inst of instances) {
+          if (inst.group) {
+            if (!groupMap.has(inst.group)) {
+              groupMap.set(inst.group, { group: inst.group, color: inst.groupColor || '#6366f1', items: [] })
+            }
+            groupMap.get(inst.group)!.items.push(inst)
+          } else {
+            ungrouped.push(inst)
+          }
+        }
+        const grouped = [...groupMap.values()]
+        const renderCards = (list: typeof instances) => (
+          <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+            {list.map(inst => (
+              <InstanceCard
+                key={inst.id} instance={inst}
+                onPlay={() => handlePlay(inst.id)}
+                onKill={() => window.api.launcher.kill(inst.id)}
+                onEdit={() => openEdit(inst)}
+                onDelete={() => handleDelete(inst.id)}
+                onOpenFolder={() => window.api.instances.openFolder(inst.id)}
+                onDetails={() => setDetailInstance(inst)}
+                onExport={() => setExportInstance(inst)}
+                onDuplicate={() => setDuplicateSource(inst)}
+                onChangeIcon={() => setIconPickInstance(inst)}
+                isLaunching={launching === inst.id}
+                isRunning={runningInstances.has(inst.id)}
+              />
+            ))}
+          </div>
+        )
+        const showUngroupedHeader = grouped.length > 0 || localGroups.length > 0
+        const ungroupedCollapsed = collapsedGroups.includes('__ungrouped__')
+        return (
+          <div className="space-y-6">
+            {grouped.map(g => {
+              const isCollapsed = collapsedGroups.includes(g.group)
+              return (
+                <div key={g.group}>
+                  <button
+                    onClick={() => toggleGroup(g.group)}
+                    className="flex items-center gap-2 mb-3 w-full text-left group/hdr"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                      className={`text-text-muted transition-transform flex-shrink-0 ${isCollapsed ? '-rotate-90' : ''}`}>
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: g.color }} />
+                    <span className="text-sm font-semibold text-text-primary group-hover/hdr:text-accent transition-colors">{g.group}</span>
+                    <span className="text-xs text-text-muted">({g.items.length})</span>
+                    <div className="flex-1 h-px bg-border/40" />
+                  </button>
+                  {!isCollapsed && renderCards(g.items)}
+                </div>
+              )
+            })}
+            {ungrouped.length > 0 && (
+              <div>
+                {showUngroupedHeader ? (
+                  <>
+                    <button
+                      onClick={() => toggleGroup('__ungrouped__')}
+                      className="flex items-center gap-2 mb-3 w-full text-left group/hdr"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                        className={`text-text-muted transition-transform flex-shrink-0 ${ungroupedCollapsed ? '-rotate-90' : ''}`}>
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                      <span className="text-sm font-semibold text-text-muted group-hover/hdr:text-text-primary transition-colors">Sin grupo</span>
+                      <span className="text-xs text-text-muted">({ungrouped.length})</span>
+                      <div className="flex-1 h-px bg-border/40" />
+                    </button>
+                    {!ungroupedCollapsed && renderCards(ungrouped)}
+                  </>
+                ) : (
+                  renderCards(ungrouped)
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* ── Instance detail modal ── */}
       {detailInstance && (
@@ -683,6 +822,76 @@ export default function InstancesPage() {
           onClose={() => setShowFormIconPicker(false)}
           onPreviewPick={icon => { setPendingIcon(icon); setShowFormIconPicker(false) }}
         />
+      )}
+
+      {/* ── Create group modal ── */}
+      {showGroupModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+          <div className="relative bg-bg-secondary border border-border rounded-2xl p-6 w-[420px] shadow-2xl">
+            <CloseBtn onClick={() => { setShowGroupModal(false); setGroupModalName(''); setGroupModalColor('#6366f1') }} />
+            <h2 className="text-base font-bold text-text-primary mb-1">Crear Grupo</h2>
+            <p className="text-xs text-text-muted mb-4">Los grupos te permiten organizar tus instancias.</p>
+
+            <label className="block text-xs text-text-muted mb-1.5">Nombre del grupo</label>
+            <div className="flex gap-2 mb-4">
+              <input
+                type="text"
+                value={groupModalName}
+                onChange={e => setGroupModalName(e.target.value)}
+                placeholder="Ej: Survival, Modded, Testing…"
+                className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                autoFocus
+                onKeyDown={e => e.key === 'Enter' && groupModalName.trim() && addLocalGroup()}
+              />
+              <input
+                type="color"
+                value={groupModalColor}
+                onChange={e => setGroupModalColor(e.target.value)}
+                title="Color del grupo"
+                className="w-10 h-9 p-0.5 bg-bg-primary border border-border rounded-lg cursor-pointer"
+              />
+            </div>
+
+            {localGroups.length > 0 && (
+              <>
+                <p className="text-xs text-text-muted mb-2">Grupos existentes</p>
+                <div className="space-y-1 mb-4 max-h-40 overflow-y-auto">
+                  {localGroups.map(g => (
+                    <div key={g.name} className="flex items-center gap-2 px-3 py-2 bg-bg-card border border-border rounded-lg">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: g.color }} />
+                      <span className="flex-1 text-sm text-text-primary truncate">{g.name}</span>
+                      <button
+                        onClick={() => deleteLocalGroup(g.name)}
+                        title="Eliminar grupo"
+                        className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowGroupModal(false); setGroupModalName(''); setGroupModalColor('#6366f1') }}
+                className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors"
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={addLocalGroup}
+                disabled={!groupModalName.trim()}
+                className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Crear
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Create/Edit modal overlay ── */}
@@ -1007,6 +1216,85 @@ export default function InstancesPage() {
                   <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
                     rows={2}
                     className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent resize-none" />
+                </div>
+
+                {/* JVM Arguments */}
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">
+                    Argumentos JVM <span className="text-text-muted/60">(opcional, uno por línea)</span>
+                  </label>
+                  <textarea
+                    value={form.jvmArgs}
+                    onChange={e => setForm({ ...form, jvmArgs: e.target.value })}
+                    rows={3}
+                    spellCheck={false}
+                    placeholder={'-XX:+UseG1GC\n-XX:MaxGCPauseMillis=50\n-Dfml.readTimeout=90'}
+                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-xs font-mono text-text-primary focus:outline-none focus:border-accent resize-none placeholder:text-text-muted/40"
+                  />
+                </div>
+
+                {/* Display selector */}
+                {displays.length > 1 && (
+                  <div>
+                    <label className="block text-xs text-text-muted mb-1.5">Pantalla <span className="text-text-muted/60">(opcional)</span></label>
+                    <select
+                      value={form.displayId}
+                      onChange={e => setForm({ ...form, displayId: Number(e.target.value) })}
+                      className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                    >
+                      <option value={0}>Por defecto</option>
+                      {displays.map(d => (
+                        <option key={d.id} value={d.id}>
+                          {d.label || `Pantalla ${d.id}`} — {d.bounds.width}×{d.bounds.height}{d.isPrimary ? ' (principal)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Group */}
+                <div>
+                  <label className="block text-xs text-text-muted mb-1.5">Grupo <span className="text-text-muted/60">(opcional)</span></label>
+                  {allKnownGroups.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={form.group}
+                        onChange={e => {
+                          const g = allKnownGroups.find(g => g.name === e.target.value)
+                          setForm({ ...form, group: e.target.value, groupColor: g?.color || form.groupColor || '#6366f1' })
+                        }}
+                        className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                      >
+                        <option value="">Sin grupo</option>
+                        {allKnownGroups.map(g => (
+                          <option key={g.name} value={g.name}>{g.name}</option>
+                        ))}
+                      </select>
+                      {form.group && (
+                        <div
+                          className="w-4 h-4 rounded-full flex-shrink-0 border border-border"
+                          style={{ background: allKnownGroups.find(g => g.name === form.group)?.color || '#6366f1' }}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={form.group}
+                        onChange={e => setForm({ ...form, group: e.target.value })}
+                        placeholder="Ej: Survival, Modded, Testing…"
+                        className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                      />
+                      <input
+                        type="color"
+                        value={form.groupColor || '#6366f1'}
+                        onChange={e => setForm({ ...form, groupColor: e.target.value })}
+                        title="Color del grupo"
+                        className="w-10 h-9 p-0.5 bg-bg-primary border border-border rounded-lg cursor-pointer"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 

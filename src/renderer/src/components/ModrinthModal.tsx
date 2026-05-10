@@ -190,7 +190,9 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const [depNames, setDepNames] = useState<Record<string, string>>({})
   const [installingId, setInstallingId] = useState('')
   const [justInstalled, setJustInstalled] = useState<Set<string>>(new Set())
+  const [quickInstallingId, setQuickInstallingId] = useState('')
   const [error, setError] = useState('')
+  const [installChannel, setInstallChannel] = useState<'all' | 'stable'>('all')
 
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const LIMIT = 20
@@ -208,6 +210,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     window.api.modrinth.getInstalledIds(instance.id, folder, exts).then(ids => {
       setInstalledIds(new Set(ids))
     }).catch(() => {}).finally(() => setLoadingInstalled(false))
+    window.api.settings.get().then(s => setInstallChannel(s.modInstallChannel ?? 'all')).catch(() => {})
     doSearch('', 'relevance', new Set(), new Set(), 'any', 0, 0)
     return () => { nav.clearFrom(baseSize) }
   }, [])
@@ -287,7 +290,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     try {
       const [proj, vers] = await Promise.all([
         window.api.modrinth.getProject(mod.project_id).catch(() => null),
-        window.api.modrinth.getVersions(mod.project_id, instance.minecraft, instance.modloader).catch(() => [] as ModrinthVersion[])
+        window.api.modrinth.getVersions(mod.project_id, instance.minecraft, instance.modloader, installChannel).catch(() => [] as ModrinthVersion[])
       ])
       if (proj) {
         setProjectBody((proj as any).body ?? null)
@@ -366,6 +369,21 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
       setError(e instanceof Error ? e.message : 'Error al instalar')
     } finally {
       setInstallingId('')
+    }
+  }
+
+  async function quickInstall(hit: ModrinthHit) {
+    if (quickInstallingId || installingId) return
+    setQuickInstallingId(hit.project_id)
+    setError('')
+    try {
+      const version = await window.api.modrinth.getProjectVersion(hit.project_id, instance.minecraft, instance.modloader, installChannel)
+      if (!version) { setError(`No hay versión compatible con MC ${instance.minecraft}`); return }
+      await installVersion(version)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al instalar')
+    } finally {
+      setQuickInstallingId('')
     }
   }
 
@@ -530,45 +548,66 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                     <div className="divide-y divide-border/40">
                       {displayResults.map(mod => {
                         const isInstalled = installedIds.has(mod.project_id)
+                        const isQuickInstalling = quickInstallingId === mod.project_id
+                        const isJustInstalled = justInstalled.has(mod.project_id)
                         return (
-                          <button key={mod.project_id} onClick={() => selectMod(mod)}
-                            className="w-full flex items-start gap-3 px-4 py-3 hover:bg-bg-hover transition-colors text-left">
-                            {mod.icon_url ? (
-                              <img src={mod.icon_url} alt="" className="w-11 h-11 rounded-lg flex-shrink-0 object-cover bg-bg-card" />
-                            ) : (
-                              <div className="w-11 h-11 rounded-lg flex-shrink-0 bg-bg-card flex items-center justify-center">
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted">
-                                  <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
-                                </svg>
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="text-sm font-semibold text-text-primary truncate">{mod.title}</p>
-                                {isInstalled && (
-                                  <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full flex-shrink-0">Instalado</span>
-                                )}
-                              </div>
-                              <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{mod.description}</p>
-                              <div className="flex items-center gap-2 mt-1">
-                                <span className="flex items-center gap-1 text-[11px] text-text-muted">
-                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
-                                  {formatNum(mod.downloads)}
-                                </span>
-                                {mod.categories.filter(c => !['fabric','forge','neoforge','quilt'].includes(c)).slice(0, 3).map(c => (
-                                  <span key={c} className="flex items-center gap-0.5 text-[10px] bg-bg-card text-text-muted px-1.5 py-0.5 rounded-full">
-                                    {CAT_ICONS[c] && (
-                                      <svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor"><path d={CAT_ICONS[c]}/></svg>
-                                    )}
-                                    {CATEGORY_LABELS[c] ?? c}
+                          <div key={mod.project_id} className="flex items-start hover:bg-bg-hover transition-colors group">
+                            <button onClick={() => selectMod(mod)}
+                              className="flex-1 flex items-start gap-3 px-4 py-3 text-left min-w-0">
+                              {mod.icon_url ? (
+                                <img src={mod.icon_url} alt="" className="w-11 h-11 rounded-lg flex-shrink-0 object-cover bg-bg-card" />
+                              ) : (
+                                <div className="w-11 h-11 rounded-lg flex-shrink-0 bg-bg-card flex items-center justify-center">
+                                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted">
+                                    <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
+                                  </svg>
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-semibold text-text-primary truncate">{mod.title}</p>
+                                  {(isInstalled || isJustInstalled) && (
+                                    <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full flex-shrink-0">Instalado</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{mod.description}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="flex items-center gap-1 text-[11px] text-text-muted">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+                                    {formatNum(mod.downloads)}
                                   </span>
-                                ))}
+                                  {mod.categories.filter(c => !['fabric','forge','neoforge','quilt'].includes(c)).slice(0, 3).map(c => (
+                                    <span key={c} className="flex items-center gap-0.5 text-[10px] bg-bg-card text-text-muted px-1.5 py-0.5 rounded-full">
+                                      {CAT_ICONS[c] && (
+                                        <svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor"><path d={CAT_ICONS[c]}/></svg>
+                                      )}
+                                      {CATEGORY_LABELS[c] ?? c}
+                                    </span>
+                                  ))}
+                                </div>
                               </div>
+                            </button>
+                            {/* Quick install button */}
+                            <div className="flex items-center pr-3 self-center flex-shrink-0">
+                              {isInstalled || isJustInstalled ? (
+                                <div className="w-8 h-8 flex items-center justify-center rounded-lg text-green-400">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={e => { e.stopPropagation(); quickInstall(mod) }}
+                                  disabled={!!quickInstallingId || !!installingId}
+                                  title="Instalar última versión compatible"
+                                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-bg-primary hover:border-accent/60 hover:bg-accent/10 hover:text-accent text-text-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  {isQuickInstalling
+                                    ? <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+                                    : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                  }
+                                </button>
+                              )}
                             </div>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted flex-shrink-0 mt-1.5">
-                              <polyline points="9 18 15 12 9 6"/>
-                            </svg>
-                          </button>
+                          </div>
                         )
                       })}
                     </div>

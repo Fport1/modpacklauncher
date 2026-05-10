@@ -60,7 +60,8 @@ import {
   deleteShaderpack,
   deleteWorld,
   deleteScreenshot,
-  getInstanceSize
+  getInstanceSize,
+  getInstanceGameDir
 } from './instances'
 import {
   launchInstance,
@@ -358,8 +359,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:search', (_e, query, mcVersion, loader, categories, environment, projectType, limit, offset, index) =>
     searchMods(query, mcVersion, loader, categories, environment, projectType, limit, offset, index)
   )
-  ipcMain.handle('modrinth:get-versions', (_e, projectId: string, mcVersion: string, loader: string) =>
-    getModVersions(projectId, mcVersion, loader)
+  ipcMain.handle('modrinth:get-versions', (_e, projectId: string, mcVersion: string, loader: string, channel: 'all' | 'stable' = 'all') =>
+    getModVersions(projectId, mcVersion, loader, channel)
   )
   ipcMain.handle('modrinth:install-mod', (_e, instanceId: string, fileUrl: string, filename: string, subFolder?: string) =>
     installModFromUrl(instanceId, fileUrl, filename, subFolder)
@@ -374,8 +375,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:get-project', (_e, projectId: string) => getProject(projectId))
   ipcMain.handle('modrinth:get-projects', (_e, projectIds: string[]) => getProjects(projectIds))
   ipcMain.handle('instances:get-size', (_e, instanceId: string) => getInstanceSize(instanceId))
-  ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string) =>
-    getProjectVersionForInstall(projectId, mcVersion, loader)
+  ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string, channel: 'all' | 'stable' = 'all') =>
+    getProjectVersionForInstall(projectId, mcVersion, loader, channel)
   )
   ipcMain.handle('modrinth:get-installed-mods-meta', (_e, instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[]) =>
     getInstalledModsMeta(instanceId, mcVersion, loader, subFolder, extensions)
@@ -788,6 +789,65 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('system:get-display-hz', async () => {
     const { screen } = await import('electron')
     return screen.getPrimaryDisplay().displayFrequency
+  })
+
+  ipcMain.handle('system:get-displays', async () => {
+    const { screen } = await import('electron')
+    return screen.getAllDisplays().map(d => ({
+      id: d.id,
+      label: d.label || `Pantalla ${d.id}`,
+      bounds: d.bounds,
+      isPrimary: d.id === screen.getPrimaryDisplay().id
+    }))
+  })
+
+  ipcMain.handle('instances:install-jar', async (_e, instanceId: string, sourcePath: string) => {
+    const gameDir = await getInstanceGameDir(instanceId)
+    const modsDir = path.join(gameDir, 'mods')
+    await fs.promises.mkdir(modsDir, { recursive: true })
+    const filename = path.basename(sourcePath)
+    const dest = path.join(modsDir, filename)
+    await fs.promises.copyFile(sourcePath, dest)
+    return filename
+  })
+
+  ipcMain.handle('instances:backup-world', async (_e, instanceId: string, worldName: string) => {
+    const AdmZip = (await import('adm-zip')).default
+    const gameDir = await getInstanceGameDir(instanceId)
+    const worldDir = path.join(gameDir, 'saves', worldName)
+    const backupsDir = path.join(gameDir, 'backups')
+    await fs.promises.mkdir(backupsDir, { recursive: true })
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `${worldName}_${timestamp}.zip`
+    const dest = path.join(backupsDir, filename)
+    const zip = new AdmZip()
+    zip.addLocalFolder(worldDir, worldName)
+    await new Promise<void>((resolve, reject) =>
+      zip.writeZipPromise(dest).then(() => resolve()).catch(reject)
+    )
+    return filename
+  })
+
+  ipcMain.handle('instances:list-backups', async (_e, instanceId: string) => {
+    const gameDir = await getInstanceGameDir(instanceId)
+    const backupsDir = path.join(gameDir, 'backups')
+    try {
+      const entries = await fs.promises.readdir(backupsDir, { withFileTypes: true })
+      const files = entries
+        .filter(e => e.isFile() && e.name.endsWith('.zip'))
+        .map(e => {
+          const stat = fs.statSync(path.join(backupsDir, e.name))
+          return { filename: e.name, size: stat.size, date: stat.mtimeMs }
+        })
+        .sort((a, b) => b.date - a.date)
+      return files
+    } catch { return [] }
+  })
+
+  ipcMain.handle('instances:delete-backup', async (_e, instanceId: string, filename: string) => {
+    const gameDir = await getInstanceGameDir(instanceId)
+    const target = path.join(gameDir, 'backups', path.basename(filename))
+    await fs.promises.unlink(target)
   })
 
   // ── App updates ─────────────────────────────────────────────────────────────

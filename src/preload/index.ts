@@ -89,7 +89,11 @@ const api = {
     pickIconPreview: () => ipcRenderer.invoke('instances:pick-icon-preview') as Promise<{ filePath: string; base64: string } | null>,
     applyPendingIcon: (instanceId: string, filePath: string) => ipcRenderer.invoke('instances:apply-pending-icon', instanceId, filePath) as Promise<void>,
     setIconFromUrl: (instanceId: string, url: string) => ipcRenderer.invoke('instances:set-icon-from-url', instanceId, url) as Promise<void>,
-    getSize: (instanceId: string) => ipcRenderer.invoke('instances:get-size', instanceId) as Promise<string>
+    getSize: (instanceId: string) => ipcRenderer.invoke('instances:get-size', instanceId) as Promise<string>,
+    installJar: (instanceId: string, sourcePath: string) => ipcRenderer.invoke('instances:install-jar', instanceId, sourcePath) as Promise<string>,
+    backupWorld: (instanceId: string, worldName: string) => ipcRenderer.invoke('instances:backup-world', instanceId, worldName) as Promise<string>,
+    listBackups: (instanceId: string) => ipcRenderer.invoke('instances:list-backups', instanceId) as Promise<{ filename: string; size: number; date: number }[]>,
+    deleteBackup: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:delete-backup', instanceId, filename) as Promise<void>
   },
 
   // Clipboard
@@ -161,8 +165,8 @@ const api = {
   modrinth: {
     search: (query: string, mcVersion: string, loader: string, categories: string[], environment: string, projectType?: string, limit?: number, offset?: number, index?: string) =>
       ipcRenderer.invoke('modrinth:search', query, mcVersion, loader, categories, environment, projectType ?? 'mod', limit ?? 20, offset ?? 0, index ?? 'relevance') as Promise<any>,
-    getVersions: (projectId: string, mcVersion: string, loader: string) =>
-      ipcRenderer.invoke('modrinth:get-versions', projectId, mcVersion, loader) as Promise<any[]>,
+    getVersions: (projectId: string, mcVersion: string, loader: string, channel?: 'all' | 'stable') =>
+      ipcRenderer.invoke('modrinth:get-versions', projectId, mcVersion, loader, channel ?? 'all') as Promise<any[]>,
     installMod: (instanceId: string, fileUrl: string, filename: string, subFolder?: string) =>
       ipcRenderer.invoke('modrinth:install-mod', instanceId, fileUrl, filename, subFolder) as Promise<void>,
     getCategories: (projectType?: string) =>
@@ -177,8 +181,8 @@ const api = {
       ipcRenderer.invoke('modrinth:get-project', projectId) as Promise<any>,
     getProjects: (projectIds: string[]) =>
       ipcRenderer.invoke('modrinth:get-projects', projectIds) as Promise<any[]>,
-    getProjectVersion: (projectId: string, mcVersion: string, loader: string) =>
-      ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader) as Promise<any | null>,
+    getProjectVersion: (projectId: string, mcVersion: string, loader: string, channel?: 'all' | 'stable') =>
+      ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader, channel ?? 'all') as Promise<any | null>,
     installMrpack: (instanceId: string, mrpackUrl: string) =>
       ipcRenderer.invoke('modrinth:install-mrpack', instanceId, mrpackUrl) as Promise<{ modloader?: string; modloaderVersion?: string } | undefined>,
   },
@@ -212,7 +216,8 @@ const api = {
   // System
   system: {
     getRam: () => ipcRenderer.invoke('system:get-ram') as Promise<number>,
-    getDisplayHz: () => ipcRenderer.invoke('system:get-display-hz') as Promise<number>
+    getDisplayHz: () => ipcRenderer.invoke('system:get-display-hz') as Promise<number>,
+    getDisplays: () => ipcRenderer.invoke('system:get-displays') as Promise<{ id: number; label: string; bounds: { x: number; y: number; width: number; height: number }; isPrimary: boolean }[]>
   },
 
   // App updater

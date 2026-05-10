@@ -190,6 +190,21 @@ export async function launchInstance(
   onProgress?.(6, 6, 'Lanzando juego...')
   const { launch } = await import('@xmcl/core')
 
+  // Parse extra JVM args per instance
+  const extraJVMArgs = instance.jvmArgs?.trim()
+    ? instance.jvmArgs.split('\n').flatMap(l => l.trim().split(/\s+/)).filter(Boolean)
+    : []
+
+  // Resolve target display position for multi-monitor support
+  const extraMCArgs: string[] = []
+  if (instance.displayId !== undefined && instance.displayId > 0) {
+    const { screen } = await import('electron')
+    const display = screen.getAllDisplays().find(d => d.id === instance.displayId)
+    if (display) {
+      extraMCArgs.push('--x', String(display.bounds.x), '--y', String(display.bounds.y))
+    }
+  }
+
   const launchOpts: Record<string, unknown> = {
     gamePath: gameDir,
     resourcePath: sharedDir,
@@ -202,7 +217,9 @@ export async function launchInstance(
     minMemory: instance.minMemory ?? settings.minMemory,
     launcherName: 'ModpackLauncher',
     launcherBrand: 'ModpackLauncher',
-    extraExecOption: { stdio: ['ignore', 'pipe', 'pipe'] }
+    extraExecOption: { stdio: ['ignore', 'pipe', 'pipe'] },
+    ...(extraJVMArgs.length > 0 ? { extraJVMArgs } : {}),
+    ...(extraMCArgs.length > 0 ? { extraMCArgs } : {})
   }
   if (instance.width && instance.height) {
     launchOpts.width = instance.width

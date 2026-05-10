@@ -96,29 +96,9 @@ export async function downloadAndInstall(
     spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
     setTimeout(() => app.quit(), 500)
   } else if (platform === 'darwin') {
-    // Mount the DMG, copy the .app replacing the running one, relaunch
-    const appName = 'ModpackLauncher.app'
-    const mountPoint = path.join(os.tmpdir(), 'ModpackLauncherUpdate')
-    const currentAppPath = app.getAppPath().split('/Contents/')[0]
-    const applicationsPath = '/Applications/' + appName
-
-    // hdiutil attach mounts the DMG
-    spawn('hdiutil', ['attach', dest, '-mountpoint', mountPoint, '-nobrowse', '-quiet'], {
-      stdio: 'ignore'
-    }).on('close', () => {
-      const sourcePath = path.join(mountPoint, appName)
-      const targetPath = fs.existsSync(applicationsPath) ? applicationsPath : currentAppPath
-
-      // Remove quarantine from the new app, then replace atomically with ditto
-      spawn('xattr', ['-rd', 'com.apple.quarantine', sourcePath], { stdio: 'ignore' })
-        .on('close', () => {
-          spawn('ditto', [sourcePath, targetPath], { stdio: 'ignore' })
-            .on('close', () => {
-              spawn('hdiutil', ['detach', mountPoint, '-quiet'], { stdio: 'ignore' })
-              spawn('open', [targetPath], { detached: true, stdio: 'ignore' }).unref()
-              setTimeout(() => app.quit(), 1000)
-            })
-        })
-    })
+    // Open the DMG in Finder — user drags the .app to Applications
+    const err = await shell.openPath(dest)
+    if (err) throw new Error(`No se pudo abrir el DMG: ${err}`)
+    setTimeout(() => app.quit(), 2000)
   }
 }

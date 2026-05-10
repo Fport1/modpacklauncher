@@ -299,6 +299,27 @@ export default function SettingsPage() {
         </div>
       </section>
 
+      {/* Modrinth */}
+      <section>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
+          Modrinth
+        </h2>
+        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+          <div>
+            <label className="block text-sm text-text-secondary mb-1.5">Canal de versiones al instalar mods</label>
+            <select
+              value={localSettings.modInstallChannel ?? 'all'}
+              onChange={e => setLocalSettings({ ...localSettings, modInstallChannel: e.target.value as 'all' | 'stable' })}
+              className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+            >
+              <option value="all">Todo (release, beta, alpha)</option>
+              <option value="stable">Solo estable (release)</option>
+            </select>
+            <p className="text-xs text-text-muted mt-1">Controla qué tipos de versiones se consideran al instalar con un clic o auto-seleccionar.</p>
+          </div>
+        </div>
+      </section>
+
       {/* GitHub para modpacks */}
       <section>
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">

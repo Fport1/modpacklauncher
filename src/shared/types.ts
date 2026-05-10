@@ -31,6 +31,10 @@ export interface Instance {
   minMemory?: number
   width?: number
   height?: number
+  jvmArgs?: string
+  displayId?: number
+  group?: string
+  groupColor?: string
 }
 
 export interface PackFile {
@@ -83,6 +87,7 @@ export interface Settings {
   checkUpdatesOnStart: boolean
   updateManifestUrl: string
   githubToken?: string
+  modInstallChannel: 'all' | 'stable'
 }
 
 export interface DownloadProgress {
@@ -123,7 +128,8 @@ export const DEFAULT_SETTINGS: Settings = {
   closeOnLaunch: false,
   azureClientId: '',
   checkUpdatesOnStart: true,
-  updateManifestUrl: 'https://raw.githubusercontent.com/Fport1/modpacklauncher-updates/main/update.json'
+  updateManifestUrl: 'https://raw.githubusercontent.com/Fport1/modpacklauncher-updates/main/update.json',
+  modInstallChannel: 'all'
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/

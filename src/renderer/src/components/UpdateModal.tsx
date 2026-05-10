@@ -14,6 +14,8 @@ export default function UpdateModal() {
 
   if (!updateModalOpen || !pendingUpdate) return null
 
+  const isMac = /Mac/.test(navigator.userAgent)
+
   async function handleUpdate() {
     if (!pendingUpdate) return
     setDownloading(true)
@@ -71,7 +73,9 @@ export default function UpdateModal() {
             </div>
             {progress === 100 && (
               <p className="text-xs text-text-muted mt-2 text-center">
-                Lanzando instalador, la app se cerrará...
+                {isMac
+                  ? 'El DMG se abrirá en Finder. Arrastra la app a Aplicaciones y vuelve a abrirla.'
+                  : 'Lanzando instalador, la app se cerrará...'}
               </p>
             )}
           </div>
@@ -83,7 +87,9 @@ export default function UpdateModal() {
               <line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             <p className="text-xs text-text-secondary">
-              La actualización se descargará e instalará automáticamente. La app se cerrará y se abrirá el instalador.
+              {isMac
+                ? 'Se descargará el DMG y se abrirá en Finder. Arrastra ModpackLauncher a Aplicaciones para completar la instalación.'
+                : 'La actualización se descargará e instalará automáticamente. La app se cerrará y se abrirá el instalador.'}
             </p>
           </div>
         )}
