@@ -85,12 +85,35 @@ interface AccountsStore {
 
 const settingsStore = new JsonStore<Settings>('settings', DEFAULT_SETTINGS)
 const accountsStore = new JsonStore<AccountsStore>('accounts', { accounts: [] })
+let currentMainWindow: BrowserWindow | null = null
+let ipcHandlersRegistered = false
 
-function sendDone(mainWindow: BrowserWindow, msg = 'Cancelado') {
-  mainWindow.webContents.send('progress', { current: 0, total: 0, message: msg, type: 'install', done: true })
+function sendToWindow(window: BrowserWindow | null | undefined, channel: string, ...args: unknown[]): boolean {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false
+  window.webContents.send(channel, ...args)
+  return true
+}
+
+function sendDone(mainWindow: BrowserWindow | null | undefined, msg = 'Cancelado') {
+  sendToWindow(mainWindow, 'progress', { current: 0, total: 0, message: msg, type: 'install', done: true })
 }
 
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
+  currentMainWindow = mainWindow
+  if (ipcHandlersRegistered) return
+  ipcHandlersRegistered = true
+
+  const getMainWindow = () => {
+    if (!currentMainWindow || currentMainWindow.isDestroyed()) {
+      throw new Error('Main window is not available')
+    }
+    return currentMainWindow
+  }
+
+  const sendProgress = (current: number, total: number, message: string, type: 'install' | 'download') => {
+    sendToWindow(currentMainWindow, 'progress', { current, total, message, type })
+  }
+
   // ── Cancel ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('operation:cancel', () => requestCancel())
@@ -99,7 +122,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('auth:login-microsoft', async () => {
     const settings = settingsStore.getAll()
-    const account = await loginMicrosoft(mainWindow, settings.azureClientId)
+    const account = await loginMicrosoft(getMainWindow(), settings.azureClientId)
     addAccount(account)
     return account
   })
@@ -179,13 +202,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:delete-world', (_e, instanceId: string, worldName: string) => deleteWorld(instanceId, worldName))
   ipcMain.handle('instances:delete-screenshot', (_e, instanceId: string, filename: string) => deleteScreenshot(instanceId, filename))
   ipcMain.handle('instances:duplicate', (_e, instanceId: string, newName: string) => duplicateInstance(instanceId, newName))
-  ipcMain.handle('instances:pick-icon', (_e, instanceId: string) => pickInstanceIcon(instanceId, mainWindow))
+  ipcMain.handle('instances:pick-icon', (_e, instanceId: string) => pickInstanceIcon(instanceId, getMainWindow()))
   ipcMain.handle('instances:get-icon', (_e, instanceId: string) => getInstanceIconBase64(instanceId))
   ipcMain.handle('instances:list-default-icons', () => listDefaultIcons())
   ipcMain.handle('instances:check-name', (_e, name: string, excludeId?: string) => checkInstanceNameExists(name, excludeId))
   ipcMain.handle('instances:list-game-dir', (_e, instanceId: string, subPath?: string) => listGameDirEntries(instanceId, subPath))
   ipcMain.handle('instances:get-default-icon', () => getDefaultIconBase64())
-  ipcMain.handle('instances:pick-icon-preview', () => pickIconPreview(mainWindow))
+  ipcMain.handle('instances:pick-icon-preview', () => pickIconPreview(getMainWindow()))
   ipcMain.handle('instances:apply-pending-icon', (_e, instanceId: string, filePath: string) => applyPendingIcon(instanceId, filePath))
   ipcMain.handle('instances:set-icon-from-url', (_e, instanceId: string, url: string) => setInstanceIconFromUrl(instanceId, url))
 
@@ -226,9 +249,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     try {
       await launchInstance(
-        instance, account, settings, mainWindow,
+        instance, account, settings, getMainWindow(),
         (current, total, message) => {
-          mainWindow.webContents.send('progress', { current, total, message, type: 'install' })
+          sendProgress(current, total, message, 'install')
         },
         async (sessionMs) => {
           instance.playtime = (instance.playtime ?? 0) + sessionMs
@@ -238,10 +261,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
       instance.lastPlayed = Date.now()
       await updateInstance(instance)
-      sendDone(mainWindow, 'Minecraft iniciado!')
+      sendDone(currentMainWindow, 'Minecraft iniciado!')
     } catch (e) {
       if (e instanceof CancelError) {
-        sendDone(mainWindow)
+        sendDone(currentMainWindow)
         return
       }
       // AggregateError from @xmcl/installer = asset download failures (timeouts/corrupt files)
@@ -261,7 +284,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       resetCancel()
       try {
         await installMinecraftVersion(version, (current, total, message) => {
-          mainWindow.webContents.send('progress', { current, total, message, type: 'install' })
+          sendProgress(current, total, message, 'install')
         })
 
         if (modloader && modloader !== 'vanilla') {
@@ -271,15 +294,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
             minecraft: version
           } as Instance
           await installModloader(fake, (current, total, message) => {
-            mainWindow.webContents.send('progress', { current, total, message, type: 'install' })
+            sendProgress(current, total, message, 'install')
           })
         }
       } catch (e) {
-        if (e instanceof CancelError) { sendDone(mainWindow); return }
-        sendDone(mainWindow, 'Error al instalar')
+        if (e instanceof CancelError) { sendDone(currentMainWindow); return }
+        sendDone(currentMainWindow, 'Error al instalar')
         throw e
       }
-      sendDone(mainWindow, '¡Versión instalada!')
+      sendDone(currentMainWindow, '¡Versión instalada!')
     }
   )
 
@@ -298,11 +321,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     resetCancel()
     try {
       await installModpack(instanceId, manifest, (current, total, message) => {
-        mainWindow.webContents.send('progress', { current, total, message, type: 'download' })
+        sendProgress(current, total, message, 'download')
       })
-      sendDone(mainWindow, '¡Modpack instalado!')
+      sendDone(currentMainWindow, '¡Modpack instalado!')
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(mainWindow); return }
+      if (e instanceof CancelError) { sendDone(currentMainWindow); return }
       throw e
     }
   })
@@ -324,15 +347,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     resetCancel()
     try {
       const result = await updateModpack(instanceId, manifest, (current, total, message) => {
-        mainWindow.webContents.send('progress', { current, total, message, type: 'download' })
+        sendProgress(current, total, message, 'download')
       })
 
       instance.modpackVersion = manifest.version
       await updateInstance(instance)
-      sendDone(mainWindow, '¡Actualización completada!')
+      sendDone(currentMainWindow, '¡Actualización completada!')
       return { upToDate: false, manifest, ...result }
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(mainWindow); return { upToDate: false, manifest } }
+      if (e instanceof CancelError) { sendDone(currentMainWindow); return { upToDate: false, manifest } }
       throw e
     }
   })
@@ -386,12 +409,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     resetCancel()
     try {
       const meta = await installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => {
-        mainWindow.webContents.send('progress', { current, total, message, type: 'download' })
+        sendProgress(current, total, message, 'download')
       })
-      sendDone(mainWindow, '¡Modpack instalado!')
+      sendDone(currentMainWindow, '¡Modpack instalado!')
       return meta
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(mainWindow); return }
+      if (e instanceof CancelError) { sendDone(currentMainWindow); return }
       throw e
     }
   })
@@ -428,10 +451,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     resetCancel()
     try {
       return await ensureJava(mcVersion, (current, total, msg) => {
-        mainWindow.webContents.send('progress', { current, total, message: msg, type: 'install' })
+        sendProgress(current, total, msg, 'install')
       })
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(mainWindow); return null }
+      if (e instanceof CancelError) { sendDone(currentMainWindow); return null }
       throw e
     }
   })

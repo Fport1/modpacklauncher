@@ -9,6 +9,12 @@ import { checkCancel } from './cancelToken'
 
 const runningProcesses = new Map<string, ChildProcess>()
 
+function sendToWindow(window: BrowserWindow, channel: string, ...args: unknown[]): boolean {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return false
+  window.webContents.send(channel, ...args)
+  return true
+}
+
 export function killInstance(instanceId: string): void {
   const proc = runningProcesses.get(instanceId)
   if (proc) {
@@ -156,7 +162,7 @@ export async function launchInstance(
     checkCancel()
     // Some assets failed — warn and proceed; Minecraft will report specific issues
     if (e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)) {
-      mainWindow.webContents.send('game:log', instance.id,
+      sendToWindow(mainWindow, 'game:log', instance.id,
         '[Launcher] Algunos assets fallaron al descargar. El juego puede funcionar igualmente.'
       )
     } else {
@@ -228,13 +234,13 @@ export async function launchInstance(
   const proc = await launch(launchOpts as Parameters<typeof launch>[0])
 
   runningProcesses.set(instance.id, proc)
-  if (settings.closeOnLaunch) mainWindow.minimize()
+  if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.minimize()
 
   const sessionStart = Date.now()
   const sendLog = (line: string) => {
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('game:log', instance.id, line)
+    sendToWindow(mainWindow, 'game:log', instance.id, line)
   }
-  mainWindow.webContents.send('game:started', instance.id)
+  sendToWindow(mainWindow, 'game:started', instance.id)
 
   proc.stdout?.on('data', (buf) =>
     buf.toString().split('\n').filter(Boolean).forEach(sendLog)
@@ -244,8 +250,8 @@ export async function launchInstance(
   )
   proc.on('exit', (code) => {
     runningProcesses.delete(instance.id)
-    if (!mainWindow.isDestroyed()) mainWindow.webContents.send('game:exit', instance.id, code)
-    if (settings.closeOnLaunch) mainWindow.restore()
+    sendToWindow(mainWindow, 'game:exit', instance.id, code)
+    if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.restore()
     onExit?.(Date.now() - sessionStart)
   })
 }
