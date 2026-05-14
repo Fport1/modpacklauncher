@@ -30,6 +30,8 @@ interface MVersion {
   game_versions: string[]
   date_published: string
   files: { url: string; filename: string; primary: boolean; size: number }[]
+  version_type?: 'release' | 'beta' | 'alpha'
+  changelog?: string
 }
 
 interface Category { name: string; header: string; icon?: string }
@@ -413,7 +415,9 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
     setVLoading(true)
     try {
       const mc     = inst?.minecraft ?? ''
-      const loader = inst?.modloader ?? ''
+      // resource packs, data packs and shaders don't filter by modloader
+      const loaderRelevant = contentType === 'mod' || contentType === 'modpack'
+      const loader = loaderRelevant ? (inst?.modloader ?? '') : ''
       const vs     = await window.api.modrinth.getVersions(project.project_id, mc, loader) as MVersion[]
       setVersions(vs.filter(v => v.files.length > 0))
     } catch { setVersions([]) }
@@ -581,7 +585,47 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
                   Cargando versiones...
                 </div>
               ) : versions.length === 0 ? (
-                <p className="text-sm text-text-muted text-center py-10">No hay versiones compatibles con esta instancia.</p>
+                <>
+                  <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-3">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400 flex-shrink-0 mt-0.5">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    <p className="text-xs text-amber-400">No hay versión compatible con MC {selectedInstance?.minecraft}. Puedes forzar la instalación de otra versión bajo tu propio riesgo.</p>
+                  </div>
+                  {allVersions.length > 0 && (
+                    <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
+                      {allVersions.slice(0, 50).map(v => {
+                        const pf = primaryFile(v)
+                        const cl = v.changelog?.replace(/[#*`_\[\]]/g, '').replace(/\n+/g, ' ').trim().slice(0, 120)
+                        return (
+                          <button key={v.id} onClick={() => handleSelectVersion(v)}
+                            className="flex items-center gap-3 p-3 bg-bg-card border border-amber-500/20 hover:border-amber-500/50 rounded-xl transition-colors text-left w-full">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
+                                {v.version_type === 'beta'  && <span className="text-[9px] px-1.5 py-px rounded-full bg-amber-500/20 text-amber-400 font-semibold flex-shrink-0">Beta</span>}
+                                {v.version_type === 'alpha' && <span className="text-[9px] px-1.5 py-px rounded-full bg-red-500/20 text-red-400 font-semibold flex-shrink-0">Alpha</span>}
+                              </div>
+                              <p className="text-[11px] text-text-muted">
+                                MC {v.game_versions.slice(0, 3).join(', ')}
+                                {v.loaders.length > 0 && ` · ${v.loaders.join(', ')}`}
+                              </p>
+                              {cl && <p className="text-[11px] text-text-muted/70 mt-0.5 line-clamp-2">{cl}</p>}
+                            </div>
+                            <div className="text-right flex-shrink-0 mr-1">
+                              {pf && <p className="text-[10px] text-text-muted">{(pf.size / 1024 / 1024).toFixed(1)} MB</p>}
+                              <p className="text-[10px] text-text-muted">{timeAgo(v.date_published)}</p>
+                            </div>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted flex-shrink-0">
+                              <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   {(() => {
@@ -607,24 +651,25 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
                   })()}
                 <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
                   {versions.filter(v =>
-                    (!installVTypeFilter || (v as any).version_type === installVTypeFilter) &&
+                    (!installVTypeFilter || v.version_type === installVTypeFilter) &&
                     (!installMcFilter || v.game_versions.includes(installMcFilter))
                   ).slice(0, 50).map(v => {
                     const pf = primaryFile(v)
-                    const vt: string = (v as any).version_type ?? ''
+                    const cl = v.changelog?.replace(/[#*`_\[\]]/g, '').replace(/\n+/g, ' ').trim().slice(0, 120)
                     return (
                       <button key={v.id} onClick={() => handleSelectVersion(v)}
                         className="flex items-center gap-3 p-3 bg-bg-card border border-border hover:border-accent/40 rounded-xl transition-colors text-left w-full">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 mb-0.5">
                             <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
-                            {vt === 'beta' && <span className="text-[9px] px-1.5 py-px rounded-full bg-amber-500/20 text-amber-400 font-semibold flex-shrink-0">Beta</span>}
-                            {vt === 'alpha' && <span className="text-[9px] px-1.5 py-px rounded-full bg-red-500/20 text-red-400 font-semibold flex-shrink-0">Alpha</span>}
+                            {v.version_type === 'beta'  && <span className="text-[9px] px-1.5 py-px rounded-full bg-amber-500/20 text-amber-400 font-semibold flex-shrink-0">Beta</span>}
+                            {v.version_type === 'alpha' && <span className="text-[9px] px-1.5 py-px rounded-full bg-red-500/20 text-red-400 font-semibold flex-shrink-0">Alpha</span>}
                           </div>
                           <p className="text-[11px] text-text-muted">
                             MC {v.game_versions.slice(0, 3).join(', ')}
                             {v.loaders.length > 0 && ` · ${v.loaders.join(', ')}`}
                           </p>
+                          {cl && <p className="text-[11px] text-text-muted/70 mt-0.5 line-clamp-2">{cl}</p>}
                         </div>
                         <div className="text-right flex-shrink-0 mr-1">
                           {pf && <p className="text-[10px] text-text-muted">{(pf.size / 1024 / 1024).toFixed(1)} MB</p>}
@@ -1598,6 +1643,8 @@ export default function DiscoverPage() {
     setCfCategoryId(null)
     setCfResults([])
     setResults([])
+    setSelectedLoader('')
+    setCatFilters({})
   }
 
   function handleSourceChange(src: 'modrinth' | 'curseforge') {

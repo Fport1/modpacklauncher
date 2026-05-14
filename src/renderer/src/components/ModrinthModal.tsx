@@ -189,6 +189,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const [projectBody, setProjectBody] = useState<string | null>(null)
   const [detailTab, setDetailTab] = useState<'desc' | 'versions' | 'gallery'>('desc')
   const [versions, setVersions] = useState<ModrinthVersion[]>([])
+  const [allVersions, setAllVersions] = useState<ModrinthVersion[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [vTypeFilter, setVTypeFilter] = useState('')
   const [gallery, setGallery] = useState<{ url: string; raw_url?: string; title: string | null; description: string | null; created: string }[]>([])
@@ -298,11 +299,14 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     setGallery([])
     setDetailTab('desc')
     setVersions([])
+    setAllVersions([])
     setLoadingVersions(true)
     try {
-      const [proj, vers] = await Promise.all([
+      const loaderForType = projectType === 'mod' ? instance.modloader : ''
+      const [proj, vers, allVers] = await Promise.all([
         window.api.modrinth.getProject(mod.project_id).catch(() => null),
-        window.api.modrinth.getVersions(mod.project_id, instance.minecraft, instance.modloader, installChannel).catch(() => [] as ModrinthVersion[])
+        window.api.modrinth.getVersions(mod.project_id, instance.minecraft, loaderForType, installChannel).catch(() => [] as ModrinthVersion[]),
+        window.api.modrinth.getVersions(mod.project_id, '', '', installChannel).catch(() => [] as ModrinthVersion[])
       ])
       if (proj) {
         setProjectBody((proj as any).body ?? null)
@@ -310,6 +314,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
       }
       const vList = vers as ModrinthVersion[]
       setVersions(vList)
+      setAllVersions((allVers as ModrinthVersion[]).filter(v => v.files.length > 0))
       const allDepIds = [...new Set(
         vList.flatMap(v => v.dependencies ?? [])
           .filter(d => d.dependency_type !== 'incompatible' && d.project_id)
@@ -389,8 +394,13 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     setQuickInstallingId(hit.project_id)
     setError('')
     try {
-      const version = await window.api.modrinth.getProjectVersion(hit.project_id, instance.minecraft, instance.modloader, installChannel)
-      if (!version) { setError(`No hay versión compatible con MC ${instance.minecraft}`); return }
+      const loaderForType = projectType === 'mod' ? instance.modloader : ''
+      const version = await window.api.modrinth.getProjectVersion(hit.project_id, instance.minecraft, loaderForType, installChannel)
+      if (!version) {
+        await selectMod(hit)
+        setDetailTab('versions')
+        return
+      }
       await installVersion(version)
       // installVersion only updates installedIds/justInstalled when selectedMod is set — fix for quick install
       setInstalledIds(prev => new Set(prev).add(hit.project_id))
@@ -776,10 +786,22 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                           <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
                           Cargando versiones...
                         </div>
-                      ) : versions.length === 0 ? (
-                        <div className="text-center py-8 text-text-muted text-sm">No hay versiones compatibles</div>
                       ) : (
                         <>
+                          {versions.length === 0 && allVersions.length === 0 && (
+                            <div className="text-center py-8 text-text-muted text-sm">No hay versiones disponibles</div>
+                          )}
+                          {versions.length === 0 && allVersions.length > 0 && (
+                            <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl mb-3">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400 flex-shrink-0 mt-0.5">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                              </svg>
+                              <p className="text-xs text-amber-400">No hay versión compatible con MC {instance.minecraft}. Puedes forzar la instalación de otra versión bajo tu propio riesgo.</p>
+                            </div>
+                          )}
+                          {(versions.length > 0 || allVersions.length > 0) && (
+                          <>
                           <div className="flex gap-1 mb-2">
                             {([['', 'Todos'], ['release', 'Release'], ['beta', 'Beta'], ['alpha', 'Alpha']] as [string, string][]).map(([val, label]) => (
                               <button key={val} onClick={() => setVTypeFilter(val)}
@@ -789,7 +811,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                             ))}
                           </div>
                           <div className="space-y-2">
-                          {versions.filter(v => !vTypeFilter || v.version_type === vTypeFilter).map(ver => {
+                          {(versions.length > 0 ? versions : allVersions).filter(v => !vTypeFilter || v.version_type === vTypeFilter).map(ver => {
                             const file = ver.files.find(f => f.primary) ?? ver.files[0]
                             const isInstalling = installingId === ver.id
                             const isJustInstalled = justInstalled.has(ver.id)
@@ -871,6 +893,8 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                             )
                           })}
                           </div>
+                          </>
+                          )}
                         </>
                       )}
                       {error && <p className="text-sm text-red-400 mt-3">{error}</p>}

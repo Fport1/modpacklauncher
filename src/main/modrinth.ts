@@ -61,9 +61,15 @@ export async function searchMods(
   index = 'relevance'
 ): Promise<ModrinthSearchResult> {
   const facets: string[][] = [[`project_type:${projectType}`]]
-  if (mcVersion && projectType === 'mod') facets.push([`versions:${mcVersion}`])
-  else if (mcVersion) facets.push([`versions:${mcVersion}`])
-  if (loader) facets.push([`categories:${loader}`])
+  if (mcVersion) {
+    const parts = mcVersion.split('.')
+    const versionFacets = [`versions:${mcVersion}`]
+    if (parts.length >= 3) versionFacets.push(`versions:${parts[0]}.${parts[1]}.x`)
+    facets.push(versionFacets)
+  }
+  // resource packs and data packs don't use mod loaders as categories on Modrinth
+  const loaderAware = projectType === 'mod' || projectType === 'modpack' || projectType === 'shader'
+  if (loader && loaderAware) facets.push([`categories:${loader}`])
   for (const cat of categories) facets.push([`categories:${cat}`])
   if (environment === 'client') facets.push(['client_side:required', 'client_side:optional'])
   if (environment === 'server') facets.push(['server_side:required', 'server_side:optional'])
@@ -83,7 +89,12 @@ export async function getModVersions(
   channel: 'all' | 'stable' = 'all'
 ): Promise<ModrinthVersion[]> {
   const params: Record<string, string> = {}
-  if (mcVersion) params.game_versions = JSON.stringify([mcVersion])
+  if (mcVersion) {
+    const parts = mcVersion.split('.')
+    const versions = [mcVersion]
+    if (parts.length >= 3) versions.push(`${parts[0]}.${parts[1]}.x`)
+    params.game_versions = JSON.stringify(versions)
+  }
   if (loader && loader !== 'vanilla') params.loaders = JSON.stringify([loader])
 
   const { data } = await axios.get<ModrinthVersion[]>(`${BASE}/project/${projectId}/version`, {
