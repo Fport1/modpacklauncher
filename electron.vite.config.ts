@@ -35,7 +35,8 @@ export default defineConfig({
     },
     plugins: [react()],
     optimizeDeps: {
-      exclude: ['monaco-editor']
+      exclude: ['monaco-editor'],
+      include: ['three', 'three/examples/jsm/controls/OrbitControls.js']
     }
   }
 })

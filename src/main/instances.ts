@@ -676,6 +676,50 @@ export async function writeOptionsFile(instanceId: string, content: string): Pro
   await fs.writeFile(path.join(gameDir, 'options.txt'), content, 'utf-8')
 }
 
+export async function listWorldFiles(instanceId: string, relativePath = ''): Promise<ConfigFile[]> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const savesRoot = path.join(gameDir, 'saves')
+  const targetDir = relativePath ? path.join(savesRoot, relativePath) : savesRoot
+  if (!targetDir.startsWith(savesRoot)) return []
+  if (!(await fs.pathExists(targetDir))) return []
+  const entries = await fs.readdir(targetDir, { withFileTypes: true })
+  const result: ConfigFile[] = []
+  for (const entry of entries) {
+    const stat = await fs.stat(path.join(targetDir, entry.name)).catch(() => null)
+    if (!stat) continue
+    result.push({ name: entry.name, size: stat.size, date: stat.mtimeMs, isDir: entry.isDirectory() })
+  }
+  return result.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+export async function readWorldFile(instanceId: string, relativePath: string): Promise<string> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const savesRoot = path.join(gameDir, 'saves')
+  const fullPath = path.join(savesRoot, relativePath)
+  if (!fullPath.startsWith(savesRoot)) throw new Error('Acceso denegado')
+  return fs.readFile(fullPath, 'utf-8')
+}
+
+export async function writeWorldFile(instanceId: string, relativePath: string, content: string): Promise<void> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const savesRoot = path.join(gameDir, 'saves')
+  const fullPath = path.join(savesRoot, relativePath)
+  if (!fullPath.startsWith(savesRoot)) throw new Error('Acceso denegado')
+  await fs.writeFile(fullPath, content, 'utf-8')
+}
+
+export async function copyFilesToWorld(instanceId: string, relativePath: string, filePaths: string[]): Promise<void> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const savesRoot = path.join(gameDir, 'saves')
+  const targetDir = relativePath ? path.join(savesRoot, relativePath) : savesRoot
+  if (!targetDir.startsWith(savesRoot)) throw new Error('Acceso denegado')
+  await fs.ensureDir(targetDir)
+  await Promise.all(filePaths.map(src => fs.copy(src, path.join(targetDir, path.basename(src)), { overwrite: true })))
+}
+
 function toggledFilename(filename: string): string {
   return filename.endsWith('.disabled')
     ? filename.slice(0, -'.disabled'.length)

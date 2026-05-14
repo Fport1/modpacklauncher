@@ -508,6 +508,12 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [configEditorMsg, setConfigEditorMsg] = useState<'success' | 'error' | null>(null)
   const [unsavedConfirm, setUnsavedConfirm] = useState<{ onDiscard: () => void } | null>(null)
   const [worlds, setWorlds] = useState<WorldFolder[]>([])
+  const [worldFilePath, setWorldFilePath] = useState<string[]>([])
+  const [worldFiles, setWorldFiles] = useState<ConfigFile[]>([])
+  const [editingWorldFile, setEditingWorldFile] = useState<{ path: string; name: string; content: string; savedContent: string } | null>(null)
+  const [worldEditorSaving, setWorldEditorSaving] = useState(false)
+  const [worldEditorMsg, setWorldEditorMsg] = useState<'success' | 'error' | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
   const [resourcepacks, setResourcepacks] = useState<ModFile[]>([])
   const [shaderpacks, setShaderpacks] = useState<ModFile[]>([])
   const [screenshots, setScreenshots] = useState<ScreenshotFile[]>([])
@@ -638,6 +644,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   useEffect(() => { loadTab(tab) }, [tab, instance.id])
   useEffect(() => {
     setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSideFilter('all'); setUpdatesOnly(false); setSelected(new Set()); setConfigPath([]); setEditingConfigFile(null)
+    setWorldFilePath([]); setWorldFiles([]); setEditingWorldFile(null)
     if (tab === 'worlds') { setBackupsLoaded(false); setBackups([]) }
   }, [tab])
   useEffect(() => {
@@ -772,6 +779,60 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   }
   // Keep ref current so Monaco's onMount command always calls the latest version
   saveConfigFileRef.current = saveConfigFile
+
+  // ── world file browser ───────────────────────────────────────────────────
+
+  async function navigateWorld(newPath: string[]) {
+    setEditingWorldFile(null)
+    setWorldFilePath(newPath)
+    if (newPath.length === 0) {
+      setWorldFiles([])
+      setLoading(true)
+      try { setWorlds(await window.api.instances.listWorlds(instance.id)) }
+      finally { setLoading(false) }
+      return
+    }
+    setLoading(true)
+    try { setWorldFiles(await window.api.instances.listWorldFiles(instance.id, newPath.join('/'))) }
+    finally { setLoading(false) }
+  }
+
+  async function openWorldFile(file: ConfigFile) {
+    const filePath = [...worldFilePath, file.name].join('/')
+    setLoading(true)
+    try {
+      const content = await window.api.instances.readWorldFile(instance.id, filePath)
+      setEditingWorldFile({ path: filePath, name: file.name, content, savedContent: content })
+    } catch { /* binary or unreadable */ }
+    finally { setLoading(false) }
+  }
+
+  const saveWorldFileRef = useRef<() => void>(() => {})
+  async function saveWorldFile() {
+    if (!editingWorldFile) return
+    setWorldEditorSaving(true)
+    setWorldEditorMsg(null)
+    try {
+      await window.api.instances.writeWorldFile(instance.id, editingWorldFile.path, editingWorldFile.content)
+      setEditingWorldFile(prev => prev ? { ...prev, savedContent: prev.content } : null)
+      setWorldEditorMsg('success')
+    } catch { setWorldEditorMsg('error') }
+    finally { setWorldEditorSaving(false); setTimeout(() => setWorldEditorMsg(null), 3000) }
+  }
+  saveWorldFileRef.current = saveWorldFile
+
+  async function handleWorldDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length === 0) return
+    const paths = files.map(f => (f as any).path as string).filter(Boolean)
+    if (paths.length === 0) return
+    try {
+      await window.api.instances.copyFilesToWorld(instance.id, worldFilePath.join('/'), paths)
+      setWorldFiles(await window.api.instances.listWorldFiles(instance.id, worldFilePath.join('/')))
+    } catch (err) { alert(err instanceof Error ? err.message : 'Error al copiar archivos') }
+  }
 
   // ── sort/filter helpers ──────────────────────────────────────────────────
 
@@ -1548,8 +1609,136 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             )
           )}
 
-          {/* ── WORLDS ── */}
-          {tab === 'worlds' && (
+          {/* ── WORLDS — Monaco editor ── */}
+          {tab === 'worlds' && editingWorldFile && (
+            <div className="flex-1 flex flex-col overflow-hidden relative" style={{ background: '#1e1e1e' }}>
+              {/* Title bar */}
+              <div className="flex items-center flex-shrink-0" style={{ height: '35px', background: '#2d2d2d', borderBottom: '1px solid #1e1e1e' }}>
+                <div className="flex items-center gap-1.5 pl-3 pr-1 h-full border-r border-[#1e1e1e] bg-[#1e1e1e] text-[#cccccc] text-xs flex-shrink-0 select-none" style={{ borderTop: '1px solid #007acc', paddingTop: '7px', paddingBottom: '6px' }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#519aba', flexShrink: 0 }}>
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  <span className="font-medium truncate" style={{ maxWidth: '200px' }}>{editingWorldFile.name}</span>
+                  <button onClick={() => setEditingWorldFile(null)} title="Cerrar"
+                    className="w-5 h-5 flex items-center justify-center rounded flex-shrink-0 transition-colors"
+                    style={{ color: editingWorldFile.content !== editingWorldFile.savedContent ? '#cccccc' : 'transparent' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.1)'; (e.currentTarget as HTMLElement).style.color = '#cccccc' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ''; (e.currentTarget as HTMLElement).style.color = editingWorldFile.content !== editingWorldFile.savedContent ? '#cccccc' : 'transparent' }}>
+                    {editingWorldFile.content !== editingWorldFile.savedContent
+                      ? <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#cccccc' }} />
+                      : <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>}
+                  </button>
+                </div>
+                <div className="flex-1" />
+                {worldEditorMsg === 'success' && <span style={{ fontSize: '11px', color: '#4ec9b0', paddingRight: '8px' }}>✓ Guardado</span>}
+                {worldEditorMsg === 'error' && <span style={{ fontSize: '11px', color: '#f48771', paddingRight: '8px' }}>✗ Error al guardar</span>}
+                <button onClick={saveWorldFile} disabled={worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent}
+                  className="flex items-center gap-1 text-[11px] px-3 mr-2 py-1 rounded transition-colors flex-shrink-0"
+                  style={{ background: '#007acc', color: 'white', opacity: (worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent) ? 0.35 : 1, cursor: (worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent) ? 'not-allowed' : 'pointer' }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  {worldEditorSaving ? 'Guardando…' : 'Guardar'}
+                </button>
+              </div>
+              <div className="relative flex-1 min-h-0">
+                <div className="absolute inset-0">
+                  <Suspense fallback={<div className="w-full h-full flex items-center justify-center" style={{ background: '#1e1e1e' }}><LoadSpinner /></div>}>
+                    <ConfigFileEditor
+                      language={getMonacoLanguage(editingWorldFile.name)}
+                      value={editingWorldFile.content}
+                      onChange={value => setEditingWorldFile(prev => prev ? { ...prev, content: value } : null)}
+                      onMount={(editor, monacoInstance) => {
+                        editor.addAction({ id: 'save-world-file', label: 'Guardar archivo', keybindings: [monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS], run: () => saveWorldFileRef.current() })
+                        editor.focus()
+                      }}
+                      loadingNode={<div className="w-full h-full flex items-center justify-center" style={{ background: '#1e1e1e' }}><LoadSpinner /></div>}
+                    />
+                  </Suspense>
+                </div>
+              </div>
+              <div className="flex-shrink-0 flex items-center px-3" style={{ height: '22px', fontSize: '12px', background: '#007acc', color: 'white' }}>
+                <span style={{ opacity: 0.9 }}>{getMonacoLanguage(editingWorldFile.name).toUpperCase()}</span>
+                <div className="flex-1" />
+                <span style={{ opacity: 0.9 }}>UTF-8</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── WORLDS — file browser ── */}
+          {tab === 'worlds' && !editingWorldFile && worldFilePath.length > 0 && (
+            <div className="flex-1 flex flex-col overflow-hidden"
+              onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false) }}
+              onDrop={handleWorldDrop}>
+              {/* Drag overlay */}
+              {isDragOver && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 pointer-events-none" style={{ background: 'rgba(var(--accent-rgb,99,102,241),0.12)', border: '2px dashed var(--accent,#6366f1)', borderRadius: '12px' }}>
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent opacity-70"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <p className="text-sm text-accent font-medium">Soltar para copiar aquí</p>
+                  <p className="text-xs text-text-muted">{worldFilePath.join(' / ')}</p>
+                </div>
+              )}
+              {/* Breadcrumb */}
+              <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap px-4 pt-4 pb-2">
+                <button onClick={() => navigateWorld([])} className="text-xs px-2 py-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">saves</button>
+                {worldFilePath.map((seg, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/40 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                    <button onClick={() => navigateWorld(worldFilePath.slice(0, i + 1))}
+                      className={`text-xs px-2 py-1 rounded-lg transition-colors ${i === worldFilePath.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}>
+                      {seg}
+                    </button>
+                  </div>
+                ))}
+                <div className="ml-auto flex items-center gap-2">
+                  <SearchBar value={search} onChange={setSearch} />
+                  <FolderBtn onClick={() => window.api.instances.openSavesFolder(instance.id)} />
+                </div>
+              </div>
+              {/* Back button */}
+              <div className="px-4 pb-1">
+                <button onClick={() => navigateWorld(worldFilePath.slice(0, -1))}
+                  className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-primary hover:bg-bg-hover/50 rounded-xl transition-colors">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                  Volver
+                </button>
+              </div>
+              {/* File list */}
+              <div className="flex-1 overflow-y-auto px-4 pb-4">
+                {loading ? <LoadSpinner /> : worldFiles.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-text-muted text-sm gap-2">
+                    <p>Carpeta vacía</p>
+                    <p className="text-xs">Arrastra archivos aquí para copiarlos.</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {worldFiles.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).map(f => {
+                      const canEdit = !f.isDir && isEditableFile(f.name)
+                      return (
+                        <div key={f.name}
+                          onClick={f.isDir ? () => navigateWorld([...worldFilePath, f.name]) : canEdit ? () => openWorldFile(f) : undefined}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${f.isDir || canEdit ? 'cursor-pointer hover:bg-bg-hover/60 active:bg-bg-hover' : 'hover:bg-bg-hover/30'}`}>
+                          <div className="w-8 h-8 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
+                            {f.isDir
+                              ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-yellow-400/70"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={canEdit ? 'text-accent/60' : 'text-text-muted/50'}><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-text-primary truncate">{f.name}</p>
+                            <p className="text-[11px] text-text-muted">{f.isDir ? 'Carpeta' : formatSize(f.size)} · {new Date(f.date).toLocaleDateString()}</p>
+                          </div>
+                          {f.isDir && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/30 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>}
+                          {canEdit && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted/30 flex-shrink-0"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── WORLDS — world list ── */}
+          {tab === 'worlds' && !editingWorldFile && worldFilePath.length === 0 && (
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <SearchBar value={search} onChange={setSearch} />
@@ -1587,6 +1776,12 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           <p className="text-sm text-text-primary truncate">{w.name}</p>
                           <p className="text-xs text-text-muted">{formatDate(w.lastPlayed)}{w.size ? ` · ${formatSize(w.size)}` : ''}</p>
                         </div>
+                        <button onClick={e => { e.stopPropagation(); navigateWorld([w.name]) }}
+                          title="Explorar archivos"
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                          Archivos
+                        </button>
                         <button onClick={e => { e.stopPropagation(); handleBackupWorld(w.name) }}
                           title="Crear backup"
                           disabled={backingUp === w.name}

@@ -50,6 +50,10 @@ import {
   openConfigFolder,
   readConfigFile,
   writeConfigFile,
+  listWorldFiles,
+  readWorldFile,
+  writeWorldFile,
+  copyFilesToWorld,
   readOptionsFile,
   writeOptionsFile,
   toggleMod,
@@ -193,6 +197,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:write-config-file', (_e, instanceId: string, filePath: string, content: string) => writeConfigFile(instanceId, filePath, content))
   ipcMain.handle('instances:read-options', (_e, instanceId: string) => readOptionsFile(instanceId))
   ipcMain.handle('instances:write-options', (_e, instanceId: string, content: string) => writeOptionsFile(instanceId, content))
+  ipcMain.handle('instances:list-world-files', (_e, instanceId: string, relativePath?: string) => listWorldFiles(instanceId, relativePath))
+  ipcMain.handle('instances:read-world-file', (_e, instanceId: string, relativePath: string) => readWorldFile(instanceId, relativePath))
+  ipcMain.handle('instances:write-world-file', (_e, instanceId: string, relativePath: string, content: string) => writeWorldFile(instanceId, relativePath, content))
+  ipcMain.handle('instances:copy-files-to-world', (_e, instanceId: string, relativePath: string, filePaths: string[]) => copyFilesToWorld(instanceId, relativePath, filePaths))
   ipcMain.handle('instances:toggle-mod', (_e, instanceId: string, filename: string) => toggleMod(instanceId, filename))
   ipcMain.handle('instances:delete-mod', (_e, instanceId: string, filename: string) => deleteMod(instanceId, filename))
   ipcMain.handle('instances:toggle-resourcepack', (_e, instanceId: string, filename: string) => toggleResourcepack(instanceId, filename))
