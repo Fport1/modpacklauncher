@@ -805,6 +805,61 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     )
   })
 
+  ipcMain.handle('status:check-server', async (_e, host: string, port: number) => {
+    const net = await import('net')
+    // Try DNS SRV lookup first (_minecraft._tcp.host) so hostnames like hypixel.net work
+    let resolvedHost = host
+    let resolvedPort = port
+    try {
+      const dns = await import('dns/promises')
+      const records = await dns.resolveSrv(`_minecraft._tcp.${host}`)
+      if (records.length > 0) {
+        resolvedHost = records[0].name
+        resolvedPort = records[0].port
+      }
+    } catch { /* no SRV record — use host:port as-is */ }
+
+    return new Promise<{ online: boolean; latency: number; players?: { online: number; max: number }; version?: string }>((resolve) => {
+      const start = Date.now()
+      const socket = new net.Socket()
+      socket.setTimeout(5000)
+      socket.connect(resolvedPort, resolvedHost, () => {
+        const latency = Date.now() - start
+        // Send MC handshake + status request to get player counts
+        const host_buf = Buffer.from(host, 'utf8')
+        const handshake = Buffer.alloc(host_buf.length + 9)
+        let off = 0
+        handshake[off++] = host_buf.length + 7  // packet length approx
+        handshake[off++] = 0x00                 // packet id: handshake
+        handshake[off++] = 0x6e                 // protocol version (varint, 110=1.9)
+        handshake[off++] = host_buf.length
+        host_buf.copy(handshake, off); off += host_buf.length
+        handshake.writeUInt16BE(port, off); off += 2
+        handshake[off++] = 0x01                 // next state: status
+        const statusReq = Buffer.from([0x01, 0x00])
+        const chunks: Buffer[] = []
+        socket.write(Buffer.concat([handshake.slice(0, off), statusReq]))
+        socket.on('data', chunk => { chunks.push(chunk) })
+        socket.on('end', () => {
+          socket.destroy()
+          try {
+            const raw = Buffer.concat(chunks).toString('utf8')
+            const jsonStart = raw.indexOf('{')
+            if (jsonStart !== -1) {
+              const parsed = JSON.parse(raw.slice(jsonStart, raw.lastIndexOf('}') + 1))
+              resolve({ online: true, latency, players: parsed?.players, version: parsed?.version?.name })
+              return
+            }
+          } catch { /* fall through */ }
+          resolve({ online: true, latency })
+        })
+        setTimeout(() => { socket.destroy(); resolve({ online: true, latency }) }, 1500)
+      })
+      socket.on('timeout', () => { socket.destroy(); resolve({ online: false, latency: 0 }) })
+      socket.on('error', () => { socket.destroy(); resolve({ online: false, latency: 0 }) })
+    })
+  })
+
   // ── System ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('system:get-ram', () => Math.floor(os.totalmem() / 1024 / 1024))
@@ -871,6 +926,151 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const gameDir = await getInstanceGameDir(instanceId)
     const target = path.join(gameDir, 'backups', path.basename(filename))
     await fs.promises.unlink(target)
+  })
+
+  // ── Mod source tracking ─────────────────────────────────────────────────────
+
+  function normFilename(fn: string) {
+    return fn.endsWith('.disabled') ? fn.slice(0, -'.disabled'.length) : fn
+  }
+
+  async function readModSources(gameDir: string): Promise<Record<string, { source: 'curseforge' | 'modrinth'; projectId?: number | string; fileId?: number | string }>> {
+    try { return JSON.parse(await fs.promises.readFile(path.join(gameDir, 'mod-sources.json'), 'utf-8')) } catch { return {} }
+  }
+
+  async function writeModSource(gameDir: string, filename: string, info: { source: 'curseforge' | 'modrinth'; projectId?: number | string; fileId?: number | string }) {
+    const filePath = path.join(gameDir, 'mod-sources.json')
+    const sources = await readModSources(gameDir)
+    sources[normFilename(filename)] = info
+    await fs.promises.writeFile(filePath, JSON.stringify(sources, null, 2))
+  }
+
+  // ── CurseForge ──────────────────────────────────────────────────────────────
+
+  const CF_API_KEY = '$2a$10$lH3wV/Q8E/bCpE7.jyIeWObw2LhbSypU8klDDAXvLsuikkHHJyAx.'
+
+  async function cfFetch(apiPath: string) {
+    const res = await axios.get(`https://api.curseforge.com${apiPath}`, {
+      headers: {
+        'x-api-key': CF_API_KEY,
+        'Accept': 'application/json',
+        'User-Agent': 'ModpackLauncher/1.5 (contact@fport1.dev)'
+      }
+    })
+    return res.data
+  }
+
+  ipcMain.handle('curseforge:search', async (_e, { query, gameVersion, classId, sortField, offset, modLoaderType, categoryId }: {
+    query: string; gameVersion?: string; classId: number; sortField?: number; offset?: number; modLoaderType?: number; categoryId?: number
+  }) => {
+    const params = new URLSearchParams({
+      gameId: '432',
+      searchFilter: query,
+      classId: String(classId),
+      pageSize: '20',
+      index: String(offset ?? 0),
+      sortField: String(sortField ?? 6),
+      sortOrder: 'desc',
+    })
+    if (gameVersion) params.set('gameVersion', gameVersion)
+    if (modLoaderType !== undefined) params.set('modLoaderType', String(modLoaderType))
+    if (categoryId !== undefined) params.set('categoryId', String(categoryId))
+    return cfFetch(`/v1/mods/search?${params}`)
+  })
+
+  ipcMain.handle('curseforge:get-mod', async (_e, modId: number) =>
+    cfFetch(`/v1/mods/${modId}`)
+  )
+
+  ipcMain.handle('curseforge:get-mod-description', async (_e, modId: number) =>
+    cfFetch(`/v1/mods/${modId}/description`)
+  )
+
+  ipcMain.handle('curseforge:get-files', async (_e, modId: number, gameVersion: string | undefined, modLoaderType: number | undefined) => {
+    const params = new URLSearchParams({ pageSize: '20' })
+    if (gameVersion) params.set('gameVersion', gameVersion)
+    if (modLoaderType !== undefined) params.set('modLoaderType', String(modLoaderType))
+    return cfFetch(`/v1/mods/${modId}/files?${params}`)
+  })
+
+  ipcMain.handle('curseforge:get-categories', async (_e, classId: number) =>
+    cfFetch(`/v1/categories?gameId=432&classId=${classId}`)
+  )
+
+  ipcMain.handle('curseforge:install-modpack', async (e, instanceId: string, modId: number, fileId: number) => {
+    resetCancel()
+    const tmpDir = path.join(os.tmpdir(), `cf-modpack-${Date.now()}`)
+    try {
+      const urlData = await cfFetch(`/v1/mods/${modId}/files/${fileId}/download-url`)
+      const downloadUrl: string = urlData.data
+      await fs.promises.mkdir(tmpDir, { recursive: true })
+      const zipPath = path.join(tmpDir, 'modpack.zip')
+
+      sendProgress(0, 1, 'Descargando modpack de CurseForge...', 'download')
+      const zipRes = await axios.get(downloadUrl, {
+        responseType: 'arraybuffer',
+        onDownloadProgress: (p) => {
+          if (p.total) e.sender.send('progress', { type: 'download', current: p.loaded, total: p.total, message: 'Descargando modpack...' })
+        }
+      })
+      await fs.promises.writeFile(zipPath, Buffer.from(zipRes.data as ArrayBuffer))
+
+      sendProgress(0, 1, 'Extrayendo modpack...', 'download')
+      const AdmZip = (await import('adm-zip')).default
+      const zip = new AdmZip(zipPath)
+      zip.extractAllTo(tmpDir, true)
+
+      const manifest = JSON.parse(await fs.promises.readFile(path.join(tmpDir, 'manifest.json'), 'utf-8'))
+
+      const gameDir = await getInstanceGameDir(instanceId)
+      const modsDir = path.join(gameDir, 'mods')
+      await fs.promises.mkdir(modsDir, { recursive: true })
+      const requiredFiles = ((manifest.files ?? []) as { projectID: number; fileID: number; required: boolean }[]).filter(f => f.required)
+      let done = 0
+      for (const file of requiredFiles) {
+        try {
+          const urlRes = await cfFetch(`/v1/mods/${file.projectID}/files/${file.fileID}/download-url`)
+          const modUrl: string = urlRes.data
+          if (!modUrl) { done++; continue }
+          const filename = decodeURIComponent(modUrl.split('/').pop() ?? `${file.projectID}.jar`)
+          const modData = await axios.get(modUrl, { responseType: 'arraybuffer' })
+          await fs.promises.writeFile(path.join(modsDir, filename), Buffer.from(modData.data as ArrayBuffer))
+        } catch { /* skip failed mods */ }
+        done++
+        sendProgress(done, requiredFiles.length, `Instalando mods... (${done}/${requiredFiles.length})`, 'download')
+      }
+
+      const overridesDir = path.join(tmpDir, 'overrides')
+      try {
+        await fs.promises.cp(overridesDir, gameDir, { recursive: true, force: true })
+      } catch { /* no overrides */ }
+
+      await fs.promises.rm(tmpDir, { recursive: true, force: true })
+      sendDone(currentMainWindow, '¡Modpack de CurseForge instalado!')
+      return manifest
+    } catch (ex) {
+      await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      if (ex instanceof CancelError) { sendDone(currentMainWindow); return }
+      throw ex
+    }
+  })
+
+  ipcMain.handle('curseforge:install-mod', async (_e, instanceId: string, modId: number, fileId: number, subFolder?: string) => {
+    const urlData = await cfFetch(`/v1/mods/${modId}/files/${fileId}/download-url`)
+    const modUrl: string = urlData.data
+    const filename = decodeURIComponent(modUrl.split('/').pop() ?? `${modId}.jar`)
+    const gameDir = await getInstanceGameDir(instanceId)
+    const destDir = path.join(gameDir, subFolder ?? 'mods')
+    await fs.promises.mkdir(destDir, { recursive: true })
+    const data = await axios.get(modUrl, { responseType: 'arraybuffer' })
+    await fs.promises.writeFile(path.join(destDir, filename), Buffer.from(data.data as ArrayBuffer))
+    await writeModSource(gameDir, filename, { source: 'curseforge', projectId: modId, fileId })
+    return filename
+  })
+
+  ipcMain.handle('instances:get-mod-sources', async (_e, instanceId: string) => {
+    const gameDir = await getInstanceGameDir(instanceId)
+    return readModSources(gameDir)
   })
 
   // ── App updates ─────────────────────────────────────────────────────────────

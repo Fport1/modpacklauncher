@@ -50,6 +50,7 @@ const api = {
     update: (instance: Instance) => ipcRenderer.invoke('instances:update', instance),
     delete: (instanceId: string) => ipcRenderer.invoke('instances:delete', instanceId),
     openFolder: (instanceId: string) => ipcRenderer.invoke('instances:open-folder', instanceId),
+    getModSources: (instanceId: string) => ipcRenderer.invoke('instances:get-mod-sources', instanceId) as Promise<Record<string, { source: 'curseforge' | 'modrinth'; projectId?: number | string; fileId?: number | string }>>,
     listMods: (instanceId: string) => ipcRenderer.invoke('instances:list-mods', instanceId) as Promise<ModFile[]>,
     listWorlds: (instanceId: string) => ipcRenderer.invoke('instances:list-worlds', instanceId) as Promise<WorldFolder[]>,
     listResourcepacks: (instanceId: string) => ipcRenderer.invoke('instances:list-resourcepacks', instanceId) as Promise<ModFile[]>,
@@ -187,6 +188,24 @@ const api = {
       ipcRenderer.invoke('modrinth:install-mrpack', instanceId, mrpackUrl) as Promise<{ modloader?: string; modloaderVersion?: string } | undefined>,
   },
 
+  // CurseForge
+  curseforge: {
+    search: (opts: { query: string; gameVersion?: string; classId: number; sortField?: number; offset?: number; modLoaderType?: number; categoryId?: number }) =>
+      ipcRenderer.invoke('curseforge:search', opts) as Promise<any>,
+    getMod: (modId: number) =>
+      ipcRenderer.invoke('curseforge:get-mod', modId) as Promise<any>,
+    getModDescription: (modId: number) =>
+      ipcRenderer.invoke('curseforge:get-mod-description', modId) as Promise<any>,
+    getFiles: (modId: number, gameVersion: string | undefined, modLoaderType: number | undefined) =>
+      ipcRenderer.invoke('curseforge:get-files', modId, gameVersion, modLoaderType) as Promise<any>,
+    getCategories: (classId: number) =>
+      ipcRenderer.invoke('curseforge:get-categories', classId) as Promise<any>,
+    installModpack: (instanceId: string, modId: number, fileId: number) =>
+      ipcRenderer.invoke('curseforge:install-modpack', instanceId, modId, fileId) as Promise<any>,
+    installMod: (instanceId: string, modId: number, fileId: number, subFolder?: string) =>
+      ipcRenderer.invoke('curseforge:install-mod', instanceId, modId, fileId, subFolder) as Promise<string>,
+  },
+
   // Settings
   settings: {
     get: () => ipcRenderer.invoke('settings:get') as Promise<Settings>,
@@ -296,7 +315,8 @@ const api = {
 
   // Status
   status: {
-    check: () => ipcRenderer.invoke('status:check') as Promise<{ id: string; name: string; url: string; status: 'up' | 'down'; latency: number }[]>
+    check: () => ipcRenderer.invoke('status:check') as Promise<{ id: string; name: string; url: string; status: 'up' | 'down'; latency: number }[]>,
+    checkServer: (host: string, port: number) => ipcRenderer.invoke('status:check-server', host, port) as Promise<{ online: boolean; latency: number; players?: { online: number; max: number }; version?: string }>
   },
 
   // Mouse back navigation signal from main process

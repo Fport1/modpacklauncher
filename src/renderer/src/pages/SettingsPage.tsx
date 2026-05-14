@@ -22,7 +22,7 @@ function SkinAvatar({ uuid, username }: { uuid: string; username: string }) {
 export { SkinAvatar }
 
 export default function SettingsPage() {
-  const { accounts, activeAccountId, settings, addAccount, removeAccount, setActiveAccountId, setSettings } = useStore()
+  const { accounts, activeAccountId, settings, addAccount, removeAccount, setActiveAccountId, setSettings, sidebarCompact, setSidebarCompact } = useStore()
 
   const [loginMode, setLoginMode] = useState<'microsoft' | 'offline'>('microsoft')
   const [offlineName, setOfflineName] = useState('')
@@ -296,6 +296,15 @@ export default function SettingsPage() {
               </button>
             </label>
           ))}
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-sm text-text-secondary">Sidebar compacto (solo iconos)</span>
+            <button
+              onClick={() => setSidebarCompact(!sidebarCompact)}
+              className={`relative w-11 h-6 rounded-full transition-colors ${sidebarCompact ? 'bg-accent' : 'bg-border'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${sidebarCompact ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </label>
         </div>
       </section>
 

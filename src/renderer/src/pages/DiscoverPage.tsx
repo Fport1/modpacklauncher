@@ -35,6 +35,29 @@ interface MVersion {
 interface Category { name: string; header: string; icon?: string }
 interface World { name: string }
 
+interface CurseHit {
+  id: number
+  name: string
+  summary: string
+  logo?: { thumbnailUrl: string }
+  downloadCount: number
+  dateModified: string
+  latestFilesIndexes: { gameVersion: string; fileId: number; modLoaderType: number; filename?: string }[]
+  classId: number
+  categories: { id: number; name: string }[]
+  links?: { websiteUrl?: string }
+}
+
+interface CurseFile {
+  id: number
+  displayName: string
+  fileName: string
+  fileDate: string
+  fileLength: number
+  gameVersions: string[]
+  modLoaderType?: number
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const TABS: { key: ContentType; label: string }[] = [
@@ -163,6 +186,19 @@ const HEADER_INFO: Record<string, { label: string; order: number }> = {
 }
 
 const LIMIT = 20
+
+const CF_CLASS_ID: Partial<Record<ContentType, number>> = {
+  modpack: 4471, mod: 6, resourcepack: 12, shader: 4546,
+}
+const CF_LOADER_TYPE: Record<string, number> = {
+  forge: 1, fabric: 4, quilt: 5, neoforge: 6,
+}
+const CF_LOADER_NAME: Record<number, string> = {
+  1: 'Forge', 4: 'Fabric', 5: 'Quilt', 6: 'NeoForge',
+}
+const CF_SORT_FIELD: Record<string, number> = {
+  downloads: 6, relevance: 2, follows: 2, newest: 3, updated: 3,
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -761,10 +797,11 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
   const [versionsLoading, setVersLoading] = useState(false)
   const [imgErr, setImgErr]             = useState(false)
   const [lightboxIdx, setLightboxIdx]   = useState<number | null>(null)
-  const [vMcFilter, setVMcFilter]       = useState('')
-  const [vLoaderFilter, setVLoader]     = useState('')
-  const [vTypeFilter, setVTypeFilter]   = useState('')
-  const bodyRef                         = useRef<HTMLDivElement>(null)
+  const [vMcFilter, setVMcFilter]         = useState('')
+  const [vLoaderFilter, setVLoader]       = useState('')
+  const [vTypeFilter, setVTypeFilter]     = useState('')
+  const [expandedChangelog, setExpandedChangelog] = useState<string | null>(null)
+  const bodyRef                           = useRef<HTMLDivElement>(null)
   const versionsLoadedRef               = useRef(false)
 
   function changeTab(t: DetailTab) {
@@ -1007,32 +1044,54 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
               ) : (
                 filteredVersions.slice(0, 100).map(v => {
                   const primary = v.files.find(f => f.primary) ?? v.files[0]
+                  const changelog: string | undefined = (v as any).changelog
                   return (
-                    <div key={v.id} className="flex items-center gap-3 p-3 bg-bg-card border border-border hover:border-accent/30 rounded-xl transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
-                          {(v as any).version_type === 'beta' && <span className="text-[9px] px-1.5 py-px rounded-full bg-amber-500/20 text-amber-400 font-semibold flex-shrink-0">Beta</span>}
-                          {(v as any).version_type === 'alpha' && <span className="text-[9px] px-1.5 py-px rounded-full bg-red-500/20 text-red-400 font-semibold flex-shrink-0">Alpha</span>}
+                    <div key={v.id} className="bg-bg-card border border-border hover:border-accent/30 rounded-xl transition-colors">
+                      <div className="flex items-center gap-3 p-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-medium text-text-primary truncate">{v.name || v.version_number}</p>
+                            {(v as any).version_type === 'beta' && <span className="text-[9px] px-1.5 py-px rounded-full bg-amber-500/20 text-amber-400 font-semibold flex-shrink-0">Beta</span>}
+                            {(v as any).version_type === 'alpha' && <span className="text-[9px] px-1.5 py-px rounded-full bg-red-500/20 text-red-400 font-semibold flex-shrink-0">Alpha</span>}
+                          </div>
+                          <p className="text-[11px] text-text-muted mt-0.5">
+                            MC {v.game_versions.slice(0, 5).join(', ')}
+                            {v.loaders.length > 0 && ` · ${v.loaders.map(loaderLabel).join(', ')}`}
+                          </p>
                         </div>
-                        <p className="text-[11px] text-text-muted mt-0.5">
-                          MC {v.game_versions.slice(0, 5).join(', ')}
-                          {v.loaders.length > 0 && ` · ${v.loaders.map(loaderLabel).join(', ')}`}
-                        </p>
+                        <div className="text-right flex-shrink-0 text-[11px] text-text-muted">
+                          {primary && <p>{(primary.size / 1024 / 1024).toFixed(1)} MB</p>}
+                          <p>{timeAgo(v.date_published)}</p>
+                        </div>
+                        <button
+                          onClick={() => onInstallVersion(v)}
+                          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg font-medium transition-colors"
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/>
+                          </svg>
+                          Instalar
+                        </button>
                       </div>
-                      <div className="text-right flex-shrink-0 text-[11px] text-text-muted">
-                        {primary && <p>{(primary.size / 1024 / 1024).toFixed(1)} MB</p>}
-                        <p>{timeAgo(v.date_published)}</p>
-                      </div>
-                      <button
-                        onClick={() => onInstallVersion(v)}
-                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg font-medium transition-colors"
-                      >
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                          <polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/>
-                        </svg>
-                        Instalar
-                      </button>
+                      {changelog && (
+                        <div className="px-3 pb-3">
+                          <button
+                            onClick={() => setExpandedChangelog(expandedChangelog === v.id ? null : v.id)}
+                            className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                              className={`transition-transform ${expandedChangelog === v.id ? '' : '-rotate-90'}`}>
+                              <polyline points="18 15 12 9 6 15"/>
+                            </svg>
+                            Changelog
+                          </button>
+                          {expandedChangelog === v.id && (
+                            <div className="mt-1.5 text-[11px] text-text-secondary bg-bg-primary rounded-lg px-3 py-2 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                              {changelog}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })
@@ -1065,7 +1124,7 @@ function ProjectDetail({ project, onClose, onInstall, onInstallVersion }: {
 
 // ── Project card ──────────────────────────────────────────────────────────────
 
-function ProjectCard({ hit, onInstall, onDetail }: { hit: Hit; onInstall: () => void; onDetail: () => void }) {
+function ProjectCard({ hit, onInstall, onDetail, contentType }: { hit: Hit; onInstall: () => void; onDetail: () => void; contentType: ContentType }) {
   const [imgErr, setImgErr] = useState(false)
   return (
     <div
@@ -1106,6 +1165,17 @@ function ProjectCard({ hit, onInstall, onDetail }: { hit: Hit; onInstall: () => 
               {catLabel(cat)}
             </span>
           ))}
+          {(contentType === 'mod' || contentType === 'modpack') && (() => {
+            const c = hit.client_side !== 'unsupported' && hit.client_side !== ''
+            const s = hit.server_side !== 'unsupported' && hit.server_side !== ''
+            if (!c && !s) return null
+            return (
+              <div className="flex items-center gap-0.5">
+                {c && <span title="Cliente" className="w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">C</span>}
+                {s && <span title="Servidor" className="w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">S</span>}
+              </div>
+            )
+          })()}
           <div className="flex items-center gap-3 ml-auto text-[11px] text-text-muted">
             <span className="flex items-center gap-1">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1127,9 +1197,277 @@ function ProjectCard({ hit, onInstall, onDetail }: { hit: Hit; onInstall: () => 
   )
 }
 
+// ── CurseForge card ───────────────────────────────────────────────────────────
+
+function CurseCard({ hit, onDetail, onInstall }: { hit: CurseHit; onDetail: () => void; onInstall: () => void }) {
+  const loaderTypes = [...new Set(hit.latestFilesIndexes.map(f => f.modLoaderType).filter(Boolean))]
+  return (
+    <div className="flex items-start gap-3 p-3 bg-bg-card border border-border rounded-xl hover:border-accent/30 transition-colors cursor-pointer group"
+      onClick={onDetail}>
+      <div className="w-12 h-12 rounded-lg bg-bg-hover flex-shrink-0 overflow-hidden">
+        {hit.logo?.thumbnailUrl
+          ? <img src={hit.logo.thumbnailUrl} alt="" className="w-full h-full object-cover" onError={e => (e.target as HTMLImageElement).style.display='none'} />
+          : <div className="w-full h-full flex items-center justify-center text-text-muted">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            </div>
+        }
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold text-text-primary truncate group-hover:text-accent transition-colors">{hit.name}</p>
+          <button onClick={e => { e.stopPropagation(); onInstall() }}
+            className="flex-shrink-0 px-2.5 py-1 text-xs bg-accent/10 hover:bg-accent text-accent hover:text-white rounded-lg transition-colors border border-accent/20">
+            Instalar
+          </button>
+        </div>
+        <p className="text-xs text-text-secondary mt-0.5 line-clamp-2">{hit.summary}</p>
+        <div className="flex items-center gap-3 mt-1.5 text-[11px] text-text-muted">
+          <span className="flex items-center gap-1">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            {fmtDownloads(hit.downloadCount)}
+          </span>
+          {loaderTypes.length > 0 && (
+            <div className="flex items-center gap-1">
+              {loaderTypes.slice(0,3).map(lt => <span key={lt} className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-bg-hover border border-border">{CF_LOADER_NAME[lt] ?? lt}</span>)}
+            </div>
+          )}
+          {hit.latestFilesIndexes[0]?.gameVersion && (
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-medium bg-bg-hover border border-border">{hit.latestFilesIndexes[0].gameVersion}</span>
+          )}
+          <span>{timeAgo(hit.dateModified)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── CurseForge detail ─────────────────────────────────────────────────────────
+
+function CurseDetail({ hit, onClose, onInstall }: {
+  hit: CurseHit; onClose: () => void; onInstall: (file?: CurseFile) => void
+}) {
+  const [files, setFiles] = useState<CurseFile[]>([])
+  const [filesLoading, setFilesLoading] = useState(false)
+  const [description, setDescription] = useState<string | null>(null)
+  const [descLoading, setDescLoading] = useState(true)
+  const [tab, setTab] = useState<'desc'|'files'>('desc')
+
+  useEffect(() => {
+    setDescLoading(true)
+    setDescription(null)
+    window.api.curseforge.getModDescription(hit.id)
+      .then((d: any) => setDescription(d?.data ?? ''))
+      .catch(() => setDescription(''))
+      .finally(() => setDescLoading(false))
+  }, [hit.id])
+
+  function loadFiles() {
+    if (files.length > 0 || filesLoading) return
+    setFilesLoading(true)
+    window.api.curseforge.getFiles(hit.id, undefined, undefined)
+      .then((d: any) => setFiles(d?.data ?? []))
+      .catch(() => {})
+      .finally(() => setFilesLoading(false))
+  }
+
+  useEffect(() => { if (tab === 'files') loadFiles() }, [tab])
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-3 px-6 py-4 border-b border-border flex-shrink-0">
+        <button onClick={onClose} className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors mr-1">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+          Volver
+        </button>
+        {hit.logo?.thumbnailUrl && <img src={hit.logo.thumbnailUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" onError={e => (e.target as HTMLImageElement).style.display='none'} />}
+        <div className="flex-1 min-w-0">
+          <p className="text-base font-bold text-text-primary truncate">{hit.name}</p>
+          <p className="text-xs text-text-muted truncate">{hit.summary}</p>
+        </div>
+        <button onClick={() => onInstall()}
+          className="flex-shrink-0 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-xl transition-colors">
+          Instalar
+        </button>
+      </div>
+
+      <div className="flex gap-2 px-6 pt-3 pb-0 border-b border-border flex-shrink-0">
+        {(['desc','files'] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t-lg transition-colors border-b-2 -mb-px ${t === tab ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'}`}>
+            {t === 'desc' ? 'Descripción' : 'Versiones'}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        {tab === 'desc' && (
+          descLoading
+            ? <div className="flex items-center justify-center gap-2 py-12 text-text-muted text-sm"><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Cargando...</div>
+            : description
+              ? <div className="prose prose-sm prose-invert max-w-none text-text-secondary text-sm" dangerouslySetInnerHTML={{ __html: description }} />
+              : <div className="flex flex-col items-center gap-2 py-12 text-text-muted"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p className="text-sm">Descripción no disponible</p></div>
+        )}
+        {tab === 'files' && (
+          <>
+            {filesLoading && <div className="flex items-center gap-2 py-10 justify-center text-text-muted text-sm"><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Cargando...</div>}
+            <div className="flex flex-col gap-2">
+              {files.map(f => (
+                <div key={f.id} className="flex items-center gap-3 p-3 bg-bg-card border border-border rounded-xl hover:border-accent/30 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-text-primary truncate">{f.displayName}</p>
+                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text-muted flex-wrap">
+                      {f.gameVersions.slice(0,4).map(v => <span key={v} className="px-1.5 py-0.5 rounded bg-bg-hover border border-border text-[9px]">{v}</span>)}
+                      {f.modLoaderType && CF_LOADER_NAME[f.modLoaderType] && <span className="px-1.5 py-0.5 rounded bg-bg-hover border border-border text-[9px]">{CF_LOADER_NAME[f.modLoaderType]}</span>}
+                      <span>{new Date(f.fileDate).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                  <button onClick={() => onInstall(f)}
+                    className="flex-shrink-0 px-3 py-1.5 text-xs bg-accent/10 hover:bg-accent text-accent hover:text-white rounded-lg transition-colors border border-accent/20">
+                    Instalar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── CurseForge install dialog ─────────────────────────────────────────────────
+
+function CurseInstall({ hit, file, contentType, instances, onClose }: {
+  hit: CurseHit; file?: CurseFile; contentType: ContentType; instances: Instance[]; onClose: () => void
+}) {
+  const isModpack = contentType === 'modpack'
+  const navigate = useNavigate()
+  const [step, setStep] = useState<'instance'|'naming'|'installing'|'done'|'error'>(isModpack ? 'naming' : 'instance')
+  const [instanceName, setInstanceName] = useState(hit.name)
+  const [selectedInstance, setSelectedInstance] = useState<Instance | null>(null)
+  const [errorMsg, setErrorMsg] = useState('')
+  const [createdInstanceId, setCreatedInstanceId] = useState<string | null>(null)
+
+  const latestFile = file ?? (hit.latestFilesIndexes.length > 0 ? hit.latestFilesIndexes[0] : null)
+  const gameVersion = (file as any)?.gameVersions?.[0] ?? hit.latestFilesIndexes[0]?.gameVersion ?? ''
+  const loaderType = (file as any)?.modLoaderType ?? hit.latestFilesIndexes[0]?.modLoaderType ?? 0
+  const loaderName = CF_LOADER_NAME[loaderType] ?? 'vanilla'
+
+  async function doInstall() {
+    if (!latestFile) return
+    setStep('installing')
+    try {
+      if (isModpack) {
+        const inst = await window.api.instances.create({
+          name: instanceName.trim() || hit.name,
+          minecraft: gameVersion,
+          modloader: loaderName.toLowerCase() as Instance['modloader'],
+          createdAt: Date.now(),
+        })
+        setCreatedInstanceId(inst.id)
+        await window.api.curseforge.installModpack(inst.id, hit.id, (latestFile as any).fileId ?? (latestFile as any).id)
+        if (hit.logo?.thumbnailUrl) {
+          await window.api.instances.setIconFromUrl(inst.id, hit.logo.thumbnailUrl).catch(() => {})
+        }
+        await window.api.launcher.installVersion(gameVersion, loaderName.toLowerCase() !== 'vanilla' ? loaderName.toLowerCase() : undefined, undefined)
+      } else {
+        const subFolder = SUBFOLDER[contentType as Exclude<ContentType, 'modpack'>]
+        await window.api.curseforge.installMod(selectedInstance!.id, hit.id, (latestFile as any).fileId ?? (latestFile as any).id, subFolder)
+      }
+      setStep('done')
+    } catch (e: any) {
+      setErrorMsg(e?.message ?? 'Error desconocido')
+      setStep('error')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[500px] max-h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border flex-shrink-0">
+          {hit.logo?.thumbnailUrl && <img src={hit.logo.thumbnailUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0" />}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-text-primary truncate">{hit.name}</p>
+            <p className="text-[11px] text-text-muted">CurseForge · {gameVersion} {CF_LOADER_NAME[loaderType] ? `· ${CF_LOADER_NAME[loaderType]}` : ''}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+
+        <div className="p-5 flex-1 overflow-y-auto">
+          {step === 'naming' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-text-secondary mb-1.5">Nombre de la instancia</label>
+                <input value={instanceName} onChange={e => setInstanceName(e.target.value)}
+                  className="w-full bg-bg-card border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                  onKeyDown={e => e.key === 'Enter' && doInstall()} />
+              </div>
+              <button onClick={doInstall} className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white font-medium rounded-xl transition-colors">
+                Instalar modpack
+              </button>
+            </div>
+          )}
+
+          {step === 'instance' && (
+            <div className="space-y-2">
+              <p className="text-sm text-text-secondary mb-3">Selecciona la instancia donde instalar:</p>
+              {instances.map(inst => (
+                <button key={inst.id} onClick={() => { setSelectedInstance(inst); doInstall() }}
+                  className="w-full flex items-center gap-3 p-3 bg-bg-card border border-border rounded-xl hover:border-accent/40 transition-colors text-left">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-text-primary truncate">{inst.name}</p>
+                    <p className="text-xs text-text-muted">{inst.minecraft} · {inst.modloader}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === 'installing' && (
+            <div className="flex flex-col items-center gap-4 py-6">
+              <svg className="animate-spin w-8 h-8 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
+              <p className="text-sm text-text-secondary">Instalando desde CurseForge...</p>
+              <p className="text-xs text-text-muted">Esto puede tomar varios minutos</p>
+            </div>
+          )}
+
+          {step === 'done' && (
+            <div className="flex flex-col items-center gap-4 py-6">
+              <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><polyline points="20 6 9 17 4 12"/></svg>
+              </div>
+              <p className="text-sm font-semibold text-text-primary">¡Instalado correctamente!</p>
+              {createdInstanceId && (
+                <button onClick={() => { onClose(); navigate('/instances') }}
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl transition-colors">
+                  Ver instancias
+                </button>
+              )}
+            </div>
+          )}
+
+          {step === 'error' && (
+            <div className="flex flex-col items-center gap-3 py-6">
+              <div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </div>
+              <p className="text-sm font-semibold text-red-400">Error al instalar</p>
+              <p className="text-xs text-text-muted text-center">{errorMsg}</p>
+              <button onClick={onClose} className="px-4 py-2 border border-border rounded-xl text-sm text-text-secondary hover:text-text-primary transition-colors">Cerrar</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function DiscoverPage() {
+  const [source, setSource]             = useState<'modrinth' | 'curseforge'>('modrinth')
   const [contentType, setContentType]   = useState<ContentType>('modpack')
   const [query, setQuery]               = useState('')
   const [draftQuery, setDraftQuery]     = useState('')
@@ -1147,7 +1485,13 @@ export default function DiscoverPage() {
   const [detailProject, setDetailProject] = useState<Hit | null>(null)
   const [installing, setInstalling]     = useState<{ project: Hit; version?: MVersion } | null>(null)
 
-  const totalPages = Math.ceil(total / LIMIT)
+  // CurseForge state
+  const [cfResults, setCfResults]       = useState<CurseHit[]>([])
+  const [cfTotal, setCfTotal]           = useState(0)
+  const [cfDetail, setCfDetail]         = useState<CurseHit | null>(null)
+  const [cfInstalling, setCfInstalling] = useState<{ hit: CurseHit; file?: CurseFile } | null>(null)
+  const [cfCategories, setCfCategories] = useState<{ id: number; name: string; parentCategoryId: number; iconUrl?: string }[]>([])
+  const [cfCategoryId, setCfCategoryId] = useState<number | null>(null)
 
   useEffect(() => {
     window.api.instances.list().then(setInstances).catch(() => {})
@@ -1193,10 +1537,42 @@ export default function DiscoverPage() {
     finally { setLoading(false) }
   }, [])
 
+  const doCfSearch = useCallback(async (q: string, p: number, type: ContentType, loader: string, s: string, mc: string, catId?: number | null) => {
+    const classId = CF_CLASS_ID[type]
+    if (!classId) { setCfResults([]); setCfTotal(0); return }
+    setLoading(true)
+    try {
+      const modLoaderType = loader ? CF_LOADER_TYPE[loader] : undefined
+      const data = await window.api.curseforge.search({
+        query: q, gameVersion: mc || undefined, classId,
+        sortField: CF_SORT_FIELD[s] ?? 6,
+        offset: p * LIMIT, modLoaderType,
+        categoryId: catId ?? undefined,
+      }) as { data: CurseHit[]; pagination: { totalCount: number } }
+      setCfResults(data.data ?? [])
+      setCfTotal(data.pagination?.totalCount ?? 0)
+    } catch { setCfResults([]); setCfTotal(0) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => {
+    if (source !== 'curseforge') return
+    const classId = CF_CLASS_ID[contentType]
+    if (!classId) { setCfCategories([]); return }
+    setCfCategories([])
+    window.api.curseforge.getCategories(classId)
+      .then((d: any) => setCfCategories(d?.data ?? []))
+      .catch(() => setCfCategories([]))
+  }, [source, contentType])
+
   useEffect(() => {
     setPage(0)
-    doSearch(query, 0, contentType, catFilters, selectedLoader, sort, mcFilter)
-  }, [contentType, catFilters, selectedLoader, sort, mcFilter])
+    if (source === 'modrinth') {
+      doSearch(query, 0, contentType, catFilters, selectedLoader, sort, mcFilter)
+    } else {
+      doCfSearch(query, 0, contentType, selectedLoader, sort, mcFilter, cfCategoryId)
+    }
+  }, [contentType, catFilters, selectedLoader, sort, mcFilter, source, cfCategoryId])
 
   useEffect(() => {
     doSearch('', 0, 'modpack', {}, '', 'downloads', '')
@@ -1206,7 +1582,11 @@ export default function DiscoverPage() {
     e.preventDefault()
     setQuery(draftQuery)
     setPage(0)
-    doSearch(draftQuery, 0, contentType, catFilters, selectedLoader, sort, mcFilter)
+    if (source === 'modrinth') {
+      doSearch(draftQuery, 0, contentType, catFilters, selectedLoader, sort, mcFilter)
+    } else {
+      doCfSearch(draftQuery, 0, contentType, selectedLoader, sort, mcFilter, cfCategoryId)
+    }
   }
 
   function handleTabChange(type: ContentType) {
@@ -1214,13 +1594,38 @@ export default function DiscoverPage() {
     setDraftQuery('')
     setQuery('')
     setPage(0)
+    setCfDetail(null)
+    setCfCategoryId(null)
+    setCfResults([])
+    setResults([])
+  }
+
+  function handleSourceChange(src: 'modrinth' | 'curseforge') {
+    setSource(src)
+    setDraftQuery('')
+    setQuery('')
+    setPage(0)
+    setDetailProject(null)
+    setCfDetail(null)
+    setCfResults([])
+    setResults([])
+    setCfCategoryId(null)
+    // search is triggered by the useEffect watching [source, ...]
   }
 
   function handlePage(p: number) {
     setPage(p)
-    doSearch(query, p, contentType, catFilters, selectedLoader, sort, mcFilter)
+    if (source === 'modrinth') {
+      doSearch(query, p, contentType, catFilters, selectedLoader, sort, mcFilter)
+    } else {
+      doCfSearch(query, p, contentType, selectedLoader, sort, mcFilter, cfCategoryId)
+    }
     window.scrollTo(0, 0)
   }
+
+  const activeTotal = source === 'curseforge' ? cfTotal : total
+  const activeResults = source === 'curseforge' ? cfResults : results
+  const activeTotalPages = Math.ceil(activeTotal / LIMIT)
 
   function toggleCat(cat: string, action: FilterState) {
     setCatFilters(prev => {
@@ -1255,11 +1660,19 @@ export default function DiscoverPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header — hidden when viewing a project detail */}
-      {!detailProject && (
+      {!detailProject && !cfDetail && (
         <div className="px-6 pt-5 pb-0 flex-shrink-0">
-          <h1 className="text-2xl font-bold text-text-primary mb-4">Descubrir</h1>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-2xl font-bold text-text-primary">Descubrir</h1>
+            {/* Source toggle — CurseForge hidden until API access is approved */}
+            <div className="flex items-center gap-1 bg-bg-card border border-border rounded-xl p-1">
+              <button className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent text-white">
+                Modrinth
+              </button>
+            </div>
+          </div>
           <div className="flex items-center gap-1 border-b border-border pb-0">
-            {TABS.map(tab => (
+            {TABS.filter(t => source === 'modrinth' || CF_CLASS_ID[t.key] !== undefined).map(tab => (
               <button key={tab.key} onClick={() => handleTabChange(tab.key)}
                 className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
                   contentType === tab.key
@@ -1285,8 +1698,16 @@ export default function DiscoverPage() {
           />
         )}
 
+        {cfDetail && (
+          <CurseDetail
+            hit={cfDetail}
+            onClose={() => setCfDetail(null)}
+            onInstall={f => setCfInstalling({ hit: cfDetail, file: f as CurseFile | undefined })}
+          />
+        )}
+
         {/* Left: results */}
-        <div className={`flex-1 flex flex-col overflow-hidden ${detailProject ? 'hidden' : ''}`}>
+        <div className={`flex-1 flex flex-col overflow-hidden ${detailProject || cfDetail ? 'hidden' : ''}`}>
           {/* Search + filters bar */}
           <div className="px-6 py-3 flex gap-2 flex-shrink-0 border-b border-border/50">
             <form className="flex-1 flex gap-2" onSubmit={handleSearch}>
@@ -1296,7 +1717,15 @@ export default function DiscoverPage() {
                 </svg>
                 <input value={draftQuery} onChange={e => setDraftQuery(e.target.value)}
                   placeholder={`Buscar ${TABS.find(t => t.key === contentType)?.label.toLowerCase()}...`}
-                  className="w-full bg-bg-card border border-border focus:border-accent/50 rounded-lg pl-8 pr-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted transition-colors" />
+                  className="w-full bg-bg-card border border-border focus:border-accent/50 rounded-lg pl-8 pr-8 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted transition-colors" />
+                {draftQuery && (
+                  <button type="button" onClick={() => { setDraftQuery(''); setQuery(''); setPage(0); source === 'modrinth' ? doSearch('', 0, contentType, catFilters, selectedLoader, sort, mcFilter) : doCfSearch('', 0, contentType, selectedLoader, sort, mcFilter) }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                )}
               </div>
               <button type="submit" disabled={loading}
                 className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors disabled:opacity-50">
@@ -1318,106 +1747,164 @@ export default function DiscoverPage() {
 
           {/* Results */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
-            {loading && results.length === 0 && (
+            {loading && activeResults.length === 0 && (
               <div className="flex items-center justify-center gap-2 py-20 text-text-muted text-sm">
                 <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
                 Cargando...
               </div>
             )}
 
-            {!loading && results.length === 0 && (
+            {!loading && activeResults.length === 0 && (
               <div className="flex flex-col items-center justify-center py-20 text-text-muted gap-2">
-                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <p className="text-sm">Sin resultados</p>
               </div>
             )}
 
             <div className="flex flex-col gap-2">
-              {results.map(hit => (
-                <ProjectCard
-                  key={hit.project_id}
-                  hit={hit}
-                  onInstall={() => setInstalling({ project: hit })}
-                  onDetail={() => setDetailProject(hit)}
-                />
-              ))}
+              {source === 'modrinth'
+                ? results.map(hit => (
+                    <ProjectCard key={hit.project_id} hit={hit} contentType={contentType}
+                      onInstall={() => setInstalling({ project: hit })}
+                      onDetail={() => setDetailProject(hit)} />
+                  ))
+                : cfResults.map(hit => (
+                    <CurseCard key={hit.id} hit={hit}
+                      onInstall={() => setCfInstalling({ hit })}
+                      onDetail={() => setCfDetail(hit)} />
+                  ))
+              }
             </div>
 
-            {totalPages > 1 && (
-              <div className="flex items-center justify-center gap-3 py-6">
-                <button onClick={() => handlePage(page - 1)} disabled={page === 0 || loading}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 text-text-muted hover:text-text-primary transition-colors disabled:opacity-30">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
-                </button>
-                <span className="text-xs text-text-muted min-w-[60px] text-center">
-                  {page + 1} / {totalPages}
-                </span>
-                <button onClick={() => handlePage(page + 1)} disabled={page >= totalPages - 1 || loading}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 text-text-muted hover:text-text-primary transition-colors disabled:opacity-30">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-              </div>
-            )}
+            {activeTotalPages > 1 && (() => {
+              const win = [page - 1, page, page + 1].filter(p => p >= 0 && p < activeTotalPages)
+              const btnCls = (active: boolean, disabled = false) =>
+                `min-w-[30px] h-8 px-2 flex items-center justify-center rounded-lg text-sm transition-colors ${disabled ? 'opacity-30 pointer-events-none' : ''} ${active ? 'bg-accent text-white font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover border border-border'}`
+              return (
+                <div className="flex items-center justify-between px-1 py-6">
+                  <span className="text-sm text-text-muted">{activeTotal} resultados</span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => handlePage(page - 1)} disabled={page === 0 || loading} className={btnCls(false, page === 0 || loading)}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
+                    </button>
+                    {win[0] > 0 && <>
+                      <button onClick={() => handlePage(0)} className={btnCls(false)}>1</button>
+                      {win[0] > 1 && <span className="text-xs text-text-muted px-0.5">…</span>}
+                    </>}
+                    {win.map(p => (
+                      <button key={p} onClick={() => handlePage(p)} className={btnCls(p === page)}>{p + 1}</button>
+                    ))}
+                    {win[win.length - 1] < activeTotalPages - 1 && <>
+                      {win[win.length - 1] < activeTotalPages - 2 && <span className="text-xs text-text-muted px-0.5">…</span>}
+                      <button onClick={() => handlePage(activeTotalPages - 1)} className={btnCls(false)}>{activeTotalPages}</button>
+                    </>}
+                    <button onClick={() => handlePage(page + 1)} disabled={page >= activeTotalPages - 1 || loading} className={btnCls(false, page >= activeTotalPages - 1 || loading)}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </button>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
 
         {/* Right sidebar: filters */}
-        {hasSidebar && !detailProject && (
-          <div className="w-52 flex-shrink-0 border-l border-border overflow-y-auto p-4 bg-bg-secondary/50">
-
-            {/* Active filter hint */}
-            {(Object.keys(catFilters).length > 0 || selectedLoader) && (
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-[10px] text-text-muted">Filtros activos</span>
-                <button
-                  onClick={() => { setCatFilters({}); setSelectedLoader('') }}
-                  className="text-[10px] text-accent hover:underline"
-                >
-                  Limpiar
-                </button>
+        {!detailProject && !cfDetail && (
+          <>
+            {/* Modrinth sidebar */}
+            {source === 'modrinth' && hasSidebar && (
+              <div className="w-52 flex-shrink-0 border-l border-border overflow-y-auto p-4 bg-bg-secondary/50">
+                {(Object.keys(catFilters).length > 0 || selectedLoader) && (
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-[10px] text-text-muted">Filtros activos</span>
+                    <button onClick={() => { setCatFilters({}); setSelectedLoader('') }} className="text-[10px] text-accent hover:underline">Limpiar</button>
+                  </div>
+                )}
+                {sortedHeaders.map(header => {
+                  const isResolution = header === 'resolution'
+                  const sorted = sortCats(header, catGroups[header])
+                  return (
+                    <SidebarSection key={header} title={HEADER_INFO[header]?.label ?? header}>
+                      {sorted.map(cat => {
+                        const catObj = categories.find(c => c.name === cat)
+                        return (
+                          <FilterRow key={cat} label={catLabel(cat)} icon={catObj?.icon} state={catFilters[cat]} showIcon={!isResolution}
+                            onInclude={() => toggleCat(cat, 'include')} onExclude={() => toggleCat(cat, 'exclude')} />
+                        )
+                      })}
+                    </SidebarSection>
+                  )
+                })}
+                {typeLoaders && typeLoaders.length > 0 && (
+                  <SidebarSection title="Loader">
+                    {typeLoaders.map(l => (
+                      <LoaderButton key={l.id} label={l.label} active={selectedLoader === l.id} onClick={() => toggleLoader(l.id)} />
+                    ))}
+                  </SidebarSection>
+                )}
               </div>
             )}
 
-            {/* Category sections from Modrinth API */}
-            {sortedHeaders.map(header => {
-              const isResolution = header === 'resolution'
-              const sorted = sortCats(header, catGroups[header])
-              return (
-                <SidebarSection key={header} title={HEADER_INFO[header]?.label ?? header}>
-                  {sorted.map(cat => {
-                    const catObj = categories.find(c => c.name === cat)
-                    return (
-                      <FilterRow
-                        key={cat}
-                        label={catLabel(cat)}
-                        icon={catObj?.icon}
-                        state={catFilters[cat]}
-                        showIcon={!isResolution}
-                        onInclude={() => toggleCat(cat, 'include')}
-                        onExclude={() => toggleCat(cat, 'exclude')}
-                      />
-                    )
-                  })}
-                </SidebarSection>
-              )
-            })}
+            {/* CurseForge sidebar */}
+            {source === 'curseforge' && CF_CLASS_ID[contentType] !== undefined && (
+              <div className="w-52 flex-shrink-0 border-l border-border overflow-y-auto p-4 bg-bg-secondary/50">
+                {/* Clear filter */}
+                {(cfCategoryId !== null || selectedLoader) && (
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-[10px] text-text-muted">Filtros activos</span>
+                    <button onClick={() => { setCfCategoryId(null); setSelectedLoader('') }} className="text-[10px] text-[#F16436] hover:underline">Limpiar</button>
+                  </div>
+                )}
 
-            {/* Loader section */}
-            {typeLoaders && typeLoaders.length > 0 && (
-              <SidebarSection title="Loader">
-                {typeLoaders.map(l => (
-                  <LoaderButton
-                    key={l.id}
-                    label={l.label}
-                    active={selectedLoader === l.id}
-                    onClick={() => toggleLoader(l.id)}
-                  />
-                ))}
-              </SidebarSection>
+                {/* Categories */}
+                {cfCategories.length > 0 && (() => {
+                  const topLevel = cfCategories.filter(c => !c.parentCategoryId || c.parentCategoryId === CF_CLASS_ID[contentType])
+                  const children = (parentId: number) => cfCategories.filter(c => c.parentCategoryId === parentId)
+                  return (
+                    <SidebarSection title="Categorías">
+                      {topLevel.map(cat => {
+                        const kids = children(cat.id)
+                        const isSelected = cfCategoryId === cat.id
+                        return (
+                          <div key={cat.id}>
+                            <button
+                              onClick={() => setCfCategoryId(isSelected ? null : cat.id)}
+                              className={`w-full flex items-center gap-2 px-2 py-1 rounded-lg text-left text-xs transition-colors ${isSelected ? 'bg-[#F16436]/20 text-[#F16436]' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}`}>
+                              {cat.iconUrl && <img src={cat.iconUrl} alt="" className="w-3.5 h-3.5 flex-shrink-0 opacity-70" onError={e => (e.target as HTMLImageElement).style.display='none'} />}
+                              <span className="truncate">{cat.name}</span>
+                            </button>
+                            {kids.length > 0 && (
+                              <div className="ml-4 mt-0.5 mb-0.5 space-y-0.5">
+                                {kids.map(kid => {
+                                  const kidSelected = cfCategoryId === kid.id
+                                  return (
+                                    <button key={kid.id}
+                                      onClick={() => setCfCategoryId(kidSelected ? null : kid.id)}
+                                      className={`w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-left text-[11px] transition-colors ${kidSelected ? 'bg-[#F16436]/20 text-[#F16436]' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'}`}>
+                                      <span className="truncate">{kid.name}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </SidebarSection>
+                  )
+                })()}
+
+                {/* Loader */}
+                {TYPE_LOADERS[contentType] && (
+                  <SidebarSection title="Mod Loader">
+                    {(TYPE_LOADERS[contentType] ?? []).filter(l => CF_LOADER_TYPE[l.id] !== undefined).map(l => (
+                      <LoaderButton key={l.id} label={l.label} active={selectedLoader === l.id} onClick={() => toggleLoader(l.id)} />
+                    ))}
+                  </SidebarSection>
+                )}
+              </div>
             )}
-          </div>
+          </>
         )}
       </div>
 
@@ -1428,6 +1915,16 @@ export default function DiscoverPage() {
           instances={instances}
           preselectedVersion={installing.version}
           onClose={() => setInstalling(null)}
+        />
+      )}
+
+      {cfInstalling && (
+        <CurseInstall
+          hit={cfInstalling.hit}
+          file={cfInstalling.file}
+          contentType={contentType}
+          instances={instances}
+          onClose={() => setCfInstalling(null)}
         />
       )}
     </div>

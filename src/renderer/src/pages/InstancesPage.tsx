@@ -45,12 +45,14 @@ function DuplicateModal({
   sourceName,
   suggestedName,
   onConfirm,
-  onClose
+  onClose,
+  duplicating = false
 }: {
   sourceName: string
   suggestedName: string
   onConfirm: (name: string) => void
   onClose: () => void
+  duplicating?: boolean
 }) {
   const [name, setName] = useState(suggestedName)
   return (
@@ -66,16 +68,19 @@ function DuplicateModal({
           onChange={e => setName(e.target.value)}
           className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent mb-4"
           autoFocus
-          onKeyDown={e => e.key === 'Enter' && name.trim() && onConfirm(name.trim())}
+          disabled={duplicating}
+          onKeyDown={e => e.key === 'Enter' && name.trim() && !duplicating && onConfirm(name.trim())}
         />
         <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors">Cancelar</button>
+          <button onClick={onClose} disabled={duplicating} className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors disabled:opacity-50">Cancelar</button>
           <button
             onClick={() => name.trim() && onConfirm(name.trim())}
-            disabled={!name.trim()}
-            className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-medium transition-colors"
+            disabled={!name.trim() || duplicating}
+            className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
           >
-            Duplicar
+            {duplicating ? (
+              <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Duplicando...</>
+            ) : 'Duplicar'}
           </button>
         </div>
       </div>
@@ -248,16 +253,31 @@ export default function InstancesPage() {
   const { instances, setInstances, addInstance, updateInstance, removeInstance } = useStore()
   const account = useStore(activeAccount)
   const runningInstances = useStore(s => s.runningInstances)
+  const openDetailInstanceId = useStore(s => s.openDetailInstanceId)
+  const setOpenDetailInstanceId = useStore(s => s.setOpenDetailInstanceId)
 
   const [modalStep, setModalStep] = useState<ModalStep | EditMode | null>(null)
   const [editing, setEditing] = useState<Instance | null>(null)
   const [detailInstance, setDetailInstance] = useState<Instance | null>(null)
+  const [fullDetailInstance, setFullDetailInstance] = useState<Instance | null>(null)
   const [exportInstance, setExportInstance] = useState<Instance | null>(null)
   const [duplicateSource, setDuplicateSource] = useState<Instance | null>(null)
   const [iconPickInstance, setIconPickInstance] = useState<Instance | null>(null)
   const [nameConflict, setNameConflict] = useState<{ pending: () => void; name: string; suggested: string } | null>(null)
   const [launching, setLaunching] = useState<string | null>(null)
   const [systemRam, setSystemRam] = useState(8192)
+
+  // Non-blocking toasts
+  const [toasts, setToasts] = useState<{ id: string; message: string; type: 'info'|'success'|'error' }[]>([])
+  function addToast(message: string, type: 'info'|'success'|'error' = 'info', duration = 3500) {
+    const id = Math.random().toString(36).slice(2)
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration)
+  }
+
+  // Group right-click edit
+  const [groupCtxMenu, setGroupCtxMenu] = useState<{ name: string; x: number; y: number } | null>(null)
+  const [editingGroup, setEditingGroup] = useState<{ originalName: string; name: string; color: string } | null>(null)
 
   const [mcVersions, setMcVersions] = useState<Array<{ id: string; type: string }>>([])
   const [showSnapshots, setShowSnapshots] = useState(false)
@@ -301,6 +321,54 @@ export default function InstancesPage() {
     setCollapsedGroups(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
   }
 
+  // Custom drag-and-drop order, persisted in localStorage
+  const [dragOrder, setDragOrder] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('ml-instance-order') ?? '[]') } catch { return [] }
+  })
+  const dragIdRef = useRef<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [dragOverGroup, setDragOverGroup] = useState<string | null>(null)
+
+  function sortByDragOrder(list: Instance[]): Instance[] {
+    if (dragOrder.length === 0) return list
+    return [...list].sort((a, b) => {
+      const ai = dragOrder.indexOf(a.id)
+      const bi = dragOrder.indexOf(b.id)
+      if (ai === -1 && bi === -1) return 0
+      if (ai === -1) return 1
+      if (bi === -1) return -1
+      return ai - bi
+    })
+  }
+
+  function handleDrop(targetId: string) {
+    const draggedId = dragIdRef.current
+    if (!draggedId || draggedId === targetId) return
+    const allIds = instances.map(i => i.id)
+    const current = [...new Set([...dragOrder.filter(id => allIds.includes(id)), ...allIds])]
+    const fromIdx = current.indexOf(draggedId)
+    const toIdx = current.indexOf(targetId)
+    current.splice(fromIdx, 1)
+    current.splice(toIdx, 0, draggedId)
+    setDragOrder(current)
+    localStorage.setItem('ml-instance-order', JSON.stringify(current))
+    setDragOverId(null)
+    dragIdRef.current = null
+  }
+
+  async function handleDropToGroup(groupName: string | null) {
+    const draggedId = dragIdRef.current
+    if (!draggedId) { setDragOverGroup(null); return }
+    const inst = instances.find(i => i.id === draggedId)
+    if (!inst || inst.group === (groupName ?? undefined)) { setDragOverGroup(null); dragIdRef.current = null; return }
+    const groupColor = groupName ? (localGroups.find(g => g.name === groupName)?.color ?? inst.groupColor) : undefined
+    const updated = { ...inst, group: groupName ?? undefined, groupColor }
+    await window.api.instances.update(updated)
+    updateInstance(updated)
+    setDragOverGroup(null)
+    dragIdRef.current = null
+  }
+
   const [form, setForm] = useState({
     name: '',
     minecraft: '1.20.1',
@@ -338,6 +406,15 @@ export default function InstancesPage() {
     window.api.instances.getDefaultIcon().then(setDefaultIconBase64).catch(() => {})
     window.api.system.getDisplays().then(setDisplays).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!openDetailInstanceId) return
+    const inst = instances.find(i => i.id === openDetailInstanceId)
+    if (inst) {
+      setFullDetailInstance(inst)
+      setOpenDetailInstanceId(null)
+    }
+  }, [openDetailInstanceId, instances])
 
   useEffect(() => {
     if (modalStep !== 'manual' && modalStep !== 'edit') return
@@ -574,10 +651,27 @@ export default function InstancesPage() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('¿Eliminar esta instancia? Los mods se borrarán, pero las partidas guardadas se mantienen.')) return
-    await window.api.instances.delete(id)
+  function handleDelete(id: string) {
+    if (!confirm('¿Eliminar esta instancia? Los archivos del juego se borrarán permanentemente.')) return
+    // Close UI immediately so the user can continue
+    if (fullDetailInstance?.id === id) setFullDetailInstance(null)
+    if (detailInstance?.id === id) setDetailInstance(null)
     removeInstance(id)
+    addToast('Eliminando instancia...', 'info', 8000)
+    window.api.instances.delete(id).catch(e =>
+      addToast(`Error al eliminar: ${e?.message ?? 'Error desconocido'}`, 'error')
+    )
+  }
+
+  async function handleEditGroup(originalName: string, newName: string, newColor: string) {
+    saveLocalGroups(localGroups.map(g => g.name === originalName ? { name: newName, color: newColor } : g))
+    const affected = instances.filter(i => i.group === originalName)
+    for (const inst of affected) {
+      const updated = { ...inst, group: newName || undefined, groupColor: newColor }
+      await window.api.instances.update(updated)
+      updateInstance(updated)
+    }
+    setEditingGroup(null)
   }
 
   async function handlePlay(id: string) {
@@ -609,27 +703,27 @@ export default function InstancesPage() {
   }
 
   async function handleDuplicate(inst: Instance, newName: string) {
-    try {
-      const exists = await window.api.instances.checkName(newName, undefined)
-      if (exists) {
-        let suggested = `${newName} (1)`
-        let n = 2
-        while (await window.api.instances.checkName(suggested, undefined)) {
-          suggested = `${newName} (${n++})`
-        }
-        setNameConflict({
-          name: newName,
-          suggested,
-          pending: () => handleDuplicate(inst, suggested)
-        })
-        return
+    // Check name conflict synchronously before closing the dialog
+    const exists = await window.api.instances.checkName(newName, undefined)
+    if (exists) {
+      let suggested = `${newName} (1)`
+      let n = 2
+      while (await window.api.instances.checkName(suggested, undefined)) {
+        suggested = `${newName} (${n++})`
       }
-      const dup = await window.api.instances.duplicate(inst.id, newName)
-      addInstance(dup)
-      setDuplicateSource(null)
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Error al duplicar')
+      setNameConflict({
+        name: newName,
+        suggested,
+        pending: () => handleDuplicate(inst, suggested)
+      })
+      return
     }
+    // Close dialog immediately and run in background
+    setDuplicateSource(null)
+    addToast(`Duplicando "${inst.name}"...`, 'info', 10000)
+    window.api.instances.duplicate(inst.id, newName)
+      .then(dup => { addInstance(dup); addToast(`"${newName}" creado`, 'success') })
+      .catch(e => addToast(`Error al duplicar: ${e?.message ?? 'Error'}`, 'error'))
   }
 
   function suggestDuplicateName(name: string): string {
@@ -647,7 +741,24 @@ export default function InstancesPage() {
   ]
 
   return (
-    <div className="p-6">
+    <div className={fullDetailInstance ? 'h-full flex flex-col overflow-hidden' : 'p-6'}>
+
+      {/* ── Full-page instance detail (from sidebar) ── */}
+      {fullDetailInstance && (
+        <InstanceDetailModal
+          instance={fullDetailInstance}
+          fullPage
+          onClose={() => setFullDetailInstance(null)}
+          onPlay={() => { setFullDetailInstance(null); handlePlay(fullDetailInstance.id) }}
+          onEdit={() => { setFullDetailInstance(null); openEdit(fullDetailInstance) }}
+          onExport={() => { setExportInstance(fullDetailInstance) }}
+          onDuplicate={() => { setDuplicateSource(fullDetailInstance) }}
+          onChangeIcon={() => { setIconPickInstance(fullDetailInstance) }}
+          onDelete={() => handleDelete(fullDetailInstance.id)}
+        />
+      )}
+
+      {!fullDetailInstance && <>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-text-primary">Instancias</h1>
         <div className="flex items-center gap-2">
@@ -700,21 +811,32 @@ export default function InstancesPage() {
         const grouped = [...groupMap.values()]
         const renderCards = (list: typeof instances) => (
           <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
-            {list.map(inst => (
-              <InstanceCard
-                key={inst.id} instance={inst}
-                onPlay={() => handlePlay(inst.id)}
-                onKill={() => window.api.launcher.kill(inst.id)}
-                onEdit={() => openEdit(inst)}
-                onDelete={() => handleDelete(inst.id)}
-                onOpenFolder={() => window.api.instances.openFolder(inst.id)}
-                onDetails={() => setDetailInstance(inst)}
-                onExport={() => setExportInstance(inst)}
-                onDuplicate={() => setDuplicateSource(inst)}
-                onChangeIcon={() => setIconPickInstance(inst)}
-                isLaunching={launching === inst.id}
-                isRunning={runningInstances.has(inst.id)}
-              />
+            {sortByDragOrder(list).map(inst => (
+              <div
+                key={inst.id}
+                draggable
+                onDragStart={() => { dragIdRef.current = inst.id }}
+                onDragOver={e => { e.preventDefault(); setDragOverId(inst.id) }}
+                onDragLeave={() => setDragOverId(prev => prev === inst.id ? null : prev)}
+                onDrop={() => handleDrop(inst.id)}
+                onDragEnd={() => { dragIdRef.current = null; setDragOverId(null) }}
+                className={`transition-all duration-100 rounded-xl ${dragOverId === inst.id && dragIdRef.current !== inst.id ? 'ring-2 ring-accent/60 scale-[1.02]' : ''}`}
+              >
+                <InstanceCard
+                  instance={inst}
+                  onPlay={() => handlePlay(inst.id)}
+                  onKill={() => window.api.launcher.kill(inst.id)}
+                  onEdit={() => openEdit(inst)}
+                  onDelete={() => handleDelete(inst.id)}
+                  onOpenFolder={() => window.api.instances.openFolder(inst.id)}
+                  onDetails={() => setDetailInstance(inst)}
+                  onExport={() => setExportInstance(inst)}
+                  onDuplicate={() => setDuplicateSource(inst)}
+                  onChangeIcon={() => setIconPickInstance(inst)}
+                  isLaunching={launching === inst.id}
+                  isRunning={runningInstances.has(inst.id)}
+                />
+              </div>
             ))}
           </div>
         )
@@ -724,21 +846,31 @@ export default function InstancesPage() {
           <div className="space-y-6">
             {grouped.map(g => {
               const isCollapsed = collapsedGroups.includes(g.group)
+              const isDropTarget = dragOverGroup === g.group
               return (
                 <div key={g.group}>
-                  <button
-                    onClick={() => toggleGroup(g.group)}
-                    className="flex items-center gap-2 mb-3 w-full text-left group/hdr"
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOverGroup(g.group) }}
+                    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverGroup(null) }}
+                    onDrop={() => handleDropToGroup(g.group)}
+                    onContextMenu={e => { e.preventDefault(); setGroupCtxMenu({ name: g.group, x: e.clientX, y: e.clientY }) }}
+                    className={`flex items-center gap-2 mb-3 rounded-lg px-1 py-0.5 transition-colors ${isDropTarget ? 'bg-accent/10 ring-2 ring-accent/40' : ''}`}
                   >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                      className={`text-text-muted transition-transform flex-shrink-0 ${isCollapsed ? '-rotate-90' : ''}`}>
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: g.color }} />
-                    <span className="text-sm font-semibold text-text-primary group-hover/hdr:text-accent transition-colors">{g.group}</span>
-                    <span className="text-xs text-text-muted">({g.items.length})</span>
-                    <div className="flex-1 h-px bg-border/40" />
-                  </button>
+                    <button
+                      onClick={() => toggleGroup(g.group)}
+                      className="flex items-center gap-2 flex-1 text-left group/hdr"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                        className={`text-text-muted transition-transform flex-shrink-0 ${isCollapsed ? '-rotate-90' : ''}`}>
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: g.color }} />
+                      <span className={`text-sm font-semibold transition-colors ${isDropTarget ? 'text-accent' : 'text-text-primary group-hover/hdr:text-accent'}`}>{g.group}</span>
+                      <span className="text-xs text-text-muted">({g.items.length})</span>
+                      <div className="flex-1 h-px bg-border/40" />
+                      {isDropTarget && <span className="text-[10px] text-accent flex-shrink-0">Soltar aquí</span>}
+                    </button>
+                  </div>
                   {!isCollapsed && renderCards(g.items)}
                 </div>
               )
@@ -747,18 +879,26 @@ export default function InstancesPage() {
               <div>
                 {showUngroupedHeader ? (
                   <>
-                    <button
-                      onClick={() => toggleGroup('__ungrouped__')}
-                      className="flex items-center gap-2 mb-3 w-full text-left group/hdr"
+                    <div
+                      onDragOver={e => { e.preventDefault(); setDragOverGroup('__ungrouped__') }}
+                      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverGroup(null) }}
+                      onDrop={() => handleDropToGroup(null)}
+                      className={`flex items-center gap-2 mb-3 rounded-lg px-1 py-0.5 transition-colors ${dragOverGroup === '__ungrouped__' ? 'bg-accent/10 ring-2 ring-accent/40' : ''}`}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                        className={`text-text-muted transition-transform flex-shrink-0 ${ungroupedCollapsed ? '-rotate-90' : ''}`}>
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                      <span className="text-sm font-semibold text-text-muted group-hover/hdr:text-text-primary transition-colors">Sin grupo</span>
-                      <span className="text-xs text-text-muted">({ungrouped.length})</span>
-                      <div className="flex-1 h-px bg-border/40" />
-                    </button>
+                      <button
+                        onClick={() => toggleGroup('__ungrouped__')}
+                        className="flex items-center gap-2 flex-1 text-left group/hdr"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                          className={`text-text-muted transition-transform flex-shrink-0 ${ungroupedCollapsed ? '-rotate-90' : ''}`}>
+                          <polyline points="6 9 12 15 18 9" />
+                        </svg>
+                        <span className={`text-sm font-semibold transition-colors ${dragOverGroup === '__ungrouped__' ? 'text-accent' : 'text-text-muted group-hover/hdr:text-text-primary'}`}>Sin grupo</span>
+                        <span className="text-xs text-text-muted">({ungrouped.length})</span>
+                        <div className="flex-1 h-px bg-border/40" />
+                        {dragOverGroup === '__ungrouped__' && <span className="text-[10px] text-accent flex-shrink-0">Soltar aquí</span>}
+                      </button>
+                    </div>
                     {!ungroupedCollapsed && renderCards(ungrouped)}
                   </>
                 ) : (
@@ -770,11 +910,14 @@ export default function InstancesPage() {
         )
       })()}
 
+      </>}
+
       {/* ── Instance detail modal ── */}
       {detailInstance && (
         <InstanceDetailModal
           instance={detailInstance}
           onClose={() => setDetailInstance(null)}
+          onPlay={() => { setDetailInstance(null); handlePlay(detailInstance.id) }}
         />
       )}
 
@@ -1312,6 +1455,76 @@ export default function InstancesPage() {
           )}
         </div>
       )}
+
+      {/* ── Group context menu ── */}
+      {groupCtxMenu && (
+        <>
+          <div className="fixed inset-0 z-[70]" onClick={() => setGroupCtxMenu(null)} />
+          <div className="fixed z-[71] bg-bg-secondary border border-border rounded-xl shadow-2xl py-1 w-40"
+            style={{ left: groupCtxMenu.x, top: groupCtxMenu.y }}>
+            <button
+              onClick={() => {
+                const g = allKnownGroups.find(g => g.name === groupCtxMenu.name)
+                setEditingGroup({ originalName: groupCtxMenu.name, name: groupCtxMenu.name, color: g?.color ?? '#6366f1' })
+                setGroupCtxMenu(null)
+              }}
+              className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left w-full">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Editar grupo
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Edit group modal ── */}
+      {editingGroup && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[72]" onClick={() => setEditingGroup(null)}>
+          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-80 p-5 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-bold text-text-primary">Editar grupo</p>
+            <div>
+              <label className="block text-xs text-text-secondary mb-1.5">Nombre</label>
+              <input value={editingGroup.name} onChange={e => setEditingGroup({ ...editingGroup, name: e.target.value })}
+                className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                onKeyDown={e => e.key === 'Enter' && editingGroup.name.trim() && handleEditGroup(editingGroup.originalName, editingGroup.name.trim(), editingGroup.color)} />
+            </div>
+            <div>
+              <label className="block text-xs text-text-secondary mb-1.5">Color</label>
+              <div className="flex items-center gap-3">
+                <input type="color" value={editingGroup.color} onChange={e => setEditingGroup({ ...editingGroup, color: e.target.value })}
+                  className="w-10 h-10 rounded-lg border border-border cursor-pointer bg-transparent" />
+                <span className="text-sm font-mono text-text-secondary">{editingGroup.color}</span>
+                <div className="flex gap-1.5 ml-auto">
+                  {['#6366f1','#ec4899','#f59e0b','#10b981','#3b82f6','#ef4444','#8b5cf6','#06b6d4'].map(c => (
+                    <button key={c} onClick={() => setEditingGroup({ ...editingGroup, color: c })}
+                      className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110"
+                      style={{ background: c, borderColor: editingGroup.color === c ? 'white' : 'transparent' }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setEditingGroup(null)} className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors">Cancelar</button>
+              <button onClick={() => editingGroup.name.trim() && handleEditGroup(editingGroup.originalName, editingGroup.name.trim(), editingGroup.color)}
+                className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors">
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toasts ── */}
+      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-[80] pointer-events-none">
+        {toasts.map(t => (
+          <div key={t.id} className={`px-4 py-2.5 rounded-xl border shadow-lg text-sm font-medium backdrop-blur-sm transition-all ${
+            t.type === 'error' ? 'bg-red-500/20 border-red-500/30 text-red-300' :
+            t.type === 'success' ? 'bg-green-500/20 border-green-500/30 text-green-300' :
+            'bg-bg-secondary/90 border-border text-text-primary'
+          }`}>
+            {t.message}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

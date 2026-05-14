@@ -5,7 +5,7 @@ import crypto from 'crypto'
 
 export type ProgressCallback = (current: number, total: number, message: string) => void
 
-export async function downloadFile(
+async function downloadFileOnce(
   url: string,
   destPath: string,
   onProgress?: ProgressCallback,
@@ -15,7 +15,7 @@ export async function downloadFile(
 
   const response = await axios.get(url, {
     responseType: 'stream',
-    timeout: 30_000
+    timeout: 60_000
   })
 
   const total = parseInt(response.headers['content-length'] || '0', 10)
@@ -46,6 +46,29 @@ export async function downloadFile(
       throw new Error(`Hash mismatch for ${path.basename(destPath)}: expected ${expectedSha256}, got ${digest}`)
     }
   }
+}
+
+export async function downloadFile(
+  url: string,
+  destPath: string,
+  onProgress?: ProgressCallback,
+  expectedSha256?: string,
+  maxRetries = 3
+): Promise<void> {
+  let lastError: unknown
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      if (attempt > 0) await fs.remove(destPath).catch(() => {})
+      await downloadFileOnce(url, destPath, onProgress, expectedSha256)
+      return
+    } catch (e) {
+      lastError = e
+      if (attempt < maxRetries - 1) {
+        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
+      }
+    }
+  }
+  throw lastError
 }
 
 export async function downloadFiles(

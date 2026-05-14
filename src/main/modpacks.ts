@@ -602,7 +602,7 @@ export async function installMrpackFiles(
       await fs.ensureDir(path.dirname(dest))
       let ok = false
       for (const url of file.downloads) {
-        try { await downloadFile(url, dest); ok = true; break } catch { /* try next */ }
+        try { await downloadFile(url, dest, undefined, undefined, 3); ok = true; break } catch { /* try next CDN */ }
       }
       if (!ok) console.warn(`No se pudo descargar: ${file.path}`)
     }

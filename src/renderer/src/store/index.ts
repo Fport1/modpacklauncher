@@ -20,6 +20,8 @@ interface AppState {
   updateModalOpen: boolean
   gameLogs: Record<string, string[]>
   runningInstances: Set<string>
+  openDetailInstanceId: string | null
+  sidebarCompact: boolean
 
   setInstances: (instances: Instance[]) => void
   addInstance: (instance: Instance) => void
@@ -39,6 +41,8 @@ interface AppState {
   appendGameLog: (instanceId: string, line: string) => void
   clearGameLog: (instanceId: string) => void
   setInstanceRunning: (instanceId: string, running: boolean) => void
+  setOpenDetailInstanceId: (id: string | null) => void
+  setSidebarCompact: (compact: boolean) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -52,6 +56,8 @@ export const useStore = create<AppState>((set) => ({
   updateModalOpen: false,
   gameLogs: {},
   runningInstances: new Set(),
+  openDetailInstanceId: null,
+  sidebarCompact: localStorage.getItem('ml-sidebar-compact') === 'true',
 
   setInstances: (instances) => set({ instances }),
   addInstance: (instance) => set((s) => ({ instances: [instance, ...s.instances] })),
@@ -94,7 +100,12 @@ export const useStore = create<AppState>((set) => ({
       const next = new Set(s.runningInstances)
       running ? next.add(instanceId) : next.delete(instanceId)
       return { runningInstances: next }
-    })
+    }),
+  setOpenDetailInstanceId: (id) => set({ openDetailInstanceId: id }),
+  setSidebarCompact: (compact) => {
+    localStorage.setItem('ml-sidebar-compact', String(compact))
+    set({ sidebarCompact: compact })
+  }
 }))
 
 export const activeAccount = (state: AppState) =>

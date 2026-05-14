@@ -57,7 +57,15 @@ function SearchBar({ value, onChange }: { value: string; onChange: (v: string) =
         <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
       </svg>
       <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder="Buscar..."
-        className="w-full pl-7 pr-3 py-1.5 text-xs bg-bg-primary border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent" />
+        className="w-full pl-7 pr-6 py-1.5 text-xs bg-bg-primary border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent" />
+      {value && (
+        <button onClick={() => onChange('')}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      )}
     </div>
   )
 }
@@ -469,14 +477,26 @@ function TrashIcon() {
 interface CtxState { x: number; y: number; items: { label: string; danger?: boolean; action: () => void }[] }
 interface ConfirmState { title: string; message: string; onConfirm: () => void }
 
-interface Props { instance: Instance; onClose: () => void }
+interface Props {
+  instance: Instance
+  onClose: () => void
+  onPlay?: () => void
+  // full-page mode (used when opened from sidebar)
+  fullPage?: boolean
+  onEdit?: () => void
+  onExport?: () => void
+  onDuplicate?: () => void
+  onDelete?: () => void
+  onChangeIcon?: () => void
+}
 
-export default function InstanceDetailModal({ instance, onClose }: Props) {
+export default function InstanceDetailModal({ instance, onClose, onPlay, fullPage, onEdit, onExport, onDuplicate, onDelete, onChangeIcon }: Props) {
   const { updateInstance: updateInstanceStore } = useStore()
   const [tab, setTab] = useState<Tab>('mods')
   const [showModrinth, setShowModrinth] = useState(false)
   const [showModrinthRp, setShowModrinthRp] = useState(false)
   const [showModrinthShader, setShowModrinthShader] = useState(false)
+  const [modrinthProjectId, setModrinthProjectId] = useState<string | null>(null)
   const [unlinkConfirm, setUnlinkConfirm] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<{ hasUpdate: boolean; version?: string } | null>(null)
@@ -516,6 +536,12 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const [backups, setBackups] = useState<{ filename: string; size: number; date: number }[]>([])
   const [backupsLoaded, setBackupsLoaded] = useState(false)
   const [backingUp, setBackingUp] = useState<string | null>(null)
+  const [gearOpen, setGearOpen] = useState(false)
+  const [modSources, setModSources] = useState<Record<string, { source: 'curseforge' | 'modrinth' }>>({})
+
+  useEffect(() => {
+    window.api.instances.getModSources(instance.id).then(setModSources).catch(() => {})
+  }, [instance.id])
 
   useEffect(() => {
     window.api.instances.getIcon(instance.id).then(setIconSrc).catch(() => setIconSrc(null))
@@ -526,6 +552,15 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   const logRef = useRef<HTMLDivElement>(null)
   const configLineNumRef = useRef<HTMLDivElement>(null)
   const saveConfigFileRef = useRef<() => void>(() => {})
+
+  // When Monaco editor closes, return focus to body so keyboard input isn't lost
+  const prevEditingRef = useRef(editingConfigFile)
+  useEffect(() => {
+    if (prevEditingRef.current !== null && editingConfigFile === null) {
+      setTimeout(() => { document.body.focus() }, 50)
+    }
+    prevEditingRef.current = editingConfigFile
+  }, [editingConfigFile])
 
   const [isModpack, setIsModpack] = useState(!!instance.modpackUrl)
   const [instanceSize, setInstanceSize] = useState<string | null>(null)
@@ -912,7 +947,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   // ── ModFile row (shared by mods, rp, shaders) ────────────────────────────
 
   function FileRow({
-    item, icon, onToggle, onDelete, onCtx, onChangeVersion, showSideBadges = true
+    item, icon, onToggle, onDelete, onCtx, onChangeVersion, onOpenModrinth, showSideBadges = true
   }: {
     item: ModFile
     icon: React.ReactNode
@@ -920,6 +955,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
     onDelete: () => void
     onCtx: (e: React.MouseEvent) => void
     onChangeVersion?: () => void
+    onOpenModrinth?: () => void
     showSideBadges?: boolean
   }) {
     const isSelected = selected.has(item.filename)
@@ -952,11 +988,47 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
 
         {/* Name + filename */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-text-primary truncate">{displayLabel}</p>
-          {hasMeta && (
-            <p className="text-xs text-text-muted truncate">{displayName(item.filename)}</p>
+          {onOpenModrinth && item.meta?.projectId ? (
+            <p
+              className="text-sm text-text-primary truncate hover:underline cursor-pointer"
+              onClick={e => { e.stopPropagation(); onOpenModrinth() }}
+            >{displayLabel}</p>
+          ) : (
+            <p className="text-sm text-text-primary truncate">{displayLabel}</p>
           )}
+          {item.meta?.name ? (
+            <p className="text-[11px] text-text-muted truncate flex items-center gap-1">
+              <span className="opacity-75">{displayName(item.filename)}</span>
+              {item.meta?.author && (
+                <>
+                  <span className="opacity-40">·</span>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
+                    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                  </svg>
+                  {item.meta.author}
+                </>
+              )}
+            </p>
+          ) : item.meta?.author ? (
+            <p className="text-[11px] text-text-muted truncate flex items-center gap-1">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+              {item.meta.author}
+            </p>
+          ) : hasMeta ? (
+            <p className="text-xs text-text-muted truncate">{displayName(item.filename)}</p>
+          ) : null}
         </div>
+
+        {/* Source badge */}
+        {(() => {
+          const src = modSources[displayName(item.filename)]?.source
+          if (!src) return null
+          return src === 'curseforge'
+            ? <span title="Instalado desde CurseForge" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#F16436]/15 text-[#F16436] border border-[#F16436]/30">CF</span>
+            : <span title="Instalado desde Modrinth" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">MR</span>
+        })()}
 
         {/* Size */}
         {item.size > 0 && <span className="text-xs text-text-muted flex-shrink-0">{formatSize(item.size)}</span>}
@@ -1054,11 +1126,20 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
   ]
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[720px] flex flex-col" style={{ height: '90vh', maxHeight: '780px', minHeight: '520px' }}>
+    <div className={fullPage ? 'flex flex-col h-full' : 'fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4'}>
+    <div className={fullPage ? 'flex flex-col h-full w-full bg-bg-secondary overflow-hidden' : 'relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[720px] flex flex-col'} style={fullPage ? undefined : { height: '90vh', maxHeight: '780px', minHeight: '520px' }}>
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 flex-shrink-0">
+          {fullPage && (
+            <button onClick={onClose}
+              className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors flex-shrink-0 mr-1">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              Instancias
+            </button>
+          )}
           <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
             {iconSrc
               ? <img src={iconSrc} alt="" className="w-full h-full object-cover" draggable={false} />
@@ -1076,19 +1157,72 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
               {instanceSize && ` · ${instanceSize}`}
             </p>
           </div>
-          {isRunning && (
+          {isRunning ? (
             <button onClick={() => window.api.launcher.kill(instance.id)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs rounded-lg transition-colors">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
               Cerrar juego
             </button>
+          ) : onPlay && (
+            <button onClick={onPlay}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+              Jugar
+            </button>
           )}
-          <button onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+          {fullPage && (onEdit || onExport || onDuplicate || onChangeIcon || onDelete) && (
+            <div className="relative">
+              <button
+                onClick={() => setGearOpen(o => !o)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                title="Opciones"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+                </svg>
+              </button>
+              {gearOpen && (
+                <>
+                  <div className="fixed inset-0 z-[55]" onClick={() => setGearOpen(false)} />
+                  <div className="absolute right-0 top-9 z-[56] bg-bg-secondary border border-border rounded-xl shadow-2xl py-1 w-44 flex flex-col">
+                    {onEdit && <button onClick={() => { setGearOpen(false); onEdit() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                      Editar
+                    </button>}
+                    {onChangeIcon && <button onClick={() => { setGearOpen(false); onChangeIcon() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                      Cambiar icono
+                    </button>}
+                    {onExport && <button onClick={() => { setGearOpen(false); onExport() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+                      Exportar
+                    </button>}
+                    {onDuplicate && <button onClick={() => { setGearOpen(false); onDuplicate() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      Duplicar
+                    </button>}
+                    <button onClick={() => { setGearOpen(false); window.api.instances.openFolder(instance.id) }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                      Abrir carpeta
+                    </button>
+                    {onDelete && <><div className="h-px bg-border/50 mx-2 my-1"/><button onClick={() => { setGearOpen(false); onDelete() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+                      Eliminar instancia
+                    </button></>}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {!fullPage && (
+            <button onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Tabs */}
@@ -1194,6 +1328,7 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
                           doToggleModBulk(sortedMods.filter(m => selected.has(m.filename)).map(m => m.filename))
                         else doToggleMod(mod.filename)
                       }}
+                      onOpenModrinth={mod.meta?.projectId ? () => setModrinthProjectId(mod.meta!.projectId!) : undefined}
                       onChangeVersion={mod.meta?.projectId ? () => setVersionPicker({ filename: mod.filename, projectId: mod.meta!.projectId!, installedVersionId: mod.meta?.installedVersionId, subFolder: 'mods', modLoader: instance.modloader, modName: mod.meta?.name || displayName(mod.filename) }) : undefined}
                       onDelete={() => deleteModFiles([mod.filename])}
                       onCtx={e => {
@@ -1826,10 +1961,11 @@ export default function InstanceDetailModal({ instance, onClose }: Props) {
           onDelete={s => deleteScreenshotItems([s.filename])}
         />
       )}
-      {showModrinth && (
+      {(showModrinth || modrinthProjectId !== null) && (
         <ModrinthModal
           instance={instance}
-          onClose={() => setShowModrinth(false)}
+          initialProjectId={modrinthProjectId ?? undefined}
+          onClose={() => { setShowModrinth(false); setModrinthProjectId(null) }}
           onInstalled={() => loadTab('mods')}
           projectVersionMap={Object.fromEntries(mods.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
           projectFilenameMap={Object.fromEntries(mods.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.name]))}

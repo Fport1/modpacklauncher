@@ -15,15 +15,20 @@ interface ModrinthHit {
   icon_url: string | null
   downloads: number
   categories: string[]
+  author?: string
+  client_side?: 'required' | 'optional' | 'unsupported'
+  server_side?: 'required' | 'optional' | 'unsupported'
 }
 
 interface ModrinthVersion {
   id: string
   version_number: string
   name: string
+  version_type?: string
   files: { url: string; filename: string; primary: boolean; size: number }[]
   date_published: string
   downloads: number
+  changelog?: string
   dependencies: { project_id: string | null; version_id?: string; dependency_type: 'required' | 'optional' | 'incompatible' }[]
 }
 
@@ -36,6 +41,7 @@ interface Props {
   onInstalled: () => void
   projectVersionMap?: Record<string, string>
   projectFilenameMap?: Record<string, string>
+  initialProjectId?: string
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -161,7 +167,7 @@ function FilterRow({ checked, excluded, onChange, onExclude, label, icon }: Filt
   )
 }
 
-export default function ModrinthModal({ instance, projectType = 'mod', onClose, onInstalled, projectVersionMap = {}, projectFilenameMap = {} }: Props) {
+export default function ModrinthModal({ instance, projectType = 'mod', onClose, onInstalled, projectVersionMap = {}, projectFilenameMap = {}, initialProjectId }: Props) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('relevance')
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set())
@@ -193,6 +199,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
   const [quickInstallingId, setQuickInstallingId] = useState('')
   const [error, setError] = useState('')
   const [installChannel, setInstallChannel] = useState<'all' | 'stable'>('all')
+  const [expandedChangelog, setExpandedChangelog] = useState<string | null>(null)
 
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const LIMIT = 20
@@ -212,6 +219,11 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     }).catch(() => {}).finally(() => setLoadingInstalled(false))
     window.api.settings.get().then(s => setInstallChannel(s.modInstallChannel ?? 'all')).catch(() => {})
     doSearch('', 'relevance', new Set(), new Set(), 'any', 0, 0)
+    if (initialProjectId) {
+      window.api.modrinth.getProject(initialProjectId).then((proj: any) => {
+        selectMod({ project_id: proj.id, title: proj.title, description: proj.description ?? '', icon_url: proj.icon_url ?? null, downloads: proj.downloads ?? 0, categories: proj.categories ?? [] })
+      }).catch(() => {})
+    }
     return () => { nav.clearFrom(baseSize) }
   }, [])
 
@@ -380,6 +392,9 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
       const version = await window.api.modrinth.getProjectVersion(hit.project_id, instance.minecraft, instance.modloader, installChannel)
       if (!version) { setError(`No hay versión compatible con MC ${instance.minecraft}`); return }
       await installVersion(version)
+      // installVersion only updates installedIds/justInstalled when selectedMod is set — fix for quick install
+      setInstalledIds(prev => new Set(prev).add(hit.project_id))
+      setJustInstalled(prev => new Set(prev).add(hit.project_id))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al instalar')
     } finally {
@@ -527,7 +542,15 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                     </svg>
                     <input type="text" value={query} onChange={e => scheduleSearch(e.target.value)}
                       placeholder={`Buscar ${TYPE_LABELS[projectType].toLowerCase()}...`} autoFocus
-                      className="w-full bg-bg-primary border border-border rounded-lg pl-9 pr-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                      className="w-full bg-bg-primary border border-border rounded-lg pl-9 pr-8 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                    {query && (
+                      <button onClick={() => scheduleSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    )}
                   </div>
                   <select value={sort} onChange={e => changeSort(e.target.value)}
                     className="bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-secondary focus:outline-none focus:border-accent">
@@ -570,13 +593,32 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                                     <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full flex-shrink-0">Instalado</span>
                                   )}
                                 </div>
+                                {mod.author && (
+                                  <p className="text-[11px] text-text-muted truncate flex items-center gap-1 mt-0.5">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
+                                      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                                    </svg>
+                                    {mod.author}
+                                  </p>
+                                )}
                                 <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{mod.description}</p>
-                                <div className="flex items-center gap-2 mt-1">
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
                                   <span className="flex items-center gap-1 text-[11px] text-text-muted">
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
                                     {formatNum(mod.downloads)}
                                   </span>
-                                  {mod.categories.filter(c => !['fabric','forge','neoforge','quilt'].includes(c)).slice(0, 3).map(c => (
+                                  {projectType === 'mod' && (() => {
+                                    const c = mod.client_side !== 'unsupported' && mod.client_side !== undefined
+                                    const s = mod.server_side !== 'unsupported' && mod.server_side !== undefined
+                                    if (!c && !s) return null
+                                    return (
+                                      <div className="flex items-center gap-0.5">
+                                        {c && <span title="Cliente" className="w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">C</span>}
+                                        {s && <span title="Servidor" className="w-4 h-4 flex items-center justify-center rounded text-[9px] font-bold bg-purple-500/20 text-purple-400 border border-purple-500/30">S</span>}
+                                      </div>
+                                    )
+                                  })()}
+                                  {mod.categories.filter(c => !['fabric','forge','neoforge','quilt'].includes(c)).slice(0, 2).map(c => (
                                     <span key={c} className="flex items-center gap-0.5 text-[10px] bg-bg-card text-text-muted px-1.5 py-0.5 rounded-full">
                                       {CAT_ICONS[c] && (
                                         <svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor"><path d={CAT_ICONS[c]}/></svg>
@@ -615,13 +657,13 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                 </div>
 
                 {totalPages > 1 && (() => {
-                  const win = [page, page + 1, page + 2].filter(p => p < totalPages)
+                  const win = [page - 1, page, page + 1].filter(p => p >= 0 && p < totalPages)
                   const showLastSep = win[win.length - 1] < totalPages - 1
                   const btnCls = (active: boolean, disabled = false) =>
-                    `min-w-[28px] h-7 px-1.5 flex items-center justify-center rounded-lg text-xs transition-colors ${disabled ? 'opacity-40 pointer-events-none' : ''} ${active ? 'bg-accent text-white font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`
+                    `min-w-[30px] h-7 px-2 flex items-center justify-center rounded-lg text-sm transition-colors ${disabled ? 'opacity-40 pointer-events-none' : ''} ${active ? 'bg-accent text-white font-medium' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover'}`
                   return (
                     <div className="flex items-center justify-between px-4 py-2.5 border-t border-border/50 flex-shrink-0">
-                      <span className="text-xs text-text-muted">{totalHits} resultados</span>
+                      <span className="text-sm text-text-muted">{totalHits} resultados</span>
                       <div className="flex items-center gap-1">
                         <button onClick={() => goToPage(page - 1)} disabled={page === 0 || searching}
                           className={btnCls(false, page === 0 || searching)}>
@@ -788,6 +830,25 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                                     </button>
                                   )}
                                 </div>
+                                {ver.changelog && (
+                                  <div className="mt-2">
+                                    <button
+                                      onClick={() => setExpandedChangelog(expandedChangelog === ver.id ? null : ver.id)}
+                                      className="flex items-center gap-1 text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                                    >
+                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                                        className={`transition-transform ${expandedChangelog === ver.id ? '' : '-rotate-90'}`}>
+                                        <polyline points="6 9 12 15 18 9"/>
+                                      </svg>
+                                      Changelog
+                                    </button>
+                                    {expandedChangelog === ver.id && (
+                                      <div className="mt-1.5 text-[11px] text-text-secondary bg-bg-primary rounded-lg px-3 py-2 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                                        {ver.changelog}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                                 {(requiredDeps.length > 0 || optionalDeps.length > 0) && (
                                   <div className="mt-2 pt-2 border-t border-border/40 flex flex-wrap gap-1.5">
                                     {requiredDeps.map(d => (
