@@ -323,6 +323,12 @@ const api = {
     checkServer: (host: string, port: number) => ipcRenderer.invoke('status:check-server', host, port) as Promise<{ online: boolean; latency: number; players?: { online: number; max: number }; version?: string }>
   },
 
+  // Texture export
+  textures: {
+    saveToFolder: (files: { name: string; dataUrl: string }[]) =>
+      ipcRenderer.invoke('textures:save-to-folder', files) as Promise<string | null>,
+  },
+
   // Mouse back navigation signal from main process
   onNavBack: (cb: () => void) => {
     const handler = () => cb()

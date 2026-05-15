@@ -1097,6 +1097,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       e.sender.send('updater:download-progress', pct)
     })
   })
+
+  ipcMain.handle('textures:save-to-folder', async (_e, files: { name: string; dataUrl: string }[]) => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'], title: 'Seleccionar carpeta de destino' })
+    if (result.canceled || !result.filePaths.length) return null
+    const folder = result.filePaths[0]
+    for (const file of files) {
+      const base64 = file.dataUrl.replace(/^data:image\/\w+;base64,/, '')
+      await fs.promises.writeFile(path.join(folder, file.name), Buffer.from(base64, 'base64'))
+    }
+    return folder
+  })
 }
 
 function addAccount(account: MinecraftAccount): void {
