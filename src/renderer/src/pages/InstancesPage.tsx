@@ -826,6 +826,7 @@ export default function InstancesPage() {
                   instance={inst}
                   onPlay={() => handlePlay(inst.id)}
                   onKill={() => window.api.launcher.kill(inst.id)}
+                  onLaunchExtra={() => window.api.launcher.launchExtra(inst.id)}
                   onEdit={() => openEdit(inst)}
                   onDelete={() => handleDelete(inst.id)}
                   onOpenFolder={() => window.api.instances.openFolder(inst.id)}

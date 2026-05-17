@@ -115,6 +115,7 @@ const api = {
   // Launcher
   launcher: {
     launch: (instanceId: string) => ipcRenderer.invoke('launcher:launch', instanceId),
+    launchExtra: (instanceId: string) => ipcRenderer.invoke('launcher:launch-extra', instanceId) as Promise<void>,
     kill: (instanceId: string) => ipcRenderer.invoke('launcher:kill', instanceId),
     installVersion: (version: string, modloader?: string, modloaderVersion?: string) =>
       ipcRenderer.invoke('launcher:install-version', version, modloader, modloaderVersion),

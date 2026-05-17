@@ -5,6 +5,7 @@ interface Props {
   instance: Instance
   onPlay: () => void
   onKill: () => void
+  onLaunchExtra?: () => void
   onEdit: () => void
   onDelete: () => void
   onOpenFolder: () => void
@@ -51,6 +52,7 @@ export default function InstanceCard({
   instance,
   onPlay,
   onKill,
+  onLaunchExtra,
   onEdit,
   onDelete,
   onOpenFolder,
@@ -62,6 +64,7 @@ export default function InstanceCard({
   isRunning
 }: Props) {
   const [showMenu, setShowMenu] = useState(false)
+  const [showExtraConfirm, setShowExtraConfirm] = useState(false)
   const [iconSrc, setIconSrc] = useState<string | null>(null)
 
   useEffect(() => {
@@ -130,13 +133,52 @@ export default function InstanceCard({
 
       {/* Play / Kill button */}
       {isRunning ? (
-        <button
-          onClick={onKill}
-          className="mt-3 w-full flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold py-2 rounded-lg transition-colors"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
-          Cerrar juego
-        </button>
+        <>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={onKill}
+              className="flex-1 flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold py-2 rounded-lg transition-colors"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
+              Cerrar
+            </button>
+            <button
+              onClick={() => setShowExtraConfirm(v => !v)}
+              title="Abrir segunda instancia"
+              className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+                showExtraConfirm
+                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                  : 'bg-bg-card border-border text-text-secondary hover:border-accent/40 hover:text-accent'
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+              </svg>
+            </button>
+          </div>
+          {showExtraConfirm && (
+            <div className="mt-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+              <p className="text-[11px] text-amber-300 font-medium mb-0.5">¿Abrir una segunda copia?</p>
+              <p className="text-[10px] text-amber-300/70 mb-2.5">
+                Tendrás dos Minecrafts corriendo a la vez. Puede causar lag, alta RAM y CPU. ¿Continuar?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { onLaunchExtra?.(); setShowExtraConfirm(false) }}
+                  className="flex-1 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-semibold hover:bg-amber-500/30 transition-colors"
+                >
+                  Abrir igual
+                </button>
+                <button
+                  onClick={() => setShowExtraConfirm(false)}
+                  className="flex-1 py-1.5 rounded-lg border border-border text-text-secondary text-[11px] hover:text-text-primary transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <button
           onClick={onPlay}

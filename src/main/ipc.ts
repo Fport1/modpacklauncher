@@ -314,6 +314,24 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   )
 
+  ipcMain.handle('launcher:launch-extra', async (_e, instanceId: string) => {
+    const instances = await loadInstances()
+    const instance = instances.find((i) => i.id === instanceId)
+    if (!instance) throw new Error('Instance not found')
+
+    const { accounts, activeId } = accountsStore.getAll()
+    let account = accounts.find((a) => a.id === activeId) ?? accounts[0]
+    if (!account) throw new Error('No account selected')
+
+    const settings = settingsStore.getAll()
+    if (isTokenExpired(account) && account.type === 'microsoft') {
+      account = await refreshMicrosoftToken(account, settings.azureClientId)
+      updateAccount(account)
+    }
+
+    await launchInstance(instance, account, settings, getMainWindow(), undefined, undefined, { suppressEvents: true })
+  })
+
   ipcMain.handle('launcher:kill', (_e, instanceId: string) => killInstance(instanceId))
   ipcMain.handle('launcher:get-mc-versions', () => getAvailableVersions())
   ipcMain.handle('launcher:get-forge-versions', (_e, mc: string) => getForgeVersions(mc))

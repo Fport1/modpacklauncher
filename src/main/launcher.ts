@@ -115,7 +115,8 @@ export async function launchInstance(
   settings: Settings,
   mainWindow: BrowserWindow,
   onProgress?: (current: number, total: number, msg: string) => void,
-  onExit?: (sessionMs: number) => void
+  onExit?: (sessionMs: number) => void,
+  options?: { suppressEvents?: boolean }
 ): Promise<void> {
   onProgress?.(0, 6, 'Preparando lanzamiento...')
 
@@ -233,14 +234,17 @@ export async function launchInstance(
   }
   const proc = await launch(launchOpts as Parameters<typeof launch>[0])
 
-  runningProcesses.set(instance.id, proc)
-  if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.minimize()
+  const extra = options?.suppressEvents === true
+  if (!extra) {
+    runningProcesses.set(instance.id, proc)
+    if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.minimize()
+  }
 
   const sessionStart = Date.now()
   const sendLog = (line: string) => {
-    sendToWindow(mainWindow, 'game:log', instance.id, line)
+    if (!extra) sendToWindow(mainWindow, 'game:log', instance.id, line)
   }
-  sendToWindow(mainWindow, 'game:started', instance.id)
+  if (!extra) sendToWindow(mainWindow, 'game:started', instance.id)
 
   proc.stdout?.on('data', (buf) =>
     buf.toString().split('\n').filter(Boolean).forEach(sendLog)
@@ -249,9 +253,11 @@ export async function launchInstance(
     buf.toString().split('\n').filter(Boolean).forEach(sendLog)
   )
   proc.on('exit', (code) => {
-    runningProcesses.delete(instance.id)
-    sendToWindow(mainWindow, 'game:exit', instance.id, code)
-    if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.restore()
+    if (!extra) {
+      runningProcesses.delete(instance.id)
+      sendToWindow(mainWindow, 'game:exit', instance.id, code)
+      if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.restore()
+    }
     onExit?.(Date.now() - sessionStart)
   })
 }
