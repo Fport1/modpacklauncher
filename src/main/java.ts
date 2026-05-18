@@ -104,7 +104,19 @@ async function detectSystemJava(requiredMajor: number): Promise<string | null> {
   for (const candidate of candidates) {
     try {
       const version = await getJavaVersion(candidate)
-      if (version >= requiredMajor) return candidate
+      if (version < requiredMajor) continue
+      // On Windows, bare 'java' may not be in Electron's spawned process PATH.
+      // Resolve to absolute path so launch() can always find the executable.
+      if (process.platform === 'win32' && !path.isAbsolute(candidate)) {
+        try {
+          const { stdout } = await execAsync(`where.exe "${candidate}"`, { timeout: 3000 })
+          const fullPath = stdout.trim().split(/\r?\n/)[0].trim()
+          if (fullPath) return fullPath
+        } catch {
+          continue
+        }
+      }
+      return candidate
     } catch {
       continue
     }

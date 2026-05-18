@@ -179,6 +179,11 @@ export async function launchInstance(
   // 4. Ensure Java is available (auto-install if needed)
   onProgress?.(4, 6, 'Verificando Java...')
   let javaPath = instance.javaPath || settings.javaPath
+  // If the stored path is absolute but the file is gone (e.g. Java was uninstalled), clear it so
+  // ensureJava can auto-detect/install a working one rather than passing a dead path to spawn().
+  if (javaPath && path.isAbsolute(javaPath) && !(await fs.pathExists(javaPath))) {
+    javaPath = ''
+  }
   if (!javaPath) {
     javaPath = await ensureJava(instance.minecraft, (current, total, msg) => {
       onProgress?.(4, 6, msg)
