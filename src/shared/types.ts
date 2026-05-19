@@ -88,6 +88,10 @@ export interface Settings {
   updateManifestUrl: string
   githubToken?: string
   modInstallChannel: 'all' | 'stable'
+  closeToTray: boolean
+  launchAtStartup: boolean
+  aiProvider?: 'claude' | 'openai' | 'gemini' | 'grok'
+  aiApiKey?: string
 }
 
 export interface DownloadProgress {
@@ -129,7 +133,9 @@ export const DEFAULT_SETTINGS: Settings = {
   azureClientId: '',
   checkUpdatesOnStart: true,
   updateManifestUrl: 'https://raw.githubusercontent.com/Fport1/modpacklauncher-updates/main/update.json',
-  modInstallChannel: 'all'
+  modInstallChannel: 'all',
+  closeToTray: true,
+  launchAtStartup: false,
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/

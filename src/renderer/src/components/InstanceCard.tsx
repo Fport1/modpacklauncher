@@ -15,6 +15,8 @@ interface Props {
   onChangeIcon: () => void
   isLaunching?: boolean
   isRunning?: boolean
+  hasUpdate?: boolean
+  onUpdate?: () => void
 }
 
 const MODLOADER_COLORS: Record<string, string> = {
@@ -61,7 +63,9 @@ export default function InstanceCard({
   onDuplicate,
   onChangeIcon,
   isLaunching,
-  isRunning
+  isRunning,
+  hasUpdate,
+  onUpdate
 }: Props) {
   const [showMenu, setShowMenu] = useState(false)
   const [showExtraConfirm, setShowExtraConfirm] = useState(false)
@@ -128,6 +132,21 @@ export default function InstanceCard({
             </svg>
             Modpack v{instance.modpackVersion ?? '?'}
           </span>
+        </div>
+      )}
+
+      {/* Modpack update badge */}
+      {hasUpdate && (
+        <div className="mt-2">
+          <button
+            onClick={onUpdate}
+            className="inline-flex items-center gap-1 text-xs bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+            </svg>
+            Actualización disponible
+          </button>
         </div>
       )}
 

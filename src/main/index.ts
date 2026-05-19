@@ -1,7 +1,28 @@
-import { app, BrowserWindow, shell, protocol } from 'electron'
+import { app, BrowserWindow, shell, protocol, Tray, Menu, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs-extra'
-import { registerIpcHandlers } from './ipc'
+import { registerIpcHandlers, getSettings } from './ipc'
+
+let tray: Tray | null = null
+
+function createTray(win: BrowserWindow): void {
+  const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+  const iconPath = path.join(__dirname, `../../build/${iconFile}`)
+  const img = fs.existsSync(iconPath)
+    ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
+    : nativeImage.createEmpty()
+
+  tray = new Tray(img)
+  tray.setToolTip('ModpackLauncher')
+  tray.on('click', () => { win.show(); win.focus() })
+
+  const menu = Menu.buildFromTemplate([
+    { label: 'Abrir ModpackLauncher', click: () => { win.show(); win.focus() } },
+    { type: 'separator' },
+    { label: 'Salir', click: () => { tray?.destroy(); app.exit(0) } }
+  ])
+  tray.setContextMenu(menu)
+}
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { bypassCSP: true, stream: true } }
@@ -76,13 +97,20 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  if (mainWindow) createTray(mainWindow)
+
+  // Apply startup setting on launch
+  const startupSetting = getSettings().launchAtStartup
+  app.setLoginItemSettings({ openAtLogin: startupSetting })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    else mainWindow?.show()
   })
 })
 
 app.on('window-all-closed', () => {
+  // When close-to-tray is active we hide instead of close, so this only fires on real quit
   if (process.platform !== 'darwin') app.quit()
 })
 
@@ -94,5 +122,12 @@ ipcMain.on('window:maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize()
   else mainWindow?.maximize()
 })
-ipcMain.on('window:close', () => mainWindow?.webContents.send('app:request-close'))
-ipcMain.on('app:confirm-close', () => mainWindow?.destroy())
+ipcMain.on('window:close', () => {
+  const { closeToTray } = getSettings()
+  if (closeToTray && tray) {
+    mainWindow?.hide()
+  } else {
+    mainWindow?.webContents.send('app:request-close')
+  }
+})
+ipcMain.on('app:confirm-close', () => { tray?.destroy(); mainWindow?.destroy() })

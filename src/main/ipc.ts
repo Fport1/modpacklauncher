@@ -81,6 +81,7 @@ import {
 import { fetchManifest, installModpack, updateModpack, compareVersions, installMrpackFiles } from './modpacks'
 import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta } from './modrinth'
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
+import { analyzeWithAI } from './ai'
 
 interface AccountsStore {
   accounts: MinecraftAccount[]
@@ -89,6 +90,10 @@ interface AccountsStore {
 
 const settingsStore = new JsonStore<Settings>('settings', DEFAULT_SETTINGS)
 const accountsStore = new JsonStore<AccountsStore>('accounts', { accounts: [] })
+
+export function getSettings(): Settings {
+  return settingsStore.getAll()
+}
 let currentMainWindow: BrowserWindow | null = null
 let ipcHandlersRegistered = false
 
@@ -467,6 +472,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('settings:set', (_e, data: Partial<Settings>) => {
     settingsStore.setAll(data)
+    if (typeof data.launchAtStartup === 'boolean') {
+      app.setLoginItemSettings({ openAtLogin: data.launchAtStartup })
+    }
+  })
+
+  // ── AI analysis ─────────────────────────────────────────────────────────────
+
+  ipcMain.handle('ai:analyze', async (_e, content: string, type: 'crash' | 'log') => {
+    const s = settingsStore.getAll()
+    if (!s.aiProvider || !s.aiApiKey) throw new Error('No hay proveedor de IA configurado en Ajustes.')
+    return analyzeWithAI(content, type, s.aiProvider, s.aiApiKey)
   })
 
   // ── Java ────────────────────────────────────────────────────────────────────

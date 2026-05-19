@@ -27,7 +27,8 @@ function formatSize(bytes: number): string {
 }
 function formatDate(ms?: number): string {
   if (!ms) return '—'
-  return new Date(ms).toLocaleDateString()
+  const d = new Date(ms)
+  return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 function mediaUrl(filePath: string): string {
   return 'media:///' + filePath.replace(/\\/g, '/')
@@ -522,6 +523,9 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [crashContent, setCrashContent] = useState('')
   const [latestLog, setLatestLog] = useState('')
   const [consoleView, setConsoleView] = useState<'live' | 'log' | 'crash'>('live')
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null)
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState('')
   const [optionsContent, setOptionsContent] = useState('')
   const [optionsSavedContent, setOptionsSavedContent] = useState('')
   const [optionsSaved, setOptionsSaved] = useState(false)
@@ -717,6 +721,20 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         if (displayHz === 0) window.api.system.getDisplayHz().then(setDisplayHz).catch(() => {})
       }
     } finally { setLoading(false) }
+  }
+
+  async function analyzeWithAI(content: string, type: 'crash' | 'log') {
+    setAiLoading(true)
+    setAiError('')
+    setAiAnalysis(null)
+    try {
+      const result = await window.api.ai.analyze(content, type)
+      setAiAnalysis(result)
+    } catch (e: unknown) {
+      setAiError(e instanceof Error ? e.message : 'Error al analizar')
+    } finally {
+      setAiLoading(false)
+    }
   }
 
   async function navigateConfig(newPath: string[]) {
@@ -2051,12 +2069,31 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               )}
 
               {consoleView === 'log' && (
-                <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-xs text-text-secondary leading-5 min-h-0">
-                  {loading ? <p className="text-text-muted">Cargando...</p>
-                    : !latestLog ? <p className="text-text-muted">No hay logs disponibles.</p>
-                    : latestLog.split('\n').map((line, i) => (
-                      <div key={i} className={line.includes('ERROR') || line.includes('FATAL') ? 'text-red-400' : line.includes('WARN') ? 'text-amber-400' : ''}>{line}</div>
-                    ))}
+                <div className="flex-1 flex flex-col gap-2 min-h-0">
+                  <div className="flex items-center justify-end gap-2 flex-shrink-0">
+                    {latestLog && (
+                      <button
+                        onClick={() => { setAiAnalysis(null); analyzeWithAI(latestLog, 'log') }}
+                        disabled={aiLoading}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
+                      >
+                        {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
+                        {aiLoading ? 'Analizando...' : 'Analizar con IA'}
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-xs text-text-secondary leading-5 min-h-0">
+                    {loading ? <p className="text-text-muted">Cargando...</p>
+                      : !latestLog ? <p className="text-text-muted">No hay logs disponibles.</p>
+                      : latestLog.split('\n').map((line, i) => (
+                        <div key={i} className={line.includes('ERROR') || line.includes('FATAL') ? 'text-red-400' : line.includes('WARN') ? 'text-amber-400' : ''}>{line}</div>
+                      ))}
+                  </div>
+                  {(aiAnalysis || aiError) && (
+                    <div className="flex-shrink-0 p-3 rounded-lg border border-purple-500/30 bg-purple-500/5 text-xs text-text-secondary whitespace-pre-wrap max-h-48 overflow-y-auto">
+                      {aiError ? <span className="text-red-400">{aiError}</span> : aiAnalysis}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2069,6 +2106,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         <button key={c.filename}
                           onClick={async () => {
                             setSelectedCrash(c.filename)
+                            setAiAnalysis(null); setAiError('')
                             setCrashContent(await window.api.instances.readCrashReport(instance.id, c.filename))
                           }}
                           className={`text-left px-2 py-1.5 rounded-lg text-xs transition-colors ${selectedCrash === c.filename ? 'bg-accent/20 text-accent' : 'text-text-secondary hover:bg-bg-hover'}`}>
@@ -2079,8 +2117,23 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   </div>
                   <div className="flex-1 flex flex-col gap-2 min-w-0">
                     {selectedCrash && (
-                      <button onClick={() => window.api.clipboard.writeText(crashContent)}
-                        className="self-end text-xs text-accent hover:text-accent/80">Copiar</button>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => { setAiAnalysis(null); analyzeWithAI(crashContent, 'crash') }}
+                          disabled={aiLoading}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
+                        >
+                          {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
+                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}
+                        </button>
+                        <button onClick={() => window.api.clipboard.writeText(crashContent)}
+                          className="ml-auto text-xs text-accent hover:text-accent/80">Copiar</button>
+                      </div>
+                    )}
+                    {(aiAnalysis || aiError) && (
+                      <div className="flex-shrink-0 p-3 rounded-lg border border-purple-500/30 bg-purple-500/5 text-xs text-text-secondary whitespace-pre-wrap max-h-40 overflow-y-auto">
+                        {aiError ? <span className="text-red-400">{aiError}</span> : aiAnalysis}
+                      </div>
                     )}
                     <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-xs text-red-300 leading-5 min-h-0">
                       {!selectedCrash

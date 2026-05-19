@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const [showToken, setShowToken] = useState(false)
 
   const [localSettings, setLocalSettings] = useState(settings)
+  const [showApiKey, setShowApiKey] = useState(false)
 
   useEffect(() => {
     window.api.system.getRam().then(setSystemRam)
@@ -385,6 +386,99 @@ export default function SettingsPage() {
                 Una vez configurado, ve a una instancia → menú ··· → <span className="font-semibold">Exportar Modpack</span> para publicarlo.
               </p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Sistema */}
+      <section>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
+          Sistema
+        </h2>
+        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+          <label className="flex items-center justify-between cursor-pointer">
+            <div>
+              <span className="text-sm text-text-secondary">Minimizar a bandeja al cerrar</span>
+              <p className="text-xs text-text-muted mt-0.5">Al pulsar X el launcher se oculta en la barra del sistema en vez de cerrarse.</p>
+            </div>
+            <button
+              onClick={() => setLocalSettings({ ...localSettings, closeToTray: !localSettings.closeToTray })}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.closeToTray ? 'bg-accent' : 'bg-border'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.closeToTray ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </label>
+          <label className="flex items-center justify-between cursor-pointer">
+            <div>
+              <span className="text-sm text-text-secondary">Iniciar con Windows</span>
+              <p className="text-xs text-text-muted mt-0.5">Abre el launcher automáticamente al encender el equipo.</p>
+            </div>
+            <button
+              onClick={() => setLocalSettings({ ...localSettings, launchAtStartup: !localSettings.launchAtStartup })}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.launchAtStartup ? 'bg-accent' : 'bg-border'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.launchAtStartup ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </label>
+        </div>
+      </section>
+
+      {/* Inteligencia Artificial */}
+      <section>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
+          Inteligencia Artificial
+        </h2>
+        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+          <p className="text-xs text-text-muted">
+            Configura tu propia clave de API para analizar crash reports y logs con IA. Tus tokens, tu privacidad.
+          </p>
+          <div>
+            <label className="block text-sm text-text-secondary mb-1.5">Proveedor</label>
+            <select
+              value={localSettings.aiProvider ?? ''}
+              onChange={e => {
+                const v = e.target.value
+                setLocalSettings({ ...localSettings, aiProvider: v ? v as 'claude' | 'openai' | 'gemini' | 'grok' : undefined })
+              }}
+              className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+            >
+              <option value="">Sin configurar</option>
+              <option value="claude">Claude (Anthropic) — claude-haiku-4-5</option>
+              <option value="openai">ChatGPT (OpenAI) — gpt-4o-mini</option>
+              <option value="gemini">Gemini (Google) — gemini-1.5-flash</option>
+              <option value="grok">Grok (xAI) — grok-3-mini</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-text-secondary mb-1.5">Clave de API</label>
+            <div className="flex gap-2">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={localSettings.aiApiKey ?? ''}
+                onChange={e => setLocalSettings({ ...localSettings, aiApiKey: e.target.value })}
+                placeholder="sk-... / AIza... / xai-..."
+                className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent font-mono"
+              />
+              <button
+                onClick={() => setShowApiKey(v => !v)}
+                title={showApiKey ? 'Ocultar clave' : 'Ver clave'}
+                className="px-3 py-2 border border-border rounded-lg text-text-muted hover:text-text-primary transition-colors"
+              >
+                {showApiKey ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+                    <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-text-muted mt-1">La clave se guarda solo en tu equipo y nunca se comparte.</p>
           </div>
         </div>
       </section>

@@ -157,7 +157,7 @@ function InstanceIcon({ instanceId }: { instanceId: string }) {
 
 export default function HomePage() {
   const account = useStore(activeAccount)
-  const { setInstances } = useStore()
+  const { setInstances, updateInstance } = useStore()
   const runningInstances = useStore(s => s.runningInstances)
   const [recent, setRecent] = useState<Instance[]>([])
   const [launching, setLaunching] = useState<string | null>(null)
@@ -166,10 +166,26 @@ export default function HomePage() {
   const [news, setNews] = useState<Announcement[]>([])
   const [seenIds, setSeenIds] = useState<Set<string>>(new Set())
   const [annLoading, setAnnLoading] = useState(true)
+  const [updateMap, setUpdateMap] = useState<Map<string, boolean>>(new Map())
 
   useEffect(() => {
     window.api.instances.list().then(all => { setInstances(all); setRecent(all.slice(0, 3)) })
   }, [])
+
+  // Background modpack update checks for recent instances
+  useEffect(() => {
+    const toCheck = recent.filter(i => i.modpackUrl)
+    if (toCheck.length === 0) return
+    let cancelled = false
+    for (const inst of toCheck) {
+      window.api.modpacks.checkUpdate(inst.id, inst.modpackUrl!)
+        .then(r => {
+          if (!cancelled) setUpdateMap(prev => { const n = new Map(prev); n.set(inst.id, r.hasUpdate); return n })
+        })
+        .catch(() => {})
+    }
+    return () => { cancelled = true }
+  }, [recent.map(i => i.id).join(',')])
 
   useEffect(() => {
     const seen = getSeenIds()
@@ -199,6 +215,15 @@ export default function HomePage() {
 
   async function kill(instanceId: string) {
     try { await window.api.launcher.kill(instanceId) } catch {}
+  }
+
+  async function updateModpack(inst: Instance) {
+    if (!inst.modpackUrl) return
+    try {
+      const r = await window.api.modpacks.update(inst.id, inst.modpackUrl)
+      updateInstance({ ...inst, modpackVersion: r.manifest.version })
+      setUpdateMap(prev => { const n = new Map(prev); n.set(inst.id, false); return n })
+    } catch { /* ignore */ }
   }
 
   const unreadNews = news.filter(a => !seenIds.has(a.id)).length
@@ -281,7 +306,18 @@ export default function HomePage() {
                 </div>
                 <div className="flex-1 overflow-hidden">
                   <p className="font-medium text-text-primary truncate">{inst.name}</p>
-                  <p className="text-xs text-text-muted">MC {inst.minecraft} · {inst.modloader}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-text-muted">MC {inst.minecraft} · {inst.modloader}</p>
+                    {updateMap.get(inst.id) && (
+                      <button
+                        onClick={() => updateModpack(inst)}
+                        className="inline-flex items-center gap-1 text-[10px] bg-amber-500/10 border border-amber-500/30 text-amber-400 px-1.5 py-px rounded-full hover:bg-amber-500/20 transition-colors"
+                      >
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+                        Actualizar
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {runningInstances.has(inst.id) ? (
                   <div className="flex items-center gap-2">

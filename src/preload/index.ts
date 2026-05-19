@@ -330,6 +330,12 @@ const api = {
       ipcRenderer.invoke('textures:save-to-folder', files) as Promise<string | null>,
   },
 
+  // AI crash/log analysis
+  ai: {
+    analyze: (content: string, type: 'crash' | 'log') =>
+      ipcRenderer.invoke('ai:analyze', content, type) as Promise<string>,
+  },
+
   // Mouse back navigation signal from main process
   onNavBack: (cb: () => void) => {
     const handler = () => cb()

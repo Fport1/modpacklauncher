@@ -266,6 +266,7 @@ export default function InstancesPage() {
   const [nameConflict, setNameConflict] = useState<{ pending: () => void; name: string; suggested: string } | null>(null)
   const [launching, setLaunching] = useState<string | null>(null)
   const [systemRam, setSystemRam] = useState(8192)
+  const [updateMap, setUpdateMap] = useState<Map<string, boolean>>(new Map())
 
   // Non-blocking toasts
   const [toasts, setToasts] = useState<{ id: string; message: string; type: 'info'|'success'|'error' }[]>([])
@@ -406,6 +407,25 @@ export default function InstancesPage() {
     window.api.instances.getDefaultIcon().then(setDefaultIconBase64).catch(() => {})
     window.api.system.getDisplays().then(setDisplays).catch(() => {})
   }, [])
+
+  // Background modpack update checks — runs whenever instances list changes
+  useEffect(() => {
+    const modpackInstances = instances.filter(i => i.modpackUrl)
+    if (modpackInstances.length === 0) return
+    let cancelled = false
+    for (const inst of modpackInstances) {
+      window.api.modpacks.checkUpdate(inst.id, inst.modpackUrl!)
+        .then(r => {
+          if (!cancelled) setUpdateMap(prev => {
+            const next = new Map(prev)
+            next.set(inst.id, r.hasUpdate)
+            return next
+          })
+        })
+        .catch(() => {})
+    }
+    return () => { cancelled = true }
+  }, [instances.map(i => i.id).join(',')])
 
   useEffect(() => {
     if (!openDetailInstanceId) return
@@ -674,6 +694,20 @@ export default function InstancesPage() {
     setEditingGroup(null)
   }
 
+  async function handleModpackUpdate(id: string) {
+    const inst = instances.find(i => i.id === id)
+    if (!inst?.modpackUrl) return
+    addToast('Actualizando modpack...', 'info', 15000)
+    try {
+      const r = await window.api.modpacks.update(id, inst.modpackUrl)
+      updateInstance({ ...inst, modpackVersion: r.manifest.version })
+      setUpdateMap(prev => { const n = new Map(prev); n.set(id, false); return n })
+      addToast('Modpack actualizado correctamente', 'success')
+    } catch (e: unknown) {
+      addToast(`Error al actualizar: ${e instanceof Error ? e.message : 'Error'}`, 'error')
+    }
+  }
+
   async function handlePlay(id: string) {
     if (!account) { alert('Selecciona una cuenta en Ajustes primero.'); return }
     if (runningInstances.size > 0 && !runningInstances.has(id)) {
@@ -682,18 +716,12 @@ export default function InstancesPage() {
     }
 
     const inst = instances.find((i) => i.id === id)
-    if (inst?.modpackUrl) {
-      try {
-        const result = await window.api.modpacks.checkUpdate(id, inst.modpackUrl)
-        if (result.hasUpdate) {
-          const ok = confirm(`Hay una actualización del modpack disponible (v${result.manifest.version}). ¿Actualizar antes de jugar?`)
-          if (ok) {
-            setLaunching(id)
-            await window.api.modpacks.update(id, inst.modpackUrl)
-            updateInstance({ ...inst, modpackVersion: result.manifest.version })
-          }
-        }
-      } catch { /* ignore */ }
+    if (inst?.modpackUrl && updateMap.get(id)) {
+      const ok = confirm(`Hay una actualización del modpack disponible. ¿Actualizar antes de jugar?`)
+      if (ok) {
+        setLaunching(id)
+        await handleModpackUpdate(id)
+      }
     }
 
     setLaunching(id)
@@ -836,6 +864,8 @@ export default function InstancesPage() {
                   onChangeIcon={() => setIconPickInstance(inst)}
                   isLaunching={launching === inst.id}
                   isRunning={runningInstances.has(inst.id)}
+                  hasUpdate={updateMap.get(inst.id) === true}
+                  onUpdate={() => handleModpackUpdate(inst.id)}
                 />
               </div>
             ))}
