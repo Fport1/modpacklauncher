@@ -332,8 +332,8 @@ const api = {
 
   // AI crash/log analysis
   ai: {
-    analyze: (content: string, type: 'crash' | 'log') =>
-      ipcRenderer.invoke('ai:analyze', content, type) as Promise<string>,
+    analyze: (content: string, type: 'crash' | 'log', configId: string) =>
+      ipcRenderer.invoke('ai:analyze', content, type, configId) as Promise<string>,
   },
 
   // Mouse back navigation signal from main process

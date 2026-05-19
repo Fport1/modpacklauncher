@@ -492,7 +492,9 @@ interface Props {
 }
 
 export default function InstanceDetailModal({ instance, onClose, onPlay, fullPage, onEdit, onExport, onDuplicate, onDelete, onChangeIcon }: Props) {
-  const { updateInstance: updateInstanceStore } = useStore()
+  const { updateInstance: updateInstanceStore, settings } = useStore()
+  const aiConfigs = settings?.aiConfigs ?? []
+  const aiDefaultId = settings?.aiDefaultId
   const [tab, setTab] = useState<Tab>('mods')
   const [showModrinth, setShowModrinth] = useState(false)
   const [showModrinthRp, setShowModrinthRp] = useState(false)
@@ -526,6 +528,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiError, setAiError] = useState('')
+  const [showAIPicker, setShowAIPicker] = useState<'crash' | 'log' | null>(null)
   const [optionsContent, setOptionsContent] = useState('')
   const [optionsSavedContent, setOptionsSavedContent] = useState('')
   const [optionsSaved, setOptionsSaved] = useState(false)
@@ -723,17 +726,27 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     } finally { setLoading(false) }
   }
 
-  async function analyzeWithAI(content: string, type: 'crash' | 'log') {
+  async function runAIAnalysis(content: string, type: 'crash' | 'log', configId: string) {
+    setShowAIPicker(null)
     setAiLoading(true)
     setAiError('')
     setAiAnalysis(null)
     try {
-      const result = await window.api.ai.analyze(content, type)
+      const result = await window.api.ai.analyze(content, type, configId)
       setAiAnalysis(result)
     } catch (e: unknown) {
       setAiError(e instanceof Error ? e.message : 'Error al analizar')
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  function handleAnalyzeClick(content: string, type: 'crash' | 'log') {
+    if (aiConfigs.length === 0) { setAiError('Configura una IA en Ajustes primero.'); return }
+    if (aiDefaultId) {
+      runAIAnalysis(content, type, aiDefaultId)
+    } else {
+      setShowAIPicker(prev => prev === type ? null : type)
     }
   }
 
@@ -2070,16 +2083,30 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
               {consoleView === 'log' && (
                 <div className="flex-1 flex flex-col gap-2 min-h-0">
-                  <div className="flex items-center justify-end gap-2 flex-shrink-0">
+                  <div className="flex items-center justify-end gap-2 flex-shrink-0 relative">
                     {latestLog && (
-                      <button
-                        onClick={() => { setAiAnalysis(null); analyzeWithAI(latestLog, 'log') }}
-                        disabled={aiLoading}
-                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
-                      >
-                        {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
-                        {aiLoading ? 'Analizando...' : 'Analizar con IA'}
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleAnalyzeClick(latestLog, 'log')}
+                          disabled={aiLoading}
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
+                        >
+                          {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
+                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && ' ▾'}
+                        </button>
+                        {showAIPicker === 'log' && (
+                          <div className="absolute top-8 right-0 z-20 bg-bg-secondary border border-border rounded-xl shadow-xl min-w-48 py-1 text-sm">
+                            <p className="px-3 py-1 text-[10px] text-text-muted font-semibold uppercase tracking-wide">Elegir IA</p>
+                            {aiConfigs.map(c => (
+                              <button key={c.id} onClick={() => runAIAnalysis(latestLog, 'log', c.id)}
+                                className="w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors">
+                                <p className="text-text-primary text-xs font-medium">{c.label}</p>
+                                <p className="text-text-muted text-[10px]">{c.provider} · {c.model}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                   <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-xs text-text-secondary leading-5 min-h-0">
@@ -2117,15 +2144,27 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   </div>
                   <div className="flex-1 flex flex-col gap-2 min-w-0">
                     {selectedCrash && (
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="flex items-center gap-2 flex-shrink-0 relative">
                         <button
-                          onClick={() => { setAiAnalysis(null); analyzeWithAI(crashContent, 'crash') }}
+                          onClick={() => handleAnalyzeClick(crashContent, 'crash')}
                           disabled={aiLoading}
                           className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
                         >
                           {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
-                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}
+                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && ' ▾'}
                         </button>
+                        {showAIPicker === 'crash' && (
+                          <div className="absolute top-8 left-0 z-20 bg-bg-secondary border border-border rounded-xl shadow-xl min-w-48 py-1 text-sm">
+                            <p className="px-3 py-1 text-[10px] text-text-muted font-semibold uppercase tracking-wide">Elegir IA</p>
+                            {aiConfigs.map(c => (
+                              <button key={c.id} onClick={() => runAIAnalysis(crashContent, 'crash', c.id)}
+                                className="w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors">
+                                <p className="text-text-primary text-xs font-medium">{c.label}</p>
+                                <p className="text-text-muted text-[10px]">{c.provider} · {c.model}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <button onClick={() => window.api.clipboard.writeText(crashContent)}
                           className="ml-auto text-xs text-accent hover:text-accent/80">Copiar</button>
                       </div>

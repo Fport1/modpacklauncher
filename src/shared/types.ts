@@ -77,6 +77,15 @@ export interface ConfigEntry {
   sha256?: string
 }
 
+export interface AIConfig {
+  id: string
+  label: string
+  provider: 'claude' | 'openai' | 'gemini' | 'grok' | 'ollama'
+  model: string
+  apiKey?: string
+  ollamaUrl?: string
+}
+
 export interface Settings {
   javaPath: string
   maxMemory: number
@@ -90,8 +99,8 @@ export interface Settings {
   modInstallChannel: 'all' | 'stable'
   closeToTray: boolean
   launchAtStartup: boolean
-  aiProvider?: 'claude' | 'openai' | 'gemini' | 'grok'
-  aiApiKey?: string
+  aiConfigs: AIConfig[]
+  aiDefaultId?: string
 }
 
 export interface DownloadProgress {
@@ -136,6 +145,7 @@ export const DEFAULT_SETTINGS: Settings = {
   modInstallChannel: 'all',
   closeToTray: true,
   launchAtStartup: false,
+  aiConfigs: [],
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/

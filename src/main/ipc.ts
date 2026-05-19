@@ -479,10 +479,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── AI analysis ─────────────────────────────────────────────────────────────
 
-  ipcMain.handle('ai:analyze', async (_e, content: string, type: 'crash' | 'log') => {
+  ipcMain.handle('ai:analyze', async (_e, content: string, type: 'crash' | 'log', configId: string) => {
     const s = settingsStore.getAll()
-    if (!s.aiProvider || !s.aiApiKey) throw new Error('No hay proveedor de IA configurado en Ajustes.')
-    return analyzeWithAI(content, type, s.aiProvider, s.aiApiKey)
+    const config = (s.aiConfigs ?? []).find(c => c.id === configId)
+    if (!config) throw new Error('Configuración de IA no encontrada. Configúrala en Ajustes.')
+    return analyzeWithAI(content, type, config)
   })
 
   // ── Java ────────────────────────────────────────────────────────────────────
