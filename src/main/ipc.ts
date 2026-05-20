@@ -529,7 +529,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
           const scale = width / 64  // standard skin is 64 wide
           // Face base layer: x=8, y=8, w=8, h=8 (scaled)
           const face = img.crop({ x: Math.round(8 * scale), y: Math.round(8 * scale), width: Math.round(8 * scale), height: Math.round(8 * scale) })
-          return face.resize({ width: 64, height: 64, quality: 'best' }).toDataURL()
+          return face.resize({ width: 64, height: 64, quality: 'fast' }).toDataURL()
         }
       }
     } catch { /* fall through to CDN fallbacks */ }
