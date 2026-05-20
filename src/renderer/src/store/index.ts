@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Instance, MinecraftAccount, Settings, DownloadProgress } from '../../../shared/types'
+import type { Instance, MinecraftAccount, Settings, DownloadProgress, Friend } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/types'
 
 interface UpdateInfo {
@@ -43,6 +43,11 @@ interface AppState {
   setInstanceRunning: (instanceId: string, running: boolean) => void
   setOpenDetailInstanceId: (id: string | null) => void
   setSidebarCompact: (compact: boolean) => void
+
+  friends: Friend[]
+  setFriends: (friends: Friend[]) => void
+  addFriendLocal: (friend: Friend) => void
+  removeFriendLocal: (uuid: string) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -58,6 +63,7 @@ export const useStore = create<AppState>((set) => ({
   runningInstances: new Set(),
   openDetailInstanceId: null,
   sidebarCompact: localStorage.getItem('ml-sidebar-compact') === 'true',
+  friends: [],
 
   setInstances: (instances) => set({ instances }),
   addInstance: (instance) => set((s) => ({ instances: [instance, ...s.instances] })),
@@ -105,7 +111,13 @@ export const useStore = create<AppState>((set) => ({
   setSidebarCompact: (compact) => {
     localStorage.setItem('ml-sidebar-compact', String(compact))
     set({ sidebarCompact: compact })
-  }
+  },
+
+  setFriends: (friends) => set({ friends }),
+  addFriendLocal: (friend) => set((s) => ({
+    friends: s.friends.find(f => f.uuid === friend.uuid) ? s.friends : [...s.friends, friend]
+  })),
+  removeFriendLocal: (uuid) => set((s) => ({ friends: s.friends.filter(f => f.uuid !== uuid) })),
 }))
 
 export const activeAccount = (state: AppState) =>

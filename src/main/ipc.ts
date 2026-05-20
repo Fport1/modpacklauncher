@@ -5,7 +5,7 @@ import fs from 'fs'
 import FormData from 'form-data'
 import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
-import type { Instance, MinecraftAccount, Settings, ModpackManifest } from '../shared/types'
+import type { Instance, MinecraftAccount, Settings, ModpackManifest, Friend } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
@@ -82,6 +82,7 @@ import { fetchManifest, installModpack, updateModpack, compareVersions, installM
 import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta } from './modrinth'
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
 import { analyzeWithAI } from './ai'
+import { getFriends, addFriend, removeFriend } from './friends'
 
 interface AccountsStore {
   accounts: MinecraftAccount[]
@@ -161,6 +162,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('auth:refresh', async (_e, account: MinecraftAccount) => {
     const settings = settingsStore.getAll()
     const refreshed = await refreshMicrosoftToken(account, settings.azureClientId)
+    refreshed.id = account.id  // preserve original ID so updateAccount finds the record
     updateAccount(refreshed)
     return refreshed
   })
@@ -506,13 +508,39 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('skin:get-head', async (_e, uuid: string) => {
     const axios = (await import('axios')).default
+    const { nativeImage } = await import('electron')
     const uuidClean = uuid.replace(/-/g, '')
-    const urls = [
+
+    // Try Mojang session server first — authoritative, always up-to-date skin
+    try {
+      const profileRes = await axios.get(
+        `https://sessionserver.mojang.com/session/minecraft/profile/${uuidClean}`,
+        { timeout: 6_000 }
+      )
+      const props = profileRes.data?.properties as Array<{ name: string; value: string }> | undefined
+      const texturesProp = props?.find(p => p.name === 'textures')
+      if (texturesProp) {
+        const textures = JSON.parse(Buffer.from(texturesProp.value, 'base64').toString())
+        const skinUrl: string | undefined = textures.textures?.SKIN?.url
+        if (skinUrl) {
+          const skinRes = await axios.get<Buffer>(skinUrl, { responseType: 'arraybuffer', timeout: 6_000 })
+          const img = nativeImage.createFromBuffer(Buffer.from(skinRes.data))
+          const { width } = img.getSize()
+          const scale = width / 64  // standard skin is 64 wide
+          // Face base layer: x=8, y=8, w=8, h=8 (scaled)
+          const face = img.crop({ x: Math.round(8 * scale), y: Math.round(8 * scale), width: Math.round(8 * scale), height: Math.round(8 * scale) })
+          return face.resize({ width: 64, height: 64, quality: 'best' }).toDataURL()
+        }
+      }
+    } catch { /* fall through to CDN fallbacks */ }
+
+    // CDN fallbacks
+    const cdnUrls = [
       `https://crafatar.com/avatars/${uuidClean}?size=64&overlay`,
       `https://mc-heads.net/avatar/${uuidClean}/64`,
       `https://minotar.net/avatar/${uuidClean}/64`,
     ]
-    for (const url of urls) {
+    for (const url of cdnUrls) {
       try {
         const res = await axios.get<Buffer>(url, {
           responseType: 'arraybuffer',
@@ -1150,6 +1178,27 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await fs.promises.writeFile(path.join(folder, file.name), Buffer.from(base64, 'base64'))
     }
     return folder
+  })
+
+  // ── Friends ──────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('friends:list', () => getFriends())
+
+  ipcMain.handle('friends:add', (_e, friend: Friend) => addFriend(friend))
+
+  ipcMain.handle('friends:remove', (_e, uuid: string) => removeFriend(uuid))
+
+  ipcMain.handle('friends:lookup', async (_e, username: string) => {
+    const axiosLib = (await import('axios')).default
+    try {
+      const res = await axiosLib.get(
+        `https://api.mojang.com/users/profiles/minecraft/${encodeURIComponent(username.trim())}`,
+        { timeout: 8_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+      )
+      return { uuid: res.data.id as string, username: res.data.name as string }
+    } catch {
+      return null
+    }
   })
 }
 

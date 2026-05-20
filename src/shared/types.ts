@@ -77,6 +77,13 @@ export interface ConfigEntry {
   sha256?: string
 }
 
+export interface Friend {
+  id: string
+  username: string
+  uuid: string
+  addedAt: number
+}
+
 export interface AIConfig {
   id: string
   label: string

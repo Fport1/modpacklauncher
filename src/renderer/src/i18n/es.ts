@@ -184,6 +184,29 @@ export const es = {
   settings_ai_tutorial_show: '¿Cómo consigo mi clave de API? (guía paso a paso)',
   settings_ai_tutorial_hide: 'Ocultar tutorial',
 
+  // Nav friends
+  nav_friends: 'Amigos',
+
+  // FriendsPage
+  friends_title: 'Amigos',
+  friends_my_code: 'Tu código de amigo',
+  friends_my_code_hint: 'Comparte este enlace para que otros te añadan como amigo.',
+  friends_copy_link: 'Copiar enlace',
+  friends_copied: '¡Copiado!',
+  friends_add_title: 'Añadir amigo',
+  friends_add_placeholder: 'Nombre de usuario de Minecraft...',
+  friends_add_btn: 'Añadir',
+  friends_adding: 'Buscando...',
+  friends_not_found: 'No se encontró el jugador "{name}".',
+  friends_already: 'Ya tienes a {name} como amigo.',
+  friends_added: '¡{name} añadido como amigo!',
+  friends_list: 'Mis amigos',
+  friends_empty: 'Aún no tienes amigos añadidos.',
+  friends_empty_sub: 'Busca a alguien por su nombre de usuario de Minecraft, o pide que te compartan su enlace de amigo.',
+  friends_remove: 'Eliminar amigo',
+  friends_added_at: 'Añadido el {date}',
+  friends_no_account: 'Necesitas una cuenta de Minecraft para usar la función de amigos.',
+
   // InstanceDetailModal
   detail_logs: 'Logs',
   detail_mods: 'Mods',

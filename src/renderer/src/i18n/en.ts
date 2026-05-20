@@ -186,6 +186,29 @@ export const en: Record<TranslationKey, string> = {
   settings_ai_tutorial_show: 'How do I get my API key? (step-by-step guide)',
   settings_ai_tutorial_hide: 'Hide tutorial',
 
+  // Nav friends
+  nav_friends: 'Friends',
+
+  // FriendsPage
+  friends_title: 'Friends',
+  friends_my_code: 'Your friend code',
+  friends_my_code_hint: 'Share this link so others can add you as a friend.',
+  friends_copy_link: 'Copy link',
+  friends_copied: 'Copied!',
+  friends_add_title: 'Add friend',
+  friends_add_placeholder: 'Minecraft username...',
+  friends_add_btn: 'Add',
+  friends_adding: 'Looking up...',
+  friends_not_found: 'Player "{name}" not found.',
+  friends_already: '{name} is already your friend.',
+  friends_added: '{name} added as friend!',
+  friends_list: 'My friends',
+  friends_empty: 'You have no friends added yet.',
+  friends_empty_sub: 'Search by Minecraft username, or ask someone to share their friend link.',
+  friends_remove: 'Remove friend',
+  friends_added_at: 'Added on {date}',
+  friends_no_account: 'You need a Minecraft account to use the friends feature.',
+
   // InstanceDetailModal
   detail_logs: 'Logs',
   detail_mods: 'Mods',

@@ -3,6 +3,12 @@ import path from 'path'
 import fs from 'fs-extra'
 import { registerIpcHandlers, getSettings } from './ipc'
 
+// Single-instance lock — handle deep links from second-instance args
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+}
+
 let tray: Tray | null = null
 
 function createTray(win: BrowserWindow): void {
@@ -83,6 +89,18 @@ function createWindow(): void {
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false))
 }
 
+function handleDeepLink(url: string): void {
+  if (!mainWindow) return
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'modpacklauncher:') return
+    const host = parsed.hostname // e.g. 'friend-add' or 'install'
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('deep-link', host, Object.fromEntries(parsed.searchParams.entries()))
+  } catch { /* ignore malformed URLs */ }
+}
+
 app.whenReady().then(() => {
   protocol.handle('media', async (request) => {
     try {
@@ -96,8 +114,29 @@ app.whenReady().then(() => {
     }
   })
 
+  // Register modpacklauncher:// protocol handler
+  app.setAsDefaultProtocolClient('modpacklauncher')
+
   createWindow()
   if (mainWindow) createTray(mainWindow)
+
+  // Handle deep links from argv on Windows (first launch with URL)
+  const urlArg = process.argv.find(a => a.startsWith('modpacklauncher://'))
+  if (urlArg) handleDeepLink(urlArg)
+
+  // Handle second-instance (Windows/Linux — subsequent launches pass URL via argv)
+  app.on('second-instance', (_event, argv) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+    const url = argv.find(a => a.startsWith('modpacklauncher://'))
+    if (url) handleDeepLink(url)
+  })
+
+  // Handle deep links on macOS via open-url event
+  app.on('open-url', (_event, url) => handleDeepLink(url))
 
   // Apply startup setting on launch
   const startupSetting = getSettings().launchAtStartup

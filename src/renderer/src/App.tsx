@@ -15,6 +15,7 @@ import StatusPage from './pages/StatusPage'
 import DiscoverPage from './pages/DiscoverPage'
 import AdminPage from './pages/AdminPage'
 import BlockPreviewPage from './pages/BlockPreviewPage'
+import FriendsPage from './pages/FriendsPage'
 import { useStore } from './store'
 
 const AFK_THRESHOLD = 3 * 60 * 1000
@@ -31,7 +32,9 @@ export default function App() {
     setUpdateModalOpen,
     appendGameLog,
     clearGameLog,
-    setInstanceRunning
+    setInstanceRunning,
+    setFriends,
+    addFriendLocal
   } = useStore()
 
   const [appReady, setAppReady] = useState(false)
@@ -63,14 +66,16 @@ export default function App() {
 
   useEffect(() => {
     async function init() {
-      const [accountsData, settings] = await Promise.all([
+      const [accountsData, settings, friendsList] = await Promise.all([
         window.api.auth.getAccounts(),
-        window.api.settings.get()
+        window.api.settings.get(),
+        window.api.friends.list().catch(() => [])
       ])
       setAccounts(accountsData.accounts)
       if (accountsData.activeId) setActiveAccountId(accountsData.activeId)
       setSettings(settings)
       settingsRef.current = settings
+      setFriends(friendsList)
 
       if (settings.checkUpdatesOnStart && settings.updateManifestUrl) {
         try {
@@ -167,6 +172,23 @@ export default function App() {
       }
     })
 
+    // Handle deep links (modpacklauncher:// protocol)
+    const unsubDeepLink = window.api.onDeepLink(async (action, params) => {
+      if (action === 'friend-add' && params.username && params.uuid) {
+        const existing = useStore.getState().friends.find(f => f.uuid === params.uuid)
+        if (!existing) {
+          const friend = {
+            id: params.uuid,
+            username: params.username,
+            uuid: params.uuid,
+            addedAt: Date.now()
+          }
+          await window.api.friends.add(friend)
+          addFriendLocal(friend)
+        }
+      }
+    })
+
     return () => {
       unsubProgress()
       unsubStarted()
@@ -181,6 +203,7 @@ export default function App() {
       document.removeEventListener('mousedown', handleMouseNav, { capture: true })
       unsubNavBack()
       unsubClose()
+      unsubDeepLink()
     }
   }, [])
 
@@ -217,6 +240,7 @@ export default function App() {
               <Route path="/status" element={<StatusPage />} />
               <Route path="/discover" element={<DiscoverPage />} />
               <Route path="/block-preview" element={<BlockPreviewPage />} />
+              <Route path="/friends" element={<FriendsPage />} />
               <Route path="/admin" element={<AdminPage />} />
             </Routes>
           </main>

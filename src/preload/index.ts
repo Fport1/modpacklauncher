@@ -4,7 +4,8 @@ import type {
   MinecraftAccount,
   Settings,
   ModpackManifest,
-  DownloadProgress
+  DownloadProgress,
+  Friend
 } from '../shared/types'
 import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile } from '../main/instances'
 export type { ModFile, ModMeta }
@@ -334,6 +335,21 @@ const api = {
   ai: {
     analyze: (content: string, type: 'crash' | 'log', configId: string) =>
       ipcRenderer.invoke('ai:analyze', content, type, configId) as Promise<string>,
+  },
+
+  // Friends
+  friends: {
+    list: () => ipcRenderer.invoke('friends:list') as Promise<Friend[]>,
+    add: (friend: Friend) => ipcRenderer.invoke('friends:add', friend) as Promise<void>,
+    remove: (uuid: string) => ipcRenderer.invoke('friends:remove', uuid) as Promise<void>,
+    lookup: (username: string) => ipcRenderer.invoke('friends:lookup', username) as Promise<{ uuid: string; username: string } | null>,
+  },
+
+  // Deep link events from main process (modpacklauncher:// protocol)
+  onDeepLink: (cb: (action: string, params: Record<string, string>) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, action: string, params: Record<string, string>) => cb(action, params)
+    ipcRenderer.on('deep-link', handler)
+    return () => ipcRenderer.removeListener('deep-link', handler)
   },
 
   // Mouse back navigation signal from main process
