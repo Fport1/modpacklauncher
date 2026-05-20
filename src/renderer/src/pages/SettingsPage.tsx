@@ -7,9 +7,10 @@ import UpdateCheckBtn from '../components/UpdateCheckBtn'
 
 
 
-function SkinAvatar({ uuid, username }: { uuid: string; username: string }) {
+function SkinAvatar({ uuid, username }: { uuid: string; username: string; size?: number }) {
   const [src, setSrc] = useState<string | null>(null)
   useEffect(() => {
+    setSrc(null)
     window.api.skin.getHead(uuid).then(setSrc).catch(() => setSrc(null))
   }, [uuid])
 
@@ -20,6 +21,126 @@ function SkinAvatar({ uuid, username }: { uuid: string; username: string }) {
 }
 
 export { SkinAvatar }
+
+// ── AI provider icons ─────────────────────────────────────────────────────────
+function AIProviderIcon({ provider }: { provider: string }) {
+  const icons: Record<string, JSX.Element> = {
+    claude: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <path d="M12 3L3 19h18L12 3z" fill="#CC785C"/>
+        <path d="M9.5 14.5h5M10.5 11.5h3" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    ),
+    openai: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="#10a37f">
+        <path d="M22.28 9.33a5.77 5.77 0 00-.5-4.74 5.83 5.83 0 00-6.27-2.79A5.77 5.77 0 0011.22 0a5.83 5.83 0 00-5.56 4.04 5.77 5.77 0 00-3.85 2.8 5.83 5.83 0 00.72 6.83 5.77 5.77 0 00.5 4.74 5.83 5.83 0 006.27 2.79A5.77 5.77 0 0012.78 24a5.84 5.84 0 005.57-4.04 5.77 5.77 0 003.84-2.8 5.83 5.83 0 00-.91-6.83zM12.78 22.5a4.33 4.33 0 01-2.78-1.01l.14-.08 4.62-2.67a.77.77 0 00.38-.66v-6.51l1.95 1.13a.07.07 0 01.04.06v5.39a4.34 4.34 0 01-4.35 4.35zM3.6 18.37a4.32 4.32 0 01-.52-2.91l.14.08 4.62 2.67a.76.76 0 00.76 0l5.65-3.26v2.26a.08.08 0 01-.03.06L9.5 20.06a4.35 4.35 0 01-5.9-1.69zM2.64 8.27a4.32 4.32 0 012.26-1.9v5.47a.76.76 0 00.38.66l5.65 3.26-1.95 1.13a.07.07 0 01-.07 0L4.28 14.2a4.35 4.35 0 01-1.64-5.93zm16.03 3.73l-5.65-3.27 1.95-1.12a.07.07 0 01.07 0l4.63 2.68a4.34 4.34 0 01-.67 7.83V12.66a.76.76 0 00-.33-.66zm1.94-2.93l-.14-.08-4.62-2.67a.77.77 0 00-.77 0L9.43 9.58V7.32a.07.07 0 01.03-.06l4.63-2.67a4.34 4.34 0 016.52 4.49zm-12.2 4l-1.95-1.13a.07.07 0 01-.04-.06V6.49a4.34 4.34 0 017.12-3.33l-.14.08-4.62 2.67a.76.76 0 00-.38.66l-.01 6.48zm1.06-2.28l2.52-1.45 2.51 1.45v2.9l-2.51 1.45-2.52-1.45v-2.9z"/>
+      </svg>
+    ),
+    gemini: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2C12 2 10.5 8.5 7 12C10.5 15.5 12 22 12 22C12 22 13.5 15.5 17 12C13.5 8.5 12 2 12 2Z" fill="#4285f4"/>
+        <path d="M2 12C2 12 8.5 10.5 12 7C15.5 10.5 22 12 22 12C22 12 15.5 13.5 12 17C8.5 13.5 2 12 2 12Z" fill="#4285f4" opacity="0.6"/>
+      </svg>
+    ),
+    grok: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <rect width="24" height="24" rx="5" fill="#1a1a1a"/>
+        <path d="M7 7L17 17M17 7L7 17" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+      </svg>
+    ),
+    ollama: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="10" fill="#e67e22"/>
+        <ellipse cx="9" cy="10" rx="1.5" ry="2" fill="white"/>
+        <ellipse cx="15" cy="10" rx="1.5" ry="2" fill="white"/>
+        <path d="M9 15.5C9 15.5 10.5 17 12 17C13.5 17 15 15.5 15 15.5" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+        <path d="M7 8C7 8 8 6 9 6M17 8C17 8 16 6 15 6" stroke="white" strokeWidth="1.2" strokeLinecap="round"/>
+      </svg>
+    ),
+  }
+  return icons[provider] ?? null
+}
+
+// ── API Key tutorial per provider ─────────────────────────────────────────────
+function AIKeyTutorial({ provider }: { provider: string }) {
+  const [open, setOpen] = useState(false)
+  const tutorials: Record<string, { title: string; steps: string[]; note?: string }> = {
+    claude: {
+      title: '🟣 Cómo conseguir tu clave de Claude (Anthropic)',
+      steps: [
+        '🌐 Ve a console.anthropic.com (necesitas crear una cuenta gratis)',
+        '📧 Verifica tu correo electrónico cuando te lo pidan',
+        '💳 Añade un método de pago (cobran muy poco, ~$0.001 por análisis)',
+        '🔑 En el menú izquierdo, haz clic en "API Keys"',
+        '➕ Clic en "Create Key", ponle un nombre (ej: "Minecraft Launcher")',
+        '📋 ¡Copia el código que empieza por sk-ant-! Solo se muestra UNA vez',
+        '📌 Pégalo en el campo de arriba y guarda',
+      ],
+      note: '💡 Con $5 de crédito puedes hacer miles de análisis de crashes.'
+    },
+    openai: {
+      title: '🟢 Cómo conseguir tu clave de ChatGPT (OpenAI)',
+      steps: [
+        '🌐 Ve a platform.openai.com (crea una cuenta gratis si no tienes)',
+        '📧 Verifica tu correo electrónico',
+        '💳 Añade crédito en "Billing" → "Add to credit balance" (mínimo $5)',
+        '🔑 Ve a "API Keys" en el menú izquierdo',
+        '➕ Clic en "Create new secret key", ponle un nombre',
+        '📋 ¡Copia el código que empieza por sk-! Solo se muestra UNA vez',
+        '📌 Pégalo en el campo de arriba y guarda',
+      ],
+      note: '💡 GPT-4o mini es muy barato. Con $5 puedes hacer muchos análisis.'
+    },
+    gemini: {
+      title: '🔵 Cómo conseguir tu clave de Gemini (Google)',
+      steps: [
+        '🌐 Ve a aistudio.google.com (necesitas una cuenta de Google, es gratis)',
+        '🔑 Haz clic en el botón "Get API key" (arriba a la izquierda)',
+        '➕ Clic en "Create API key in new project"',
+        '📋 Copia el código que aparece (empieza por AIza...)',
+        '📌 Pégalo en el campo de arriba y guarda',
+      ],
+      note: '🎉 ¡Gemini 2.5 Flash tiene una capa GRATUITA muy generosa! No necesitas pagar.'
+    },
+    grok: {
+      title: '⚫ Cómo conseguir tu clave de Grok (xAI)',
+      steps: [
+        '🌐 Ve a console.x.ai (necesitas crear una cuenta)',
+        '🔑 Ve a la sección "API Keys"',
+        '➕ Clic en "Create API Key", ponle un nombre',
+        '📋 Copia el código que empieza por xai-',
+        '📌 Pégalo en el campo de arriba y guarda',
+      ],
+      note: '💡 xAI ofrece créditos gratuitos al registrarte por primera vez.'
+    },
+  }
+  const t = tutorials[provider]
+  if (!t) return null
+  return (
+    <div className="mt-2">
+      <button onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 text-[11px] text-accent hover:text-accent/80 transition-colors">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+        </svg>
+        {open ? 'Ocultar tutorial' : '¿Cómo consigo mi clave de API? (guía paso a paso)'}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+          className={`transition-transform ${open ? 'rotate-180' : ''}`}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="mt-2 bg-bg-primary rounded-xl p-3 space-y-2 border border-border/60">
+          <p className="text-xs font-semibold text-text-secondary">{t.title}</p>
+          <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside">
+            {t.steps.map((step, i) => <li key={i}>{step}</li>)}
+          </ol>
+          {t.note && <p className="text-xs text-amber-400/90 pt-1 border-t border-border/40">{t.note}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const { accounts, activeAccountId, settings, addAccount, removeAccount, setActiveAccountId, setSettings, sidebarCompact, setSidebarCompact } = useStore()
@@ -86,6 +207,29 @@ export default function SettingsPage() {
     await window.api.auth.setActive(account.id)
     setOfflineName('')
     setOfflineError('')
+  }
+
+  const [refreshingId, setRefreshingId] = useState<string | null>(null)
+
+  function isExpired(acc: MinecraftAccount): boolean {
+    if (acc.type === 'offline') return false
+    if (!acc.expiresAt) return true
+    return Date.now() > acc.expiresAt - 300_000
+  }
+
+  async function refreshAccount(e: React.MouseEvent, acc: MinecraftAccount) {
+    e.stopPropagation()
+    setRefreshingId(acc.id)
+    try {
+      const refreshed = await window.api.auth.refresh(acc)
+      addAccount(refreshed)
+    } catch {
+      // If refresh fails, force re-login
+      await window.api.auth.logout(acc.id)
+      removeAccount(acc.id)
+    } finally {
+      setRefreshingId(null)
+    }
   }
 
   async function logout(account: MinecraftAccount) {
@@ -183,8 +327,20 @@ export default function SettingsPage() {
                   <p className="text-xs text-text-muted">
                     {acc.type === 'microsoft' ? 'Microsoft (Premium)' : 'Offline (No premium)'}
                   </p>
+                  {acc.type === 'microsoft' && isExpired(acc) && (
+                    <p className="text-[10px] text-amber-400 mt-0.5">⚠ Sesión expirada</p>
+                  )}
                 </div>
-                {acc.id === activeAccountId && (
+                {acc.type === 'microsoft' && isExpired(acc) && (
+                  <button
+                    onClick={(e) => refreshAccount(e, acc)}
+                    disabled={refreshingId === acc.id}
+                    className="text-xs text-amber-400 border border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20 px-2 py-0.5 rounded-full transition-colors disabled:opacity-50"
+                  >
+                    {refreshingId === acc.id ? 'Renovando...' : 'Renovar'}
+                  </button>
+                )}
+                {!isExpired(acc) && acc.id === activeAccountId && (
                   <span className="text-xs text-accent bg-accent/10 px-2 py-0.5 rounded-full">
                     Activo
                   </span>
@@ -466,6 +622,24 @@ export default function SettingsPage() {
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.launchAtStartup ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </label>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-text-secondary">Idioma / Language</span>
+            <div className="flex gap-1">
+              {(['es', 'en'] as const).map(lang => (
+                <button key={lang}
+                  onClick={async () => {
+                    const next = { ...localSettings, language: lang }
+                    setLocalSettings(next)
+                    await window.api.settings.set({ language: lang })
+                    setSettings({ ...settings, language: lang })
+                  }}
+                  className={`px-3 py-1 text-xs rounded-lg border transition-colors ${localSettings.language === lang ? 'bg-accent text-white border-accent' : 'border-border text-text-secondary hover:border-accent/50'}`}
+                >
+                  {lang === 'es' ? '🇪🇸 Español' : '🇬🇧 English'}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -484,8 +658,6 @@ export default function SettingsPage() {
 
         <p className="text-xs text-text-muted mb-3">
           Configura varios proveedores. Al analizar un crash, elige cuál usar o define uno por defecto.
-          <br />
-          <span className="text-amber-400/80">Ollama es gratuito y funciona sin internet — instálalo en tu PC.</span>
         </p>
 
         {/* List of configured AIs */}
@@ -509,6 +681,7 @@ export default function SettingsPage() {
                       {isDefault && <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-px rounded-full font-semibold">Predeterminado</span>}
                     </div>
                     <div className="flex items-center gap-2">
+                      <AIProviderIcon provider={c.provider} />
                       <span className={`text-[11px] px-1.5 py-px rounded font-medium ${BADGE[c.provider] ?? ''}`}>{LABEL[c.provider]}</span>
                       <span className="text-[11px] text-text-muted font-mono">{c.model}</span>
                     </div>
@@ -562,16 +735,16 @@ export default function SettingsPage() {
                     const p = e.target.value as AIConfig['provider']
                     const defaults: Record<string, string> = {
                       claude: 'claude-haiku-4-5-20251001', openai: 'gpt-4o-mini',
-                      gemini: 'gemini-2.0-flash', grok: 'grok-3-mini', ollama: 'llama3.2'
+                      gemini: 'gemini-2.5-flash', grok: 'grok-3-mini', ollama: 'llama3.2'
                     }
                     setAiForm(f => f && ({ ...f, provider: p, model: defaults[p] ?? '' }))
                   }}
                   className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent">
-                  <option value="claude">Claude (Anthropic)</option>
-                  <option value="openai">ChatGPT (OpenAI)</option>
-                  <option value="gemini">Gemini (Google)</option>
-                  <option value="grok">Grok (xAI)</option>
-                  <option value="ollama">Ollama — local, gratis</option>
+                  <option value="claude">🟣 Claude (Anthropic)</option>
+                  <option value="openai">🟢 ChatGPT (OpenAI)</option>
+                  <option value="gemini">🔵 Gemini (Google)</option>
+                  <option value="grok">⚫ Grok (xAI)</option>
+                  <option value="ollama">🦙 Ollama — gratis, local</option>
                 </select>
               </div>
               <div>
@@ -584,26 +757,29 @@ export default function SettingsPage() {
                   <select value={aiForm.model} onChange={e => setAiForm(f => f && ({ ...f, model: e.target.value }))}
                     className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent">
                     {aiForm.provider === 'claude' && <>
-                      <option value="claude-haiku-4-5-20251001">Haiku 4.5 — rápido y barato</option>
-                      <option value="claude-sonnet-4-6">Sonnet 4.6 — equilibrado</option>
-                      <option value="claude-opus-4-7">Opus 4.7 — el más potente</option>
+                      <option value="claude-haiku-4-5-20251001">Haiku 4.5 — rápido ⚡</option>
+                      <option value="claude-sonnet-4-6">Sonnet 4.6 — equilibrado ⚖️</option>
+                      <option value="claude-opus-4-7">Opus 4.7 — el más potente 🏆</option>
                     </>}
                     {aiForm.provider === 'openai' && <>
-                      <option value="gpt-4o-mini">GPT-4o mini — barato</option>
-                      <option value="gpt-4o">GPT-4o — potente</option>
-                      <option value="gpt-4.1">GPT-4.1</option>
-                      <option value="o4-mini">o4-mini — razonamiento</option>
+                      <option value="gpt-4o-mini">GPT-4o mini — económico ⚡</option>
+                      <option value="gpt-4o">GPT-4o — potente ⚖️</option>
+                      <option value="gpt-4.1">GPT-4.1 — nuevo</option>
+                      <option value="gpt-4.1-mini">GPT-4.1 mini — económico</option>
+                      <option value="o4-mini">o4-mini — razonamiento 🧠</option>
+                      <option value="o3">o3 — razonamiento avanzado 🏆</option>
                     </>}
                     {aiForm.provider === 'gemini' && <>
-                      <option value="gemini-2.0-flash">Gemini 2.0 Flash — rápido, gratis</option>
-                      <option value="gemini-1.5-flash">Gemini 1.5 Flash — gratis</option>
-                      <option value="gemini-2.5-pro">Gemini 2.5 Pro — el más potente</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash — rápido ⚡</option>
+                      <option value="gemini-2.5-pro">Gemini 2.5 Pro — potente 🏆</option>
+                      <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                      <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
                       <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
                     </>}
                     {aiForm.provider === 'grok' && <>
-                      <option value="grok-3-mini">Grok 3 Mini — barato</option>
-                      <option value="grok-3">Grok 3 — potente</option>
-                      <option value="grok-2">Grok 2</option>
+                      <option value="grok-3-mini">Grok 3 Mini — económico ⚡</option>
+                      <option value="grok-3">Grok 3 — potente 🏆</option>
+                      <option value="grok-2-1212">Grok 2</option>
                     </>}
                   </select>
                 )}
@@ -627,18 +803,30 @@ export default function SettingsPage() {
                     </svg>
                   </button>
                 </div>
-                <p className="text-[11px] text-text-muted mt-1">Se guarda solo en tu equipo. Gemini tiene capa gratuita en Google AI Studio.</p>
+                <p className="text-[11px] text-text-muted mt-1">🔒 Se guarda solo en tu equipo, nunca se envía a ningún servidor nuestro.</p>
+
+                {/* ── API Key tutorial ── */}
+                <AIKeyTutorial provider={aiForm.provider} />
               </div>
             )}
 
             {aiForm.provider === 'ollama' && (
-              <div>
-                <label className="block text-xs text-text-muted mb-1">URL de Ollama</label>
-                <input type="text" value={aiForm.ollamaUrl}
-                  onChange={e => setAiForm(f => f && ({ ...f, ollamaUrl: e.target.value }))}
-                  placeholder="http://localhost:11434"
-                  className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent font-mono" />
-                <p className="text-[11px] text-text-muted mt-1">Instala Ollama en <span className="text-accent">ollama.com</span>, ejecuta <code className="bg-bg-primary px-1 rounded">ollama pull llama3.2</code> y listo.</p>
+              <div className="bg-bg-primary rounded-xl p-3 space-y-1.5">
+                <p className="text-xs font-semibold text-text-secondary">🦙 ¿Cómo usar Ollama? (gratis, sin internet)</p>
+                <ol className="text-xs text-text-muted space-y-1 list-decimal list-inside">
+                  <li>Ve a <span className="text-accent font-mono">ollama.com</span> y descarga Ollama para tu sistema</li>
+                  <li>Instálalo y ábrelo (queda corriendo en segundo plano)</li>
+                  <li>Abre una terminal y escribe: <code className="bg-bg-card px-1 rounded font-mono">ollama pull llama3.2</code></li>
+                  <li>Escribe el mismo nombre del modelo arriba (ej: <code className="bg-bg-card px-1 rounded font-mono">llama3.2</code>)</li>
+                  <li>¡Listo! No necesitas cuenta ni pagar nada 🎉</li>
+                </ol>
+                <div className="pt-1">
+                  <label className="block text-xs text-text-muted mb-1">URL de Ollama</label>
+                  <input type="text" value={aiForm.ollamaUrl}
+                    onChange={e => setAiForm(f => f && ({ ...f, ollamaUrl: e.target.value }))}
+                    placeholder="http://localhost:11434"
+                    className="w-full bg-bg-card border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent font-mono" />
+                </div>
               </div>
             )}
 

@@ -505,18 +505,26 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── Player skin ─────────────────────────────────────────────────────────────
 
   ipcMain.handle('skin:get-head', async (_e, uuid: string) => {
-    try {
-      const axios = (await import('axios')).default
-      const url = `https://mc-heads.net/avatar/${uuid}/64`
-      const res = await axios.get<Buffer>(url, {
-        responseType: 'arraybuffer',
-        timeout: 8_000,
-        headers: { 'User-Agent': 'ModpackLauncher/1.0' }
-      })
-      return `data:image/png;base64,${Buffer.from(res.data).toString('base64')}`
-    } catch {
-      return null
+    const axios = (await import('axios')).default
+    const uuidClean = uuid.replace(/-/g, '')
+    const urls = [
+      `https://crafatar.com/avatars/${uuidClean}?size=64&overlay`,
+      `https://mc-heads.net/avatar/${uuidClean}/64`,
+      `https://minotar.net/avatar/${uuidClean}/64`,
+    ]
+    for (const url of urls) {
+      try {
+        const res = await axios.get<Buffer>(url, {
+          responseType: 'arraybuffer',
+          timeout: 6_000,
+          headers: { 'User-Agent': 'ModpackLauncher/1.0' }
+        })
+        if (res.status === 200 && res.data?.byteLength > 100) {
+          return `data:image/png;base64,${Buffer.from(res.data).toString('base64')}`
+        }
+      } catch { /* try next */ }
     }
+    return null
   })
 
   ipcMain.handle('skin:get-profile-capes', async (_e, accessToken: string) => {

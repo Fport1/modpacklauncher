@@ -5,6 +5,7 @@ import InstanceDetailModal from '../components/InstanceDetailModal'
 import RamSlider from '../components/RamSlider'
 import ExportModpackModal from '../components/ExportModpackModal'
 import type { Instance, Modloader, ModpackManifest } from '../../../shared/types'
+import { useT } from '../i18n'
 
 type ModalStep = 'choose' | 'modpack' | 'manual'
 type EditMode = 'edit'
@@ -250,6 +251,7 @@ function IconPickerModal({
 
 /* ─── Main component ───────────────────────────────────────── */
 export default function InstancesPage() {
+  const t = useT()
   const { instances, setInstances, addInstance, updateInstance, removeInstance } = useStore()
   const account = useStore(activeAccount)
   const runningInstances = useStore(s => s.runningInstances)
@@ -788,7 +790,7 @@ export default function InstancesPage() {
 
       {!fullDetailInstance && <>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold text-text-primary">Instancias</h1>
+        <h1 className="text-xl font-bold text-text-primary">{t('instances_title')}</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowGroupModal(true)}
@@ -807,7 +809,7 @@ export default function InstancesPage() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
             </svg>
-            Nueva Instancia
+            {t('instances_new')}
           </button>
         </div>
       </div>
@@ -924,7 +926,7 @@ export default function InstancesPage() {
                           className={`text-text-muted transition-transform flex-shrink-0 ${ungroupedCollapsed ? '-rotate-90' : ''}`}>
                           <polyline points="6 9 12 15 18 9" />
                         </svg>
-                        <span className={`text-sm font-semibold transition-colors ${dragOverGroup === '__ungrouped__' ? 'text-accent' : 'text-text-muted group-hover/hdr:text-text-primary'}`}>Sin grupo</span>
+                        <span className={`text-sm font-semibold transition-colors ${dragOverGroup === '__ungrouped__' ? 'text-accent' : 'text-text-muted group-hover/hdr:text-text-primary'}`}>{t('instances_group_ungrouped')}</span>
                         <span className="text-xs text-text-muted">({ungrouped.length})</span>
                         <div className="flex-1 h-px bg-border/40" />
                         {dragOverGroup === '__ungrouped__' && <span className="text-[10px] text-accent flex-shrink-0">Soltar aquí</span>}
@@ -1439,7 +1441,7 @@ export default function InstancesPage() {
                         }}
                         className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
                       >
-                        <option value="">Sin grupo</option>
+                        <option value="">{t('instances_group_ungrouped')}</option>
                         {allKnownGroups.map(g => (
                           <option key={g.name} value={g.name}>{g.name}</option>
                         ))}

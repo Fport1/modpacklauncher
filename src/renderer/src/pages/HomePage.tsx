@@ -4,6 +4,7 @@ import { useStore, activeAccount } from '../store'
 import type { Instance } from '../../../shared/types'
 import { APP_VERSION } from '../../../shared/types'
 import UpdateCheckBtn from '../components/UpdateCheckBtn'
+import { useT } from '../i18n'
 
 const SEEN_KEY = 'launcher:seen-announcements'
 function getSeenIds(): Set<string> {
@@ -21,11 +22,27 @@ interface Announcement {
   date: string; imageUrl: string | null; linkUrl: string | null; linkLabel: string | null
 }
 
-const NEWS_META: Record<Exclude<AnnType, 'sponsor'>, { label: string; bg: string; text: string; dot: string }> = {
-  update:  { label: 'Actualización', bg: 'bg-accent/15',    text: 'text-accent',      dot: 'bg-accent' },
-  info:    { label: 'Info',          bg: 'bg-teal-500/15',  text: 'text-teal-400',    dot: 'bg-teal-400' },
-  warning: { label: 'Aviso',         bg: 'bg-amber-500/15', text: 'text-amber-400',   dot: 'bg-amber-400' },
-  event:   { label: 'Evento',        bg: 'bg-purple-500/15',text: 'text-purple-400',  dot: 'bg-purple-400' },
+const NEWS_TYPE_KEYS = {
+  update:  'home_news_update',
+  info:    'home_news_info',
+  warning: 'home_news_warning',
+  event:   'home_news_event',
+} as const
+
+const NEWS_META_STYLE: Record<Exclude<AnnType, 'sponsor'>, { bg: string; text: string; dot: string }> = {
+  update:  { bg: 'bg-accent/15',    text: 'text-accent',      dot: 'bg-accent' },
+  info:    { bg: 'bg-teal-500/15',  text: 'text-teal-400',    dot: 'bg-teal-400' },
+  warning: { bg: 'bg-amber-500/15', text: 'text-amber-400',   dot: 'bg-amber-400' },
+  event:   { bg: 'bg-purple-500/15',text: 'text-purple-400',  dot: 'bg-purple-400' },
+}
+
+function SponsorLabel() {
+  const t = useT()
+  return (
+    <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/50 border border-border/60 px-1.5 py-px rounded">
+      {t('sponsored')}
+    </span>
+  )
 }
 
 // ── Sponsor banner ──────────────────────────────────────────────────────────
@@ -68,9 +85,7 @@ function SponsorBanner({ sponsors }: { sponsors: Announcement[] }) {
           {/* Text */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/50 border border-border/60 px-1.5 py-px rounded">
-                Patrocinado
-              </span>
+              <SponsorLabel />
             </div>
             <p className="text-sm font-semibold text-text-primary truncate">{s.title}</p>
             <p className="text-xs text-text-secondary truncate">{s.summary}</p>
@@ -110,17 +125,21 @@ function SponsorBanner({ sponsors }: { sponsors: Announcement[] }) {
 // ── News card ───────────────────────────────────────────────────────────────
 
 function NewsCard({ ann, isNew }: { ann: Announcement; isNew: boolean }) {
-  const meta = NEWS_META[ann.type as Exclude<AnnType, 'sponsor'>] ?? NEWS_META.info
-  const dateStr = new Date(ann.date).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })
+  const t = useT()
+  const typeKey = ann.type as Exclude<AnnType, 'sponsor'>
+  const style = NEWS_META_STYLE[typeKey] ?? NEWS_META_STYLE.info
+  const label = NEWS_TYPE_KEYS[typeKey] ? t(NEWS_TYPE_KEYS[typeKey]) : ann.type
+  const locale = useStore(s => s.settings?.language === 'en' ? 'en' : 'es')
+  const dateStr = new Date(ann.date).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' })
   return (
     <div className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col hover:border-accent/30 transition-colors">
       {ann.imageUrl && <img src={ann.imageUrl} alt="" className="w-full h-24 object-cover" draggable={false} />}
       <div className="p-3.5 flex flex-col gap-1.5 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${meta.bg} ${meta.text}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />{meta.label}
+          <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />{label}
           </span>
-          {isNew && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-accent text-white">Nuevo</span>}
+          {isNew && <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-accent text-white">{t('new')}</span>}
           <span className="text-[11px] text-text-muted ml-auto">{dateStr}</span>
         </div>
         <p className="text-sm font-semibold text-text-primary leading-snug">{ann.title}</p>
@@ -130,7 +149,7 @@ function NewsCard({ ann, isNew }: { ann: Announcement; isNew: boolean }) {
             onClick={() => window.api.shell.openExternal(ann.linkUrl!)}
             className="mt-1 self-start flex items-center gap-1 text-xs text-accent hover:text-accent/80 font-medium transition-colors"
           >
-            {ann.linkLabel ?? 'Ver más'}
+            {ann.linkLabel ?? t('see_more')}
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>
             </svg>
@@ -156,6 +175,7 @@ function InstanceIcon({ instanceId }: { instanceId: string }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
+  const t = useT()
   const account = useStore(activeAccount)
   const { setInstances, updateInstance } = useStore()
   const runningInstances = useStore(s => s.runningInstances)
@@ -205,7 +225,7 @@ export default function HomePage() {
   }, [])
 
   async function play(instanceId: string) {
-    if (!account) { setError('Selecciona una cuenta en Ajustes primero.'); return }
+    if (!account) { setError(t('home_no_account_error')); return }
     setError('')
     setLaunching(instanceId)
     try { await window.api.launcher.launch(instanceId) }
@@ -234,10 +254,10 @@ export default function HomePage() {
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-text-primary mb-1">
-            {account ? `Bienvenido, ${account.username}!` : 'Bienvenido a ModpackLauncher'}
+            {account ? t('home_welcome', { name: account.username }) : t('home_welcome_default')}
           </h1>
           <p className="text-text-secondary text-sm">
-            {account ? 'Tus instancias y modpacks están listos.' : 'Agrega una cuenta en Ajustes para empezar a jugar.'}
+            {account ? t('home_subtitle') : t('home_subtitle_noaccount')}
           </p>
         </div>
         <UpdateCheckBtn />
@@ -254,7 +274,7 @@ export default function HomePage() {
       {(annLoading || news.length > 0) && (
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-3">
-            <h2 className="text-sm font-semibold text-text-primary">Noticias</h2>
+            <h2 className="text-sm font-semibold text-text-primary">{t('home_news')}</h2>
             {unreadNews > 0 && (
               <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-accent text-white leading-none">{unreadNews}</span>
             )}
@@ -280,9 +300,9 @@ export default function HomePage() {
       {/* Quick stats */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {[
-          { label: 'Instancias', value: useStore.getState().instances.length, to: '/instances' },
-          { label: 'Cuenta',    value: account?.username ?? 'Ninguna', to: '/settings' },
-          { label: 'Versión',   value: `v${APP_VERSION}`, to: '/settings' }
+          { label: t('home_instances'), value: useStore.getState().instances.length, to: '/instances' },
+          { label: t('home_account'),    value: account?.username ?? t('home_none_account'), to: '/settings' },
+          { label: t('home_version'),   value: `v${APP_VERSION}`, to: '/settings' }
         ].map(stat => (
           <Link key={stat.label} to={stat.to} className="bg-bg-card border border-border rounded-xl p-4 hover:border-accent/40 transition-colors">
             <p className="text-xs text-text-muted mb-1">{stat.label}</p>
@@ -295,8 +315,8 @@ export default function HomePage() {
       {recent.length > 0 ? (
         <div>
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-text-primary">Instancias recientes</h2>
-            <Link to="/instances" className="text-xs text-accent hover:text-accent-hover">Ver todas</Link>
+            <h2 className="text-sm font-semibold text-text-primary">{t('home_recent')}</h2>
+            <Link to="/instances" className="text-xs text-accent hover:text-accent-hover">{t('see_all')}</Link>
           </div>
           <div className="space-y-2">
             {recent.map(inst => (
@@ -314,7 +334,7 @@ export default function HomePage() {
                         className="inline-flex items-center gap-1 text-[10px] bg-amber-500/10 border border-amber-500/30 text-amber-400 px-1.5 py-px rounded-full hover:bg-amber-500/20 transition-colors"
                       >
                         <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-                        Actualizar
+                        {t('update')}
                       </button>
                     )}
                   </div>
@@ -322,16 +342,16 @@ export default function HomePage() {
                 {runningInstances.has(inst.id) ? (
                   <div className="flex items-center gap-2">
                     <span className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 text-green-400 text-xs font-medium rounded-lg border border-green-500/30">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />En juego
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />{t('in_game')}
                     </span>
                     <button onClick={() => kill(inst.id)} className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-sm font-medium rounded-lg border border-red-500/30 transition-colors">
-                      Cerrar juego
+                      {t('stop_game')}
                     </button>
                   </div>
                 ) : (
                   <button onClick={() => play(inst.id)} disabled={!!launching}
                     className="flex items-center gap-1.5 px-4 py-1.5 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white text-sm font-medium rounded-lg transition-colors">
-                    {launching === inst.id ? 'Iniciando...' : 'Jugar'}
+                    {launching === inst.id ? t('playing') : t('play')}
                   </button>
                 )}
               </div>
@@ -340,9 +360,9 @@ export default function HomePage() {
         </div>
       ) : (
         <div className="text-center py-12 border border-dashed border-border rounded-xl">
-          <p className="text-text-muted mb-3">No hay instancias todavía</p>
+          <p className="text-text-muted mb-3">{t('home_no_instances')}</p>
           <Link to="/instances" className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors">
-            Crear primera instancia
+            {t('home_create_first')}
           </Link>
         </div>
       )}

@@ -2,11 +2,12 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useStore, activeAccount } from '../store'
 import { SkinAvatar } from '../pages/SettingsPage'
+import { useT } from '../i18n'
 
 const navItems = [
   {
     to: '/home',
-    label: 'Home',
+    labelKey: 'nav_home' as const,
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
@@ -16,7 +17,7 @@ const navItems = [
   },
   {
     to: '/instances',
-    label: 'Instances',
+    labelKey: 'nav_instances' as const,
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <rect x="2" y="3" width="20" height="14" rx="2" />
@@ -27,7 +28,7 @@ const navItems = [
   },
   {
     to: '/modpacks',
-    label: 'Modpacks',
+    labelKey: 'nav_modpacks' as const,
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <polyline points="16 16 12 12 8 16" />
@@ -38,7 +39,7 @@ const navItems = [
   },
   {
     to: '/settings',
-    label: 'Settings',
+    labelKey: 'nav_settings' as const,
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="3" />
@@ -51,6 +52,7 @@ const navItems = [
 const OWNER = 'devora60'
 
 export default function Sidebar() {
+  const t = useT()
   const account = useStore(activeAccount)
   const instances = useStore(s => s.instances)
   const setOpenDetailInstanceId = useStore(s => s.setOpenDetailInstanceId)
@@ -85,25 +87,25 @@ export default function Sidebar() {
   const extraNavItems = [
     {
       to: '/discover',
-      label: 'Descubrir',
+      labelKey: 'nav_discover' as const,
       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
       show: true
     },
     {
       to: '/skins',
-      label: 'Skins',
+      labelKey: 'nav_skins' as const,
       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2a5 5 0 100 10A5 5 0 0012 2z"/><path d="M12 14c-5.33 0-8 2.67-8 4v1h16v-1c0-1.33-2.67-4-8-4z"/></svg>,
       show: account?.type === 'microsoft'
     },
     {
       to: '/block-preview',
-      label: 'Bloques',
+      labelKey: 'nav_blocks' as const,
       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
       show: true
     },
     {
       to: '/status',
-      label: 'Status',
+      labelKey: 'nav_status' as const,
       icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
       show: true
     },
@@ -116,17 +118,17 @@ export default function Sidebar() {
           <div key={item.to}>
             <NavLink
               to={item.to}
-              title={sidebarCompact ? item.label : undefined}
+              title={sidebarCompact ? t(item.labelKey) : undefined}
               className={({ isActive }) => navLinkCls(isActive)}
             >
               {item.icon}
-              {!sidebarCompact && item.label}
+              {!sidebarCompact && t(item.labelKey)}
             </NavLink>
             {item.to === '/modpacks' && extraNavItems.filter(e => e.show).map(e => (
-              <NavLink key={e.to} to={e.to} title={sidebarCompact ? e.label : undefined}
+              <NavLink key={e.to} to={e.to} title={sidebarCompact ? t(e.labelKey) : undefined}
                 className={({ isActive }) => navLinkCls(isActive)}>
                 {e.icon}
-                {!sidebarCompact && e.label}
+                {!sidebarCompact && t(e.labelKey)}
               </NavLink>
             ))}
           </div>
@@ -139,7 +141,7 @@ export default function Sidebar() {
               <div className="h-px bg-border/60 mx-1" />
             </div>
             {!sidebarCompact && (
-              <p className="px-3 text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1">Recientes</p>
+              <p className="px-3 text-[10px] font-semibold text-text-muted uppercase tracking-wider mb-1">{t('nav_recent')}</p>
             )}
             {recentInstances.map(inst => (
               <button
@@ -206,7 +208,7 @@ export default function Sidebar() {
                 <circle cx="12" cy="7" r="4" />
               </svg>
             </div>
-            {!sidebarCompact && <span className="text-sm text-text-secondary">Add Account</span>}
+            {!sidebarCompact && <span className="text-sm text-text-secondary">{t('nav_add_account')}</span>}
           </NavLink>
         )}
       </div>
