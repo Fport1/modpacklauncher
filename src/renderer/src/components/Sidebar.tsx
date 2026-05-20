@@ -4,6 +4,8 @@ import { useStore, activeAccount } from '../store'
 import { SkinAvatar } from '../pages/SettingsPage'
 import { useT } from '../i18n'
 
+const COMPACT_BREAKPOINT = 1080
+
 const navItems = [
   {
     to: '/home',
@@ -57,8 +59,19 @@ export default function Sidebar() {
   const instances = useStore(s => s.instances)
   const setOpenDetailInstanceId = useStore(s => s.setOpenDetailInstanceId)
   const sidebarCompact = useStore(s => s.sidebarCompact)
+  const setSidebarCompact = useStore(s => s.setSidebarCompact)
   const isAdmin = account?.type === 'microsoft' && account.username.toLowerCase() === OWNER
   const navigate = useNavigate()
+
+  // Auto-compact on window resize
+  useEffect(() => {
+    function onResize() {
+      setSidebarCompact(window.innerWidth < COMPACT_BREAKPOINT)
+    }
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [setSidebarCompact])
 
   const recentInstances = [...instances]
     .filter(i => i.lastPlayed)
@@ -186,9 +199,22 @@ export default function Sidebar() {
         </div>
       )}
 
-      <div className={`p-3 border-t border-border ${sidebarCompact ? 'flex justify-center' : ''}`}>
+      <div className={`p-3 border-t border-border ${sidebarCompact ? 'flex flex-col items-center gap-2' : 'flex items-center gap-1'}`}>
+        {/* Toggle compact/expand button */}
+        <button
+          onClick={() => setSidebarCompact(!sidebarCompact)}
+          title={sidebarCompact ? 'Expandir sidebar' : 'Colapsar sidebar'}
+          className={`${sidebarCompact ? 'w-8 h-8' : 'w-7 h-7 ml-auto mr-1'} flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            {sidebarCompact
+              ? <><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></>
+              : <><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></>
+            }
+          </svg>
+        </button>
         {account ? (
-          <div className={`flex items-center ${sidebarCompact ? 'justify-center' : 'gap-2.5 px-2'} py-2`}>
+          <div className={`flex items-center ${sidebarCompact ? 'justify-center' : 'gap-2.5 px-1 flex-1 min-w-0'} py-1`}>
             <div className="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center flex-shrink-0 overflow-hidden" title={sidebarCompact ? account.username : undefined}>
               {account.type === 'microsoft'
                 ? <SkinAvatar uuid={account.uuid} username={account.username} />

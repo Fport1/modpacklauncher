@@ -528,8 +528,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
           const { width } = img.getSize()
           const scale = width / 64  // standard skin is 64 wide
           // Face base layer: x=8, y=8, w=8, h=8 (scaled)
+          // Return raw 8×8 face — CSS image-rendering:pixelated handles upscaling without blur
           const face = img.crop({ x: Math.round(8 * scale), y: Math.round(8 * scale), width: Math.round(8 * scale), height: Math.round(8 * scale) })
-          return face.resize({ width: 64, height: 64, quality: 'fast' }).toDataURL()
+          return face.toDataURL()
         }
       }
     } catch { /* fall through to CDN fallbacks */ }
