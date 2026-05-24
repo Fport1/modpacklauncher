@@ -85,6 +85,11 @@ export default function Sidebar() {
       isActive ? 'bg-accent/20 text-accent' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
     }`
 
+  const navClsSocial = (isActive: boolean) =>
+    `flex items-center justify-center w-10 h-10 rounded-xl transition-colors ${
+      isActive ? 'bg-purple-500/20 text-purple-400' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+    }`
+
   const extraNavItems = [
     {
       to: '/discover',
@@ -114,7 +119,8 @@ export default function Sidebar() {
       to: '/friends',
       labelKey: 'nav_friends' as const,
       icon: <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
-      show: true
+      show: true,
+      social: true,
     },
   ]
 
@@ -127,7 +133,7 @@ export default function Sidebar() {
               {item.icon}
             </NavLink>
             {item.to === '/modpacks' && extraNavItems.filter(e => e.show).map(e => (
-              <NavLink key={e.to} to={e.to} title={t(e.labelKey)} className={({ isActive }) => navCls(isActive)}>
+              <NavLink key={e.to} to={e.to} title={t(e.labelKey)} className={({ isActive }) => e.social ? navClsSocial(isActive) : navCls(isActive)}>
                 {e.icon}
               </NavLink>
             ))}

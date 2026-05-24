@@ -673,7 +673,7 @@ export default function BlockPreviewPage() {
             Vista previa
           </p>
         )}
-        <div className="flex-1 relative overflow-hidden">
+        <div className="h-full relative overflow-hidden">
           <canvas ref={canvasRef} className="w-full h-full block" />
           {!editingSlot && (
             <div className="absolute bottom-3 right-3 text-[10px] text-text-muted/50 select-none">

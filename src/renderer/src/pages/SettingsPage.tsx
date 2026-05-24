@@ -17,7 +17,7 @@ function SkinAvatar({ uuid, username }: { uuid: string; username: string; size?:
   if (!src) {
     return <span className="text-accent text-sm font-bold">{username[0].toUpperCase()}</span>
   }
-  return <img src={src} alt={username} className="w-full h-full object-cover" draggable={false} />
+  return <img src={src} alt={username} className="w-full h-full object-cover" style={{ imageRendering: 'pixelated' }} draggable={false} />
 }
 
 export { SkinAvatar }
@@ -62,60 +62,64 @@ function AIProviderIcon({ provider }: { provider: string }) {
 }
 
 // ── API Key tutorial per provider ─────────────────────────────────────────────
+type TutorialStep = { text: string; url?: string }
+type Tutorial = { title: string; steps: TutorialStep[]; note?: string }
+
+const AI_TUTORIALS: Record<string, Tutorial> = {
+  claude: {
+    title: '🟣 Cómo conseguir tu clave de Claude (Anthropic)',
+    steps: [
+      { text: '🌐 Ve a console.anthropic.com (cuenta gratis)', url: 'https://console.anthropic.com' },
+      { text: '📧 Verifica tu correo electrónico cuando te lo pidan' },
+      { text: '💳 Añade un método de pago (cobran muy poco, ~$0.001 por análisis)' },
+      { text: '🔑 En el menú izquierdo, haz clic en "API Keys"' },
+      { text: '➕ Clic en "Create Key", ponle un nombre (ej: "Minecraft Launcher")' },
+      { text: '📋 ¡Copia el código que empieza por sk-ant-! Solo se muestra UNA vez' },
+      { text: '📌 Pégalo en el campo de arriba y guarda' },
+    ],
+    note: '💡 Con $5 de crédito puedes hacer miles de análisis de crashes.'
+  },
+  openai: {
+    title: '🟢 Cómo conseguir tu clave de ChatGPT (OpenAI)',
+    steps: [
+      { text: '🌐 Ve a platform.openai.com (cuenta gratis)', url: 'https://platform.openai.com' },
+      { text: '📧 Verifica tu correo electrónico' },
+      { text: '💳 Añade crédito en "Billing" → "Add to credit balance" (mínimo $5)' },
+      { text: '🔑 Ve a "API Keys" en el menú izquierdo' },
+      { text: '➕ Clic en "Create new secret key", ponle un nombre' },
+      { text: '📋 ¡Copia el código que empieza por sk-! Solo se muestra UNA vez' },
+      { text: '📌 Pégalo en el campo de arriba y guarda' },
+    ],
+    note: '💡 GPT-4o mini es muy barato. Con $5 puedes hacer muchos análisis.'
+  },
+  gemini: {
+    title: '🔵 Cómo conseguir tu clave de Gemini (Google)',
+    steps: [
+      { text: '🌐 Ve a Google AI Studio (cuenta de Google, es gratis)', url: 'https://aistudio.google.com' },
+      { text: '🔑 Haz clic en el botón "Get API key" (arriba a la izquierda)' },
+      { text: '➕ Clic en "Create API key in new project"' },
+      { text: '📋 Copia el código que aparece (empieza por AIza...)' },
+      { text: '📌 Pégalo en el campo de arriba y guarda' },
+    ],
+    note: '🎉 ¡Gemini 2.5 Flash tiene una capa GRATUITA muy generosa! No necesitas pagar.'
+  },
+  grok: {
+    title: '⚫ Cómo conseguir tu clave de Grok (xAI)',
+    steps: [
+      { text: '🌐 Ve a console.x.ai (necesitas crear una cuenta)', url: 'https://console.x.ai' },
+      { text: '🔑 Ve a la sección "API Keys"' },
+      { text: '➕ Clic en "Create API Key", ponle un nombre' },
+      { text: '📋 Copia el código que empieza por xai-' },
+      { text: '📌 Pégalo en el campo de arriba y guarda' },
+    ],
+    note: '💡 xAI ofrece créditos gratuitos al registrarte por primera vez.'
+  },
+}
+
 function AIKeyTutorial({ provider }: { provider: string }) {
   const [open, setOpen] = useState(false)
-  const tutorials: Record<string, { title: string; steps: string[]; note?: string }> = {
-    claude: {
-      title: '🟣 Cómo conseguir tu clave de Claude (Anthropic)',
-      steps: [
-        '🌐 Ve a console.anthropic.com (necesitas crear una cuenta gratis)',
-        '📧 Verifica tu correo electrónico cuando te lo pidan',
-        '💳 Añade un método de pago (cobran muy poco, ~$0.001 por análisis)',
-        '🔑 En el menú izquierdo, haz clic en "API Keys"',
-        '➕ Clic en "Create Key", ponle un nombre (ej: "Minecraft Launcher")',
-        '📋 ¡Copia el código que empieza por sk-ant-! Solo se muestra UNA vez',
-        '📌 Pégalo en el campo de arriba y guarda',
-      ],
-      note: '💡 Con $5 de crédito puedes hacer miles de análisis de crashes.'
-    },
-    openai: {
-      title: '🟢 Cómo conseguir tu clave de ChatGPT (OpenAI)',
-      steps: [
-        '🌐 Ve a platform.openai.com (crea una cuenta gratis si no tienes)',
-        '📧 Verifica tu correo electrónico',
-        '💳 Añade crédito en "Billing" → "Add to credit balance" (mínimo $5)',
-        '🔑 Ve a "API Keys" en el menú izquierdo',
-        '➕ Clic en "Create new secret key", ponle un nombre',
-        '📋 ¡Copia el código que empieza por sk-! Solo se muestra UNA vez',
-        '📌 Pégalo en el campo de arriba y guarda',
-      ],
-      note: '💡 GPT-4o mini es muy barato. Con $5 puedes hacer muchos análisis.'
-    },
-    gemini: {
-      title: '🔵 Cómo conseguir tu clave de Gemini (Google)',
-      steps: [
-        '🌐 Ve a aistudio.google.com (necesitas una cuenta de Google, es gratis)',
-        '🔑 Haz clic en el botón "Get API key" (arriba a la izquierda)',
-        '➕ Clic en "Create API key in new project"',
-        '📋 Copia el código que aparece (empieza por AIza...)',
-        '📌 Pégalo en el campo de arriba y guarda',
-      ],
-      note: '🎉 ¡Gemini 2.5 Flash tiene una capa GRATUITA muy generosa! No necesitas pagar.'
-    },
-    grok: {
-      title: '⚫ Cómo conseguir tu clave de Grok (xAI)',
-      steps: [
-        '🌐 Ve a console.x.ai (necesitas crear una cuenta)',
-        '🔑 Ve a la sección "API Keys"',
-        '➕ Clic en "Create API Key", ponle un nombre',
-        '📋 Copia el código que empieza por xai-',
-        '📌 Pégalo en el campo de arriba y guarda',
-      ],
-      note: '💡 xAI ofrece créditos gratuitos al registrarte por primera vez.'
-    },
-  }
-  const t = tutorials[provider]
-  if (!t) return null
+  const tutorial = AI_TUTORIALS[provider]
+  if (!tutorial) return null
   return (
     <div className="mt-2">
       <button onClick={() => setOpen(v => !v)}
@@ -131,11 +135,28 @@ function AIKeyTutorial({ provider }: { provider: string }) {
       </button>
       {open && (
         <div className="mt-2 bg-bg-primary rounded-xl p-3 space-y-2 border border-border/60">
-          <p className="text-xs font-semibold text-text-secondary">{t.title}</p>
+          <p className="text-xs font-semibold text-text-secondary">{tutorial.title}</p>
           <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside">
-            {t.steps.map((step, i) => <li key={i}>{step}</li>)}
+            {tutorial.steps.map((step, i) => (
+              <li key={i}>
+                {step.text}
+                {step.url && (
+                  <button
+                    onClick={() => window.api.shell.openExternal(step.url!)}
+                    className="ml-1 inline-flex items-center gap-0.5 text-accent hover:underline"
+                  >
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/>
+                    </svg>
+                    Abrir
+                  </button>
+                )}
+              </li>
+            ))}
           </ol>
-          {t.note && <p className="text-xs text-amber-400/90 pt-1 border-t border-border/40">{t.note}</p>}
+          {tutorial.note && (
+            <p className="text-xs text-amber-400/90 pt-1 border-t border-border/40">{tutorial.note}</p>
+          )}
         </div>
       )}
     </div>
@@ -222,9 +243,12 @@ export default function SettingsPage() {
     setRefreshingId(acc.id)
     try {
       const refreshed = await window.api.auth.refresh(acc)
+      // refreshed.id === acc.id (preserved in main process), so addAccount replaces in-place
       addAccount(refreshed)
+      if (acc.id === activeAccountId) {
+        await window.api.auth.setActive(refreshed.id)
+      }
     } catch {
-      // If refresh fails, force re-login
       await window.api.auth.logout(acc.id)
       removeAccount(acc.id)
     } finally {
@@ -814,7 +838,7 @@ export default function SettingsPage() {
               <div className="bg-bg-primary rounded-xl p-3 space-y-1.5">
                 <p className="text-xs font-semibold text-text-secondary">🦙 ¿Cómo usar Ollama? (gratis, sin internet)</p>
                 <ol className="text-xs text-text-muted space-y-1 list-decimal list-inside">
-                  <li>Ve a <span className="text-accent font-mono">ollama.com</span> y descarga Ollama para tu sistema</li>
+                  <li>Ve a <button onClick={() => window.api.shell.openExternal('https://ollama.com')} className="text-accent hover:underline font-mono">ollama.com</button> y descarga Ollama para tu sistema</li>
                   <li>Instálalo y ábrelo (queda corriendo en segundo plano)</li>
                   <li>Abre una terminal y escribe: <code className="bg-bg-card px-1 rounded font-mono">ollama pull llama3.2</code></li>
                   <li>Escribe el mismo nombre del modelo arriba (ej: <code className="bg-bg-card px-1 rounded font-mono">llama3.2</code>)</li>
