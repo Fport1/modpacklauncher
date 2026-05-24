@@ -1375,7 +1375,13 @@ export default function FriendsPage() {
   }
 
   function copyMsg(text: string) {
-    navigator.clipboard.writeText(text).catch(() => {})
+    const el = document.createElement('textarea')
+    el.value = text
+    el.style.cssText = 'position:fixed;opacity:0;pointer-events:none'
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    document.body.removeChild(el)
     setCtxMenu(null)
   }
 
