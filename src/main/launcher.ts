@@ -29,8 +29,9 @@ export async function installMinecraftVersion(
 ): Promise<void> {
   const sharedDir = getSharedDir()
   const versionJson = path.join(sharedDir, 'versions', version, `${version}.json`)
+  const versionJar  = path.join(sharedDir, 'versions', version, `${version}.jar`)
 
-  if (await fs.pathExists(versionJson)) {
+  if (await fs.pathExists(versionJson) && await fs.pathExists(versionJar)) {
     onProgress?.(1, 1, 'Versión ya instalada')
     return
   }
@@ -124,7 +125,8 @@ export async function launchInstance(
 
   // 1. Ensure Minecraft version JSON + jar are installed
   const versionJson = path.join(sharedDir, 'versions', instance.minecraft, `${instance.minecraft}.json`)
-  if (!(await fs.pathExists(versionJson))) {
+  const versionJar  = path.join(sharedDir, 'versions', instance.minecraft, `${instance.minecraft}.jar`)
+  if (!(await fs.pathExists(versionJson)) || !(await fs.pathExists(versionJar))) {
     await installMinecraftVersion(instance.minecraft, onProgress)
   }
 
