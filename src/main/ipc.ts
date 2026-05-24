@@ -83,6 +83,7 @@ import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, g
 import { requestCancel, resetCancel, CancelError } from './cancelToken'
 import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
+import { getLogBuffer } from './logger'
 
 interface AccountsStore {
   accounts: MinecraftAccount[]
@@ -216,7 +217,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:delete-shaderpack', (_e, instanceId: string, filename: string) => deleteShaderpack(instanceId, filename))
   ipcMain.handle('instances:delete-world', (_e, instanceId: string, worldName: string) => deleteWorld(instanceId, worldName))
   ipcMain.handle('instances:delete-screenshot', (_e, instanceId: string, filename: string) => deleteScreenshot(instanceId, filename))
-  ipcMain.handle('instances:duplicate', (_e, instanceId: string, newName: string) => duplicateInstance(instanceId, newName))
+  ipcMain.handle('instances:duplicate', (e, instanceId: string, newName: string) => duplicateInstance(instanceId, newName, (step) => e.sender.send('instances:duplicate-progress', step)))
   ipcMain.handle('instances:pick-icon', (_e, instanceId: string) => pickInstanceIcon(instanceId, getMainWindow()))
   ipcMain.handle('instances:get-icon', (_e, instanceId: string) => getInstanceIconBase64(instanceId))
   ipcMain.handle('instances:list-default-icons', () => listDefaultIcons())
@@ -1201,6 +1202,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       return null
     }
   })
+
+  // ── Console / Dev logs ────────────────────────────────────────────────────
+
+  ipcMain.handle('console:get-logs', () => getLogBuffer())
 }
 
 function addAccount(account: MinecraftAccount): void {

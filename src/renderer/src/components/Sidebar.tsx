@@ -57,6 +57,7 @@ export default function Sidebar() {
   const t = useT()
   const account = useStore(activeAccount)
   const instances = useStore(s => s.instances)
+  const showConsole = useStore(s => s.settings.showConsole)
   const setOpenDetailInstanceId = useStore(s => s.setOpenDetailInstanceId)
   const isAdmin = account?.type === 'microsoft' && account.username.toLowerCase() === OWNER
   const navigate = useNavigate()
@@ -121,6 +122,12 @@ export default function Sidebar() {
       icon: <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>,
       show: true,
       social: true,
+    },
+    {
+      to: '/console',
+      labelKey: 'nav_console' as const,
+      icon: <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>,
+      show: showConsole,
     },
   ]
 

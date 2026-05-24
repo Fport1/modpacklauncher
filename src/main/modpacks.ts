@@ -332,7 +332,11 @@ interface FileEntry {
 
 type ExportProgress = (message: string, current: number, total: number) => void
 
-async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): Promise<FileEntry[]> {
+async function collectFilesFromPaths(
+  gameDir: string,
+  selectedPaths: string[],
+  onScan?: (count: number, lastName: string) => void
+): Promise<FileEntry[]> {
   const entries: FileEntry[] = []
   const seen = new Set<string>()
 
@@ -344,6 +348,7 @@ async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): 
       const buf = await fs.readFile(absPath)
       if (buf.length === 0) return
       entries.push({ localPath: absPath, relativePath: relPath, sha256: crypto.createHash('sha256').update(buf).digest('hex') })
+      onScan?.(entries.length, path.basename(relPath))
     } catch { /* skip unreadable */ }
   }
 
@@ -464,18 +469,22 @@ const EXPORT_TOTAL_STEPS = 7
 export async function exportModpack(params: ExportParams, onProgress: ExportProgress): Promise<string> {
   const { instanceId, name, version, description, changelog, repoName, selectedPaths, githubToken, minecraft, modloader, modloaderVersion } = params
 
-  // Step 0 — collect files
-  onProgress('Leyendo archivos de la instancia...', 0, EXPORT_TOTAL_STEPS)
+  // Step 0 — collect files (report per-file as discovered)
+  onProgress('Analizando archivos...', 0, EXPORT_TOTAL_STEPS)
   const gameDir = await getInstanceGameDir(instanceId)
-  const files = await collectFilesFromPaths(gameDir, selectedPaths)
+  const files = await collectFilesFromPaths(gameDir, selectedPaths, (count, lastName) => {
+    onProgress(`Analizando... (${count.toLocaleString()} encontrados: ${lastName})`, 0, EXPORT_TOTAL_STEPS)
+  })
   if (files.length === 0) throw new Error('No se encontraron archivos en las categorías seleccionadas')
 
-  // Step 1 — build zip
+  // Step 1 — build zip (report per-file while packing)
   const sizeMB = (files.reduce((s, f) => s + (fs.statSync(f.localPath).size ?? 0), 0) / 1024 / 1024).toFixed(1)
   onProgress(`Empaquetando ${files.length.toLocaleString()} archivos (~${sizeMB} MB)...`, 1, EXPORT_TOTAL_STEPS)
   const zip = new AdmZip()
   const packFiles: PackFile[] = []
-  for (const file of files) {
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    onProgress(`Empaquetando ${i + 1}/${files.length}: ${path.basename(file.relativePath)}`, 1, EXPORT_TOTAL_STEPS)
     const buf = await fs.readFile(file.localPath)
     zip.addFile(file.relativePath, buf)
     packFiles.push({ path: file.relativePath, sha256: file.sha256, url: '' })

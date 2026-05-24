@@ -7,7 +7,7 @@ import {
 } from 'firebase/auth'
 import {
   doc, getDoc, setDoc, writeBatch, onSnapshot, collection, deleteDoc, serverTimestamp,
-  addDoc, query, where, limit, updateDoc, getDocs, documentId, arrayUnion, arrayRemove,
+  addDoc, query, where, limit, updateDoc, getDocs, documentId, deleteField,
 } from 'firebase/firestore'
 import { socialAuth, socialDb } from '../lib/firebase'
 import { useStore, activeAccount } from '../store'
@@ -37,13 +37,22 @@ interface ChatMessage {
   text: string
   senderUid: string
   at: any
-  reactions: Record<string, string[]>
+  reactions: Record<string, Record<string, boolean>>
   edited?: boolean
   forwarded?: boolean
-  replyTo?: { msgId: string; text: string; senderUid: string } | null
+  replyToId?: string | null
+  replyToText?: string | null
+  replyToSenderName?: string | null
 }
 
-const REACTIONS = ['👍','❤️','😂','😮','😢','😡','🎉','🔥']
+const REACTIONS = [
+  { key: 'like',   emoji: '👍' },
+  { key: 'heart',  emoji: '❤️' },
+  { key: 'laugh',  emoji: '😂' },
+  { key: 'wow',    emoji: '😮' },
+  { key: 'sad',    emoji: '😢' },
+  { key: 'angry',  emoji: '😡' },
+]
 
 function convLastText(lastMessage: any): string {
   if (!lastMessage) return ''
@@ -114,6 +123,8 @@ const STYLES = `
   @keyframes cardIn      { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }
   @keyframes emptyPulse  { 0%,100% { transform:scale(1); opacity:.7 } 50% { transform:scale(1.12); opacity:1 } }
   @keyframes typingDot   { 0%,80%,100% { transform:scale(0.6); opacity:.4 } 40% { transform:scale(1); opacity:1 } }
+  @keyframes floatHeart  { 0% { opacity:1; transform:scale(1) translateY(0) rotate(-10deg) } 40% { opacity:1; transform:scale(1.6) translateY(-40px) rotate(8deg) } 100% { opacity:0; transform:scale(0.8) translateY(-90px) rotate(-5deg) } }
+  .float-heart { pointer-events:none; position:absolute; font-size:28px; animation:floatHeart .8s ease-out forwards; z-index:60; user-select:none; }
 
   .f1-card:hover { transform:translateY(-2px); box-shadow:0 0 60px rgba(124,58,237,.12), 0 8px 28px rgba(0,0,0,.5) !important; }
   .f1-card { transition: transform .18s, box-shadow .18s; }
@@ -896,13 +907,22 @@ function setPlaying(uid: string, playing: boolean) {
   updateDoc(doc(socialDb, 'presence', uid), { playing, lastSeen: serverTimestamp() }).catch(() => {})
 }
 
-function resolvePresence(data: any): { online: boolean; playing: boolean } | null {
+function resolvePresence(
+  data: any,
+  isFriend: boolean = true
+): { online: boolean; playing: boolean } | null {
   if (!data) return null
   const vis = data.visibility ?? 'everyone'
   if (vis === 'nobody') return null
+  if (vis === 'friends' && !isFriend) return null
   const lastSeen: Date | null = data.lastSeen?.toDate?.() ?? null
-  const stale = lastSeen ? Date.now() - lastSeen.getTime() > 90_000 : false
-  return { online: stale ? false : !!data.online, playing: stale ? false : !!data.playing }
+  const stale = lastSeen
+    ? Date.now() - lastSeen.getTime() > 90_000
+    : true
+  return {
+    online:  stale ? false : !!data.online,
+    playing: stale ? false : !!data.playing,
+  }
 }
 
 // ── Main page ──────────────────────────────────────────────────────────────────
@@ -948,7 +968,7 @@ export default function FriendsPage() {
   const [editText,     setEditText]     = useState('')
   const [selectMode,   setSelectMode]   = useState(false)
   const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set())
-  const [replyTo,      setReplyTo]      = useState<ChatMessage | null>(null)
+  const [replyTo,      setReplyTo]      = useState<{ id: string; text: string; senderName: string } | null>(null)
   const [fwdMsg,       setFwdMsg]       = useState<ChatMessage | null>(null)
 
   // New chat modal
@@ -968,6 +988,42 @@ export default function FriendsPage() {
 
   // Message hover (3-dot button)
   const [hoveredMsgId,  setHoveredMsgId]  = useState<string|null>(null)
+
+  // Floating hearts on double-click
+  const [floatingHearts, setFloatingHearts] = useState<{ id: number; x: number; y: number; msgId: string }[]>([])
+
+  // Swipe-to-reply gesture
+  const swipeRef = useRef<{ startX: number; dragging: boolean; triggered: boolean }>({ startX: 0, dragging: false, triggered: false })
+  const [swipeOffset, setSwipeOffset] = useState<{ msgId: string; offset: number } | null>(null)
+
+  // Real-time presence map (uid → raw Firestore data)
+  const [presenceMap, setPresenceMap] = useState<Record<string, any>>({})
+
+  function spawnHeart(e: React.MouseEvent, msgId: string) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    const id = Date.now() + Math.random()
+    setFloatingHearts(prev => [...prev, { id, x, y, msgId }])
+    setTimeout(() => setFloatingHearts(prev => prev.filter(h => h.id !== id)), 850)
+  }
+
+  function jumpToMessage(msgId: string) {
+    const el = document.getElementById(`msg-${msgId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const bubble = el.querySelector('[data-bubble]') as HTMLElement | null
+    setTimeout(() => {
+      if (!bubble) return
+      bubble.style.transition = 'box-shadow 0.15s ease'
+      bubble.style.boxShadow = '0 0 0 2px #3ea6ff, 0 0 18px rgba(62,166,255,0.5)'
+      setTimeout(() => {
+        bubble.style.transition = 'box-shadow 0.7s ease'
+        bubble.style.boxShadow = '0 0 0 0 rgba(62,166,255,0)'
+        setTimeout(() => { bubble.style.boxShadow = ''; bubble.style.transition = '' }, 750)
+      }, 450)
+    }, 350)
+  }
 
   // Emoji picker
   const [showEmoji, setShowEmoji] = useState(false)
@@ -1064,12 +1120,26 @@ export default function FriendsPage() {
         const timer = await startPresence(u.uid)
         presenceTimerRef.current = timer
         prevUid = u.uid
+
+        const handleClose = () => stopPresence(u.uid)
+        window.addEventListener('beforeunload', handleClose)
+        ;(presenceTimerRef as any)._closeHandler = handleClose
       } else {
         if (presenceTimerRef.current) { clearInterval(presenceTimerRef.current); presenceTimerRef.current = null }
+        const handler = (presenceTimerRef as any)._closeHandler
+        if (handler) {
+          window.removeEventListener('beforeunload', handler)
+          delete (presenceTimerRef as any)._closeHandler
+        }
         if (prevUid) { stopPresence(prevUid); prevUid = null }
       }
     })
-    return () => { unsub(); if (presenceTimerRef.current) clearInterval(presenceTimerRef.current) }
+    return () => {
+      unsub()
+      if (presenceTimerRef.current) clearInterval(presenceTimerRef.current)
+      const handler = (presenceTimerRef as any)._closeHandler
+      if (handler) window.removeEventListener('beforeunload', handler)
+    }
   }, [])
 
   // Sync Minecraft running state to presence
@@ -1137,26 +1207,40 @@ export default function FriendsPage() {
       const uids = snapshot.docs.map(d => d.id)
       if (uids.length === 0) { setFriends([]); setLoadingFriends(false); return }
 
-      const [profiles, presences] = await Promise.all([
-        Promise.all(uids.map(uid => getDoc(doc(socialDb, 'users', uid)))),
-        Promise.all(uids.map(uid => getDoc(doc(socialDb, 'presence', uid)))),
-      ])
+      const profiles = await Promise.all(
+        uids.map(uid => getDoc(doc(socialDb, 'users', uid)))
+      )
 
       setFriends(profiles.map((snap, i) => {
-        const d  = snap.exists() ? snap.data() : {}
+        const d = snap.exists() ? snap.data() : {}
         return {
           uid: uids[i],
           profileName:       d.profileName ?? d.username ?? null,
           username:          d.username ?? null,
           minecraftUsername: d.minecraftUsername ?? null,
           minecraftUUID:     d.minecraftUUID ?? null,
-          presence:          resolvePresence(presences[i].exists() ? presences[i].data() : null),
+          presence:          null,
         }
       }))
       setLoadingFriends(false)
     })
     return unsub
   }, [socialUser])
+
+  // Real-time presence subscriptions for friends
+  useEffect(() => {
+    if (!socialUser) { setPresenceMap({}); return }
+    const uids = friends.map(f => f.uid)
+    if (uids.length === 0) { setPresenceMap({}); return }
+    const pMap: Record<string, any> = {}
+    const unsubs = uids.map(uid =>
+      onSnapshot(doc(socialDb, 'presence', uid), snap => {
+        pMap[uid] = snap.exists() ? snap.data() : null
+        setPresenceMap({ ...pMap })
+      }, () => {})
+    )
+    return () => unsubs.forEach(u => u())
+  }, [friends.map(f => f.uid).join(','), socialUser?.uid])
 
   // Friend requests listener
   useEffect(() => {
@@ -1252,10 +1336,12 @@ export default function FriendsPage() {
           text,
           senderUid:  data.senderUid ?? data.from ?? data.uid ?? '',
           at,
-          reactions:  (data.reactions ?? {}) as Record<string, string[]>,
-          edited:     data.edited ?? false,
-          forwarded:  data.forwarded ?? false,
-          replyTo:    data.replyTo ?? null,
+          reactions:       (data.reactions ?? {}) as Record<string, Record<string, boolean>>,
+          edited:          data.edited ?? false,
+          forwarded:       data.forwarded ?? false,
+          replyToId:         data.replyToId         ?? null,
+          replyToText:       data.replyToText        ?? null,
+          replyToSenderName: data.replyToSenderName  ?? null,
         }
       })
       msgs.sort((a, b) => (a.at?.seconds ?? 0) - (b.at?.seconds ?? 0))
@@ -1337,8 +1423,8 @@ export default function FriendsPage() {
   async function sendMessage() {
     if (!msgInput.trim() || !selectedConvId || !socialUser || sendingMsg) return
     setSendingMsg(true)
-    const text    = msgInput.trim()
-    const replySnap = replyTo ? { msgId: replyTo.id, text: replyTo.text, senderUid: replyTo.senderUid } : null
+    const text = msgInput.trim()
+    const replySnap = replyTo ? { id: replyTo.id, text: replyTo.text, senderName: replyTo.senderName } : null
     setMsgInput('')
     setReplyTo(null)
     try {
@@ -1349,7 +1435,11 @@ export default function FriendsPage() {
         at:        serverTimestamp(),
         type:      'text',
         attachments: [],
-        ...(replySnap ? { replyTo: replySnap } : {}),
+        ...(replySnap ? {
+          replyToId:         replySnap.id,
+          replyToText:       replySnap.text,
+          replyToSenderName: replySnap.senderName,
+        } : {}),
       })
       await updateDoc(doc(socialDb, 'conversations', selectedConvId), {
         lastMessage:    { text, senderUid: socialUser.uid, at: new Date() },
@@ -1408,13 +1498,14 @@ export default function FriendsPage() {
     setEditingId(null)
   }
 
-  async function toggleReaction(msgId: string, emoji: string) {
+  async function toggleReaction(msgId: string, key: string) {
     if (!selectedConvId || !socialUser) return
     const msg  = messages.find(m => m.id === msgId)
-    const mine = (msg?.reactions?.[emoji] ?? []).includes(socialUser.uid)
+    const alreadyReacted = !!msg?.reactions?.[key]?.[socialUser.uid]
     const ref  = doc(socialDb, 'conversations', selectedConvId, 'messages', msgId)
+    const field = `reactions.${key}.${socialUser.uid}`
     await updateDoc(ref, {
-      [`reactions.${emoji}`]: mine ? arrayRemove(socialUser.uid) : arrayUnion(socialUser.uid),
+      [field]: alreadyReacted ? deleteField() : true,
     }).catch(() => {})
     setCtxMenu(null)
   }
@@ -1535,9 +1626,15 @@ export default function FriendsPage() {
   }
 
   // Signed in
-  const playing = friends.filter(f => f.presence?.playing)
-  const online  = friends.filter(f => !f.presence?.playing && f.presence?.online)
-  const offline = friends.filter(f => !f.presence?.playing && !f.presence?.online)
+  const playing = friends.filter(f => resolvePresence(presenceMap[f.uid])?.playing)
+  const online  = friends.filter(f => {
+    const p = resolvePresence(presenceMap[f.uid])
+    return !p?.playing && p?.online
+  })
+  const offline = friends.filter(f => {
+    const p = resolvePresence(presenceMap[f.uid])
+    return !p?.playing && !p?.online
+  })
   const selectedConv = conversations.find(c => c.id === selectedConvId) ?? null
 
   return (
@@ -1697,7 +1794,7 @@ export default function FriendsPage() {
                   <div>
                     <SectionLabel label="Jugando ahora" count={playing.length} color={C.green} />
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                      {playing.map((f, i) => <FriendCard key={f.uid} f={f} delay={i * 60} />)}
+                      {playing.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} />)}
                     </div>
                   </div>
                 )}
@@ -1705,7 +1802,7 @@ export default function FriendsPage() {
                   <div>
                     <SectionLabel label="En línea" count={online.length} color={C.blue} />
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                      {online.map((f, i) => <FriendCard key={f.uid} f={f} delay={i * 60} />)}
+                      {online.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} />)}
                     </div>
                   </div>
                 )}
@@ -1713,7 +1810,7 @@ export default function FriendsPage() {
                   <div style={{ opacity:.7 }}>
                     <SectionLabel label="Desconectados" count={offline.length} color={C.muted} />
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                      {offline.map((f, i) => <FriendCard key={f.uid} f={f} delay={i * 60} />)}
+                      {offline.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} />)}
                     </div>
                   </div>
                 )}
@@ -1754,8 +1851,9 @@ export default function FriendsPage() {
                 const active   = selectedConvId === conv.id
                 const hovered  = hoveredConvId === conv.id
                 const menuOpen = convMenuId === conv.id
-                const convFriend    = friends.find(f => f.uid === conv.otherUid)
-                const convPresence  = !conv.isGroup ? (convFriend?.presence ?? null) : null
+                const convPresence  = !conv.isGroup
+                  ? resolvePresence(presenceMap[conv.otherUid] ?? null)
+                  : null
                 const isPlayingConv = !!convPresence?.playing
                 const isOnlineConv  = !isPlayingConv && !!convPresence?.online
                 return (
@@ -1867,7 +1965,13 @@ export default function FriendsPage() {
                   const mine      = m.senderUid === socialUser.uid
                   const isEditing = editingId === m.id
                   const isSelected = selectedIds.has(m.id)
-                  const reacts    = Object.entries(m.reactions ?? {}).filter(([, uids]) => uids.length > 0)
+                  const reacts    = REACTIONS
+                    .map(r => ({
+                      key:  r.key,
+                      emoji: r.emoji,
+                      uids: Object.keys(m.reactions?.[r.key] ?? {}),
+                    }))
+                    .filter(r => r.uids.length > 0)
 
                   const msgAt     = m.at?.toDate ? m.at.toDate() : (m.at ? new Date(m.at.seconds * 1000) : null)
                   const isRead    = !!(mine && otherReadAt && msgAt && otherReadAt >= msgAt)
@@ -1888,10 +1992,24 @@ export default function FriendsPage() {
                     <div
                       style={{ display:'flex', alignItems:'center', gap:6, padding:'1px 0', borderRadius:8, background: isSelected ? 'rgba(124,58,237,.18)' : 'transparent', transition:'background .1s' }}
                       onClick={() => selectMode && toggleSelectMsg(m.id)}
-                      onDoubleClick={() => !selectMode && toggleReaction(m.id, '❤️')}
+                      onDoubleClick={e => { if (!selectMode) { spawnHeart(e, m.id); toggleReaction(m.id, 'heart') } }}
                       onContextMenu={e => !selectMode && openCtxMenu(e, m)}
                       onMouseEnter={() => setHoveredMsgId(m.id)}
-                      onMouseLeave={() => setHoveredMsgId(null)}
+                      onMouseLeave={() => { setHoveredMsgId(null); swipeRef.current.dragging = false; setSwipeOffset(null) }}
+                      onMouseDown={e => { if (selectMode) return; swipeRef.current = { startX: e.clientX, dragging: true, triggered: false } }}
+                      onMouseMove={e => {
+                        if (!swipeRef.current.dragging) return
+                        const dx = e.clientX - swipeRef.current.startX
+                        if (dx > 0 && dx < 80) setSwipeOffset({ msgId: m.id, offset: dx * 0.45 })
+                        if (dx >= 60 && !swipeRef.current.triggered) {
+                          swipeRef.current.triggered = true
+                          swipeRef.current.dragging = false
+                          setSwipeOffset(null)
+                          const isMineSwipe = m.senderUid === socialUser?.uid
+                          setReplyTo({ id: m.id, text: m.text, senderName: isMineSwipe ? 'Tú' : (selectedConv?.otherName ?? 'Ellos') })
+                        }
+                      }}
+                      onMouseUp={() => { swipeRef.current.dragging = false; setSwipeOffset(null) }}
                     >
                       {/* Checkbox — always left, vertically centred */}
                       {selectMode && (
@@ -1901,14 +2019,7 @@ export default function FriendsPage() {
                       )}
 
                       {/* Message column — takes remaining width, aligns content by sender */}
-                      <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems: mine ? 'flex-end' : 'flex-start', minWidth:0 }}>
-                        {/* Reply quote */}
-                        {m.replyTo && (
-                          <div style={{ fontSize:11, color:C.muted, background:'rgba(255,255,255,.06)', borderLeft:`2px solid ${C.accent}`, padding:'3px 8px', borderRadius:6, marginBottom:3, maxWidth:'100%', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                            {m.replyTo.text}
-                          </div>
-                        )}
-
+                      <div id={`msg-${m.id}`} style={{ flex:1, display:'flex', flexDirection:'column', alignItems: mine ? 'flex-end' : 'flex-start', minWidth:0, position:'relative', marginBottom: reacts.length > 0 ? 18 : 0 }}>
                         {/* Bubble — 3-dot is absolute so it never shifts layout */}
                         {isEditing ? (
                           <div style={{ display:'flex', gap:4, maxWidth:300 }}>
@@ -1920,8 +2031,10 @@ export default function FriendsPage() {
                             <button onClick={saveEdit} style={{ padding:'6px 10px', borderRadius:8, border:'none', background:`linear-gradient(135deg,${C.accent},#6d28d9)`, color:'#fff', cursor:'pointer', fontSize:12 }}>✓</button>
                             <button onClick={() => setEditingId(null)} style={{ padding:'6px 8px', borderRadius:8, border:`1px solid ${C.border}`, background:'transparent', color:C.muted, cursor:'pointer', fontSize:12 }}>✕</button>
                           </div>
-                        ) : (
-                          <div style={{
+                        ) : (() => {
+                          const swipeOff = swipeOffset?.msgId === m.id ? swipeOffset.offset : 0
+                          return (
+                          <div data-bubble="true" style={{
                             position:'relative',
                             maxWidth:'78%', padding:'9px 14px',
                             wordBreak:'break-word', overflowWrap:'break-word',
@@ -1931,8 +2044,41 @@ export default function FriendsPage() {
                             fontSize:14, lineHeight:1.5,
                             border: 'none',
                             cursor: selectMode ? 'pointer' : 'default',
+                            transform: swipeOff ? `translateX(${mine ? -swipeOff : swipeOff}px)` : undefined,
+                            transition: swipeOff ? 'none' : 'transform .18s ease-out',
                           }}>
                             {m.forwarded && <span style={{ fontSize:11, color: mine ? 'rgba(255,255,255,.6)' : C.muted, display:'block', marginBottom:2 }}>↪ Reenviado</span>}
+                            {/* Reply quote inside bubble */}
+                            {m.replyToId && (
+                              <button
+                                type="button"
+                                onClick={() => jumpToMessage(m.replyToId!)}
+                                style={{
+                                  display:'flex', alignItems:'stretch',
+                                  width:'100%', textAlign:'left',
+                                  background: mine ? 'rgba(0,0,0,.22)' : 'rgba(255,255,255,.08)',
+                                  border:'none', padding:0,
+                                  cursor:'pointer',
+                                  marginBottom:7,
+                                  borderRadius:10,
+                                  overflow:'hidden',
+                                  opacity:0.9,
+                                  transition:'opacity .12s',
+                                }}
+                                onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.opacity = '1'}
+                                onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.opacity = '0.9'}
+                              >
+                                <div style={{ width:4, flexShrink:0, borderRadius:'10px 0 0 10px', background: mine ? 'rgba(255,255,255,.75)' : C.accent2 }} />
+                                <div style={{ padding:'6px 10px', fontSize:12, lineHeight:1.35, maxHeight:50, overflow:'hidden' }}>
+                                  <span style={{ fontWeight:700, display:'block', color: mine ? '#fff' : C.accent2, marginBottom:1 }}>
+                                    {m.replyToSenderName ?? '↩'}
+                                  </span>
+                                  <span style={{ display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', color: mine ? 'rgba(255,255,255,.75)' : C.muted }}>
+                                    {m.replyToText || '📎 adjunto'}
+                                  </span>
+                                </div>
+                              </button>
+                            )}
                             {m.text}
                             {m.edited && <span style={{ fontSize:10, color: mine ? 'rgba(255,255,255,.5)' : C.muted, marginLeft:5 }}>editado</span>}
                             {/* Timestamp + read receipt — inside bubble, bottom-right */}
@@ -1946,7 +2092,8 @@ export default function FriendsPage() {
                             </div>
                             {showDots && (
                               <button
-                                onClick={e => { e.stopPropagation(); openCtxMenu(e, m) }}
+                                onClick={e => { e.stopPropagation(); if (ctxMenu?.msg.id === m.id) setCtxMenu(null); else openCtxMenu(e, m) }}
+                                onDoubleClick={e => e.stopPropagation()}
                                 style={{
                                   position:'absolute', top:'50%', transform:'translateY(-50%)',
                                   ...(mine ? { right:'calc(100% + 6px)' } : { left:'calc(100% + 6px)' }),
@@ -1958,21 +2105,44 @@ export default function FriendsPage() {
                                 }}
                               >⋮</button>
                             )}
-                          </div>
-                        )}
-
-                        {/* Reactions */}
-                        {reacts.length > 0 && (
-                          <div style={{ display:'flex', flexWrap:'wrap', gap:3, marginTop:3 }}>
-                            {reacts.map(([emoji, uids]) => (
-                              <button key={emoji} onClick={() => !selectMode && toggleReaction(m.id, emoji)} style={{
-                                background: uids.includes(socialUser.uid) ? 'rgba(124,58,237,.25)' : 'rgba(255,255,255,.07)',
-                                border:`1px solid ${uids.includes(socialUser.uid) ? 'rgba(124,58,237,.45)' : C.border}`,
-                                borderRadius:20, padding:'1px 6px', fontSize:12, cursor:'pointer', color:C.text, display:'inline-flex', alignItems:'center', gap:2,
-                              }}>
-                                {emoji}{uids.length > 1 && <span style={{ fontSize:10 }}>{uids.length}</span>}
-                              </button>
+                            {floatingHearts.filter(h => h.msgId === m.id).map(h => (
+                              <span key={h.id} className="float-heart" style={{ left: h.x - 14, top: h.y - 14 }} aria-hidden>❤️</span>
                             ))}
+                          </div>
+                          )
+                        })()}
+
+                        {/* Reactions — absolute, below bubble */}
+                        {reacts.length > 0 && (
+                          <div style={{
+                            position: 'absolute',
+                            bottom: -18,
+                            ...(mine ? { right: 4 } : { left: 4 }),
+                            display: 'flex',
+                            gap: 3,
+                            flexWrap: 'wrap',
+                          }}>
+                            {reacts.map(r => {
+                              const isMine = r.uids.includes(socialUser.uid)
+                              return (
+                                <button key={r.key} onClick={() => !selectMode && toggleReaction(m.id, r.key)} style={{
+                                  background: isMine ? 'rgba(124,58,237,.30)' : 'rgba(255,255,255,.08)',
+                                  border: `1px solid ${isMine ? 'rgba(168,85,247,.45)' : C.border}`,
+                                  borderRadius: 999,
+                                  padding: '1px 6px',
+                                  fontSize: 13,
+                                  cursor: 'pointer',
+                                  color: C.text,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 3,
+                                  backdropFilter: 'blur(4px)',
+                                }}>
+                                  {r.emoji}
+                                  {r.uids.length > 1 && <span style={{ fontSize: 10, fontWeight: 600 }}>{r.uids.length}</span>}
+                                </button>
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -1985,13 +2155,16 @@ export default function FriendsPage() {
 
               {/* Reply preview */}
               {replyTo && (
-                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 14px', borderTop:`1px solid ${C.border}`, background:'rgba(124,58,237,.08)', flexShrink:0 }}>
-                  <div style={{ width:2, height:28, background:C.accent, borderRadius:2, flexShrink:0 }} />
+                <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'#111116', borderTop:`1px solid ${C.border}`, flexShrink:0 }}>
+                  <div style={{ width:4, height:36, borderRadius:9999, background:C.accent2, flexShrink:0 }} />
                   <div style={{ flex:1, minWidth:0 }}>
-                    <p style={{ fontSize:10, color:C.accent2, margin:'0 0 1px', fontWeight:600 }}>Respondiendo</p>
-                    <p style={{ fontSize:11, color:C.muted, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{replyTo.text}</p>
+                    <p style={{ fontSize:12, fontWeight:600, color:C.accent2, margin:'0 0 2px' }}>{replyTo.senderName}</p>
+                    <p style={{ fontSize:12, color:'rgba(255,255,255,.6)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{replyTo.text || '📎 adjunto'}</p>
                   </div>
-                  <button onClick={() => setReplyTo(null)} style={{ background:'none', border:'none', color:C.muted, cursor:'pointer', fontSize:16, padding:4, lineHeight:1 }}>✕</button>
+                  <button onClick={() => setReplyTo(null)} style={{ background:'none', border:'none', color:'rgba(255,255,255,.5)', cursor:'pointer', padding:6, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:16, lineHeight:1 }}
+                    onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.color = '#fff'}
+                    onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.5)'}
+                  >✕</button>
                 </div>
               )}
 
@@ -2187,18 +2360,22 @@ export default function FriendsPage() {
         >
           {/* Reaction bar */}
           <div style={{ display:'flex', padding:'7px 8px', gap:1, borderBottom:`1px solid ${C.border}` }}>
-            {REACTIONS.map(e => (
-              <button key={e} onClick={() => toggleReaction(ctxMenu.msg.id, e)}
+            {REACTIONS.map(r => (
+              <button key={r.key} onClick={() => toggleReaction(ctxMenu.msg.id, r.key)}
                 style={{ background:'none', border:'none', cursor:'pointer', fontSize:17, padding:'2px 5px', borderRadius:6 }}
                 onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'}
                 onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'none'}
-              >{e}</button>
+              >{r.emoji}</button>
             ))}
           </div>
           {/* Menu items */}
           {([
             { label:'Copiar',          fn: () => copyMsg(ctxMenu.msg.text) },
-            { label:'Responder',       fn: () => { setReplyTo(ctxMenu.msg); setCtxMenu(null) } },
+            { label:'Responder',       fn: () => {
+              const isMine = ctxMenu.msg.senderUid === socialUser?.uid
+              setReplyTo({ id: ctxMenu.msg.id, text: ctxMenu.msg.text, senderName: isMine ? 'Tú' : (selectedConv?.otherName ?? 'Ellos') })
+              setCtxMenu(null)
+            } },
             { label:'Reenviar',        fn: () => { setFwdMsg(ctxMenu.msg); setCtxMenu(null) } },
             { label:'Seleccionar',     fn: () => { setSelectMode(true); toggleSelectMsg(ctxMenu.msg.id); setCtxMenu(null) } },
             ...(ctxMenu.msg.senderUid === socialUser.uid ? [

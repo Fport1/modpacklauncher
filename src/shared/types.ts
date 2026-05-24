@@ -109,6 +109,7 @@ export interface Settings {
   aiConfigs: AIConfig[]
   aiDefaultId?: string
   language: 'es' | 'en'
+  showConsole: boolean
 }
 
 export interface DownloadProgress {
@@ -155,6 +156,7 @@ export const DEFAULT_SETTINGS: Settings = {
   launchAtStartup: false,
   aiConfigs: [],
   language: 'es',
+  showConsole: false,
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/

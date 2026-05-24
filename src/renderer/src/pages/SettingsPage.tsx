@@ -646,6 +646,18 @@ export default function SettingsPage() {
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.launchAtStartup ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </label>
+          <label className="flex items-center justify-between cursor-pointer">
+            <div>
+              <span className="text-sm text-text-secondary">Mostrar consola del launcher</span>
+              <p className="text-xs text-text-muted mt-0.5">Muestra la consola interna en la barra lateral para ver logs y errores del launcher.</p>
+            </div>
+            <button
+              onClick={() => setLocalSettings({ ...localSettings, showConsole: !localSettings.showConsole })}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.showConsole ? 'bg-accent' : 'bg-border'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.showConsole ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </label>
           <div className="flex items-center justify-between">
             <span className="text-sm text-text-secondary">Idioma / Language</span>
             <div className="flex gap-1">

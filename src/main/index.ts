@@ -2,6 +2,9 @@ import { app, BrowserWindow, shell, protocol, Tray, Menu, nativeImage } from 'el
 import path from 'path'
 import fs from 'fs-extra'
 import { registerIpcHandlers, getSettings } from './ipc'
+import { installConsoleCapture, setLoggerWindow } from './logger'
+
+installConsoleCapture()
 
 // Single-instance lock — handle deep links from second-instance args
 const gotLock = app.requestSingleInstanceLock()
@@ -68,6 +71,7 @@ function createWindow(): void {
   }
 
   registerIpcHandlers(mainWindow)
+  setLoggerWindow(mainWindow)
 
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault()

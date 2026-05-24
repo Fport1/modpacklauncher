@@ -86,6 +86,11 @@ const api = {
     deleteWorld: (instanceId: string, worldName: string) => ipcRenderer.invoke('instances:delete-world', instanceId, worldName),
     deleteScreenshot: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:delete-screenshot', instanceId, filename),
     duplicate: (instanceId: string, newName: string) => ipcRenderer.invoke('instances:duplicate', instanceId, newName) as Promise<Instance>,
+    onDuplicateProgress: (cb: (step: number) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, step: number) => cb(step)
+      ipcRenderer.on('instances:duplicate-progress', handler)
+      return () => ipcRenderer.removeListener('instances:duplicate-progress', handler)
+    },
     pickIcon: (instanceId: string) => ipcRenderer.invoke('instances:pick-icon', instanceId) as Promise<Instance | null>,
     getIcon: (instanceId: string) => ipcRenderer.invoke('instances:get-icon', instanceId) as Promise<string | null>,
     listDefaultIcons: () => ipcRenderer.invoke('instances:list-default-icons') as Promise<Array<{ name: string; base64: string; filePath: string }>>,
@@ -361,6 +366,21 @@ const api = {
 
   // Cancel current operation
   cancel: () => ipcRenderer.invoke('operation:cancel') as Promise<void>,
+
+  // Launcher console logs
+  console: {
+    getLogs: () => ipcRenderer.invoke('console:get-logs') as Promise<{ level: string; message: string; at: number }[]>,
+    onLog: (cb: (entry: { level: string; message: string; at: number }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, entry: { level: string; message: string; at: number }) => cb(entry)
+      ipcRenderer.on('console:log', handler)
+      return () => ipcRenderer.removeListener('console:log', handler)
+    },
+    onHistory: (cb: (entries: { level: string; message: string; at: number }[]) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, entries: { level: string; message: string; at: number }[]) => cb(entries)
+      ipcRenderer.on('console:history', handler)
+      return () => ipcRenderer.removeListener('console:history', handler)
+    },
+  },
 
   // Game process events
   onGameStarted: (cb: (instanceId: string) => void) => {

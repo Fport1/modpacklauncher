@@ -88,14 +88,15 @@ export async function loadInstances(): Promise<Instance[]> {
   return instances.sort((a, b) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0))
 }
 
-export async function duplicateInstance(instanceId: string, newName: string): Promise<Instance> {
+export async function duplicateInstance(instanceId: string, newName: string, send?: (step: number) => void): Promise<Instance> {
+  send?.(0) // Leyendo instancia
   const srcDir = await resolveInstanceDir(instanceId)
   const srcMeta = await fs.readJson(path.join(srcDir, 'instance.json')) as Instance
-
   const dirName = await getUniqueDirName(sanitizeDirName(newName))
   const destDir = path.join(getInstancesDir(), dirName)
+  send?.(1) // Copiando archivos
   await fs.copy(srcDir, destDir)
-
+  send?.(2) // Finalizando
   const newInst: Instance = {
     ...srcMeta,
     id: uuidv4(),

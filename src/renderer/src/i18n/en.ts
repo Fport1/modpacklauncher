@@ -188,6 +188,7 @@ export const en: Record<TranslationKey, string> = {
 
   // Nav friends
   nav_friends: 'Friends',
+  nav_console: 'Console',
 
   // FriendsPage
   friends_title: 'Friends',

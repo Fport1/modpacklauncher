@@ -42,20 +42,106 @@ function CloseBtn({ onClick }: { onClick: () => void }) {
 }
 
 /* ── Duplicate name dialog ─────────────────────────────────── */
+const DUPLICATE_STEPS = ['Leyendo instancia', 'Copiando archivos', 'Finalizando']
+
 function DuplicateModal({
   sourceName,
   suggestedName,
   onConfirm,
   onClose,
-  duplicating = false
+  step = -1,
+  minimized = false,
+  onMinimize,
 }: {
   sourceName: string
   suggestedName: string
   onConfirm: (name: string) => void
   onClose: () => void
-  duplicating?: boolean
+  step?: number
+  minimized?: boolean
+  onMinimize?: () => void
 }) {
   const [name, setName] = useState(suggestedName)
+  const isProgress = step >= 0
+
+  if (minimized) {
+    return (
+      <div
+        className="fixed bottom-4 right-4 w-72 bg-bg-secondary border border-border rounded-xl shadow-2xl z-[60] overflow-hidden cursor-pointer"
+        onClick={onMinimize}
+      >
+        <div className="flex items-center gap-3 p-3">
+          <svg className="animate-spin w-4 h-4 text-accent flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.2"/><path d="M21 12a9 9 0 00-9-9"/>
+          </svg>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-text-primary truncate">Duplicando "{sourceName}"...</p>
+            <p className="text-[10px] text-text-muted mt-0.5 truncate">{DUPLICATE_STEPS[step] ?? 'Procesando...'}</p>
+          </div>
+          <button
+            onClick={e => { e.stopPropagation(); onMinimize?.() }}
+            className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
+            title="Expandir"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="18 15 12 9 6 15"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (isProgress) {
+    return (
+      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+        <div className="bg-bg-secondary border border-border rounded-2xl w-[420px] shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+            <div>
+              <h2 className="text-base font-bold text-text-primary">Duplicando instancia</h2>
+              <p className="text-xs text-text-muted mt-0.5">Copia de <span className="font-medium text-text-secondary">{sourceName}</span></p>
+            </div>
+            <button onClick={onMinimize} title="Minimizar"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+          </div>
+          <div className="p-5">
+            <div className="bg-bg-primary border border-border rounded-xl overflow-hidden">
+              {DUPLICATE_STEPS.map((label, i) => {
+                const isDone = step > i
+                const isActive = step === i
+                return (
+                  <div key={i} className={`flex items-center gap-3 px-4 py-3 ${i < DUPLICATE_STEPS.length - 1 ? 'border-b border-border/40' : ''} ${isActive ? 'bg-accent/5' : ''}`}>
+                    <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+                      {isDone ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400">
+                          <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                      ) : isActive ? (
+                        <svg className="animate-spin w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M21 12a9 9 0 00-9-9"/>
+                        </svg>
+                      ) : (
+                        <div className="w-3 h-3 rounded-full border border-border" />
+                      )}
+                    </div>
+                    <span className={`text-sm ${isDone ? 'text-text-muted line-through' : isActive ? 'text-text-primary font-medium' : 'text-text-muted'}`}>
+                      {label}
+                    </span>
+                    <span className="text-[10px] text-text-muted ml-auto flex-shrink-0">{i + 1}/{DUPLICATE_STEPS.length}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
       <div className="relative bg-bg-secondary border border-border rounded-2xl p-6 w-[400px] shadow-2xl">
@@ -69,19 +155,16 @@ function DuplicateModal({
           onChange={e => setName(e.target.value)}
           className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent mb-4"
           autoFocus
-          disabled={duplicating}
-          onKeyDown={e => e.key === 'Enter' && name.trim() && !duplicating && onConfirm(name.trim())}
+          onKeyDown={e => e.key === 'Enter' && name.trim() && onConfirm(name.trim())}
         />
         <div className="flex gap-3">
-          <button onClick={onClose} disabled={duplicating} className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors disabled:opacity-50">Cancelar</button>
+          <button onClick={onClose} className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors">Cancelar</button>
           <button
             onClick={() => name.trim() && onConfirm(name.trim())}
-            disabled={!name.trim() || duplicating}
-            className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            disabled={!name.trim()}
+            className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-medium transition-colors"
           >
-            {duplicating ? (
-              <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>Duplicando...</>
-            ) : 'Duplicar'}
+            Duplicar
           </button>
         </div>
       </div>
@@ -264,6 +347,8 @@ export default function InstancesPage() {
   const [fullDetailInstance, setFullDetailInstance] = useState<Instance | null>(null)
   const [exportInstance, setExportInstance] = useState<Instance | null>(null)
   const [duplicateSource, setDuplicateSource] = useState<Instance | null>(null)
+  const [duplicateStep, setDuplicateStep] = useState(-1)
+  const [duplicateMinimized, setDuplicateMinimized] = useState(false)
   const [iconPickInstance, setIconPickInstance] = useState<Instance | null>(null)
   const [nameConflict, setNameConflict] = useState<{ pending: () => void; name: string; suggested: string } | null>(null)
   const [launching, setLaunching] = useState<string | null>(null)
@@ -733,7 +818,6 @@ export default function InstancesPage() {
   }
 
   async function handleDuplicate(inst: Instance, newName: string) {
-    // Check name conflict synchronously before closing the dialog
     const exists = await window.api.instances.checkName(newName, undefined)
     if (exists) {
       let suggested = `${newName} (1)`
@@ -748,12 +832,25 @@ export default function InstancesPage() {
       })
       return
     }
-    // Close dialog immediately and run in background
-    setDuplicateSource(null)
-    addToast(`Duplicando "${inst.name}"...`, 'info', 10000)
+    // Show progress modal (keep duplicateSource open)
+    setDuplicateStep(0)
+    const unsub = window.api.instances.onDuplicateProgress((step: number) => setDuplicateStep(step))
     window.api.instances.duplicate(inst.id, newName)
-      .then(dup => { addInstance(dup); addToast(`"${newName}" creado`, 'success') })
-      .catch(e => addToast(`Error al duplicar: ${e?.message ?? 'Error'}`, 'error'))
+      .then(dup => {
+        unsub()
+        addInstance(dup)
+        setDuplicateSource(null)
+        setDuplicateStep(-1)
+        setDuplicateMinimized(false)
+        addToast(`"${newName}" creado`, 'success')
+      })
+      .catch(e => {
+        unsub()
+        setDuplicateSource(null)
+        setDuplicateStep(-1)
+        setDuplicateMinimized(false)
+        addToast(`Error al duplicar: ${e?.message ?? 'Error'}`, 'error')
+      })
   }
 
   function suggestDuplicateName(name: string): string {
@@ -968,7 +1065,10 @@ export default function InstancesPage() {
           sourceName={duplicateSource.name}
           suggestedName={suggestDuplicateName(duplicateSource.name)}
           onConfirm={name => handleDuplicate(duplicateSource, name)}
-          onClose={() => setDuplicateSource(null)}
+          onClose={() => { if (duplicateStep < 0) { setDuplicateSource(null) } }}
+          step={duplicateStep}
+          minimized={duplicateMinimized}
+          onMinimize={() => setDuplicateMinimized(v => !v)}
         />
       )}
 

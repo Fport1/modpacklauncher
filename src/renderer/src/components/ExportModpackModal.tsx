@@ -198,6 +198,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const [resultUrl, setResultUrl] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [minimized, setMinimized] = useState(false)
   const unsubRef = useRef<(() => void) | null>(null)
 
   const hasToken = !!settings.githubToken
@@ -338,6 +339,38 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   }
 
   const selectedCount = selected.size
+  const exportPct = progress ? Math.round((progress.current / EXPORT_STEPS.length) * 100) : 0
+
+  if (minimized && isExporting) {
+    return (
+      <div
+        className="fixed bottom-4 right-4 w-72 bg-bg-secondary border border-border rounded-xl shadow-2xl z-50 overflow-hidden cursor-pointer"
+        onClick={() => setMinimized(false)}
+      >
+        <div className="flex items-center gap-3 p-3">
+          <svg className="animate-spin w-4 h-4 text-accent flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.2"/><path d="M21 12a9 9 0 00-9-9"/>
+          </svg>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-text-primary truncate">Publicando modpack...</p>
+            <div className="mt-1.5 h-1 bg-bg-hover rounded-full overflow-hidden">
+              <div className="h-full bg-accent rounded-full transition-all duration-500" style={{ width: `${exportPct}%` }} />
+            </div>
+          </div>
+          <span className="text-xs text-text-muted flex-shrink-0">{exportPct}%</span>
+          <button
+            onClick={e => { e.stopPropagation(); setMinimized(false) }}
+            className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
+            title="Expandir"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="18 15 12 9 6 15"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -349,12 +382,22 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
             <h2 className="text-lg font-bold text-text-primary">Exportar Modpack</h2>
             <p className="text-xs text-text-muted mt-0.5">{instance.name} · MC {instance.minecraft}</p>
           </div>
-          <button onClick={onClose} disabled={isExporting}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-40">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            {isExporting && (
+              <button onClick={() => setMinimized(true)} title="Minimizar"
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+            )}
+            <button onClick={onClose} disabled={isExporting}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-40">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0 px-5 pb-5 space-y-4">

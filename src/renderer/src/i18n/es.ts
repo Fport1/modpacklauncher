@@ -186,6 +186,7 @@ export const es = {
 
   // Nav friends
   nav_friends: 'Amigos',
+  nav_console: 'Consola',
 
   // FriendsPage
   friends_title: 'Amigos',
