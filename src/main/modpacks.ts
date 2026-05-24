@@ -300,6 +300,15 @@ export function compareVersions(a: string, b: string): number {
 
 // ── Export to GitHub ───────────────────────────────────────────────────────
 
+// Dirs/extensions that are always generated at runtime and must never go into a modpack
+const EXPORT_EXCLUDED_DIRS = new Set([
+  '.cache', '.mixin.out', 'logs', 'crash-reports', 'screenshots',
+  'debug', 'replay_recordings', 'backups'
+])
+const EXPORT_EXCLUDED_EXT = new Set([
+  '.class', '.log', '.lock', '.tmp', '.lck'
+])
+
 export interface ExportParams {
   instanceId: string
   name: string
@@ -329,6 +338,7 @@ async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): 
 
   async function addFile(absPath: string, relPath: string) {
     if (seen.has(relPath)) return
+    if (EXPORT_EXCLUDED_EXT.has(path.extname(relPath).toLowerCase())) return
     seen.add(relPath)
     try {
       const buf = await fs.readFile(absPath)
@@ -338,8 +348,10 @@ async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): 
   }
 
   async function addDirRecursive(absDir: string, relDir: string) {
+    if (EXPORT_EXCLUDED_DIRS.has(path.basename(relDir))) return
     const items = await fs.readdir(absDir, { withFileTypes: true }).catch(() => [])
     for (const item of items) {
+      if (EXPORT_EXCLUDED_DIRS.has(item.name)) continue
       const absItem = path.join(absDir, item.name)
       const relItem = `${relDir}/${item.name}`
       if (item.isDirectory()) {
@@ -351,6 +363,7 @@ async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): 
   }
 
   for (const selPath of selectedPaths) {
+    if (EXPORT_EXCLUDED_DIRS.has(path.basename(selPath))) continue
     const abs = path.join(gameDir, selPath)
     if (!(await fs.pathExists(abs))) continue
     const stat = await fs.stat(abs).catch(() => null)
@@ -360,6 +373,13 @@ async function collectFilesFromPaths(gameDir: string, selectedPaths: string[]): 
     } else {
       await addFile(abs, selPath)
     }
+  }
+
+  if (entries.length > 65535) {
+    throw new Error(
+      `Demasiados archivos para exportar (${entries.length.toLocaleString()}). ` +
+      `Selecciona carpetas específicas en lugar de todo el directorio.`
+    )
   }
 
   return entries
@@ -439,16 +459,20 @@ async function upsertRepoFile(owner: string, repo: string, filePath: string, con
   })
 }
 
+const EXPORT_TOTAL_STEPS = 7
+
 export async function exportModpack(params: ExportParams, onProgress: ExportProgress): Promise<string> {
   const { instanceId, name, version, description, changelog, repoName, selectedPaths, githubToken, minecraft, modloader, modloaderVersion } = params
 
-  onProgress('Leyendo archivos de la instancia...', 0, 1)
+  // Step 0 — collect files
+  onProgress('Leyendo archivos de la instancia...', 0, EXPORT_TOTAL_STEPS)
   const gameDir = await getInstanceGameDir(instanceId)
   const files = await collectFilesFromPaths(gameDir, selectedPaths)
-
   if (files.length === 0) throw new Error('No se encontraron archivos en las categorías seleccionadas')
 
-  onProgress('Empaquetando archivos...', 0, 5)
+  // Step 1 — build zip
+  const sizeMB = (files.reduce((s, f) => s + (fs.statSync(f.localPath).size ?? 0), 0) / 1024 / 1024).toFixed(1)
+  onProgress(`Empaquetando ${files.length.toLocaleString()} archivos (~${sizeMB} MB)...`, 1, EXPORT_TOTAL_STEPS)
   const zip = new AdmZip()
   const packFiles: PackFile[] = []
   for (const file of files) {
@@ -458,14 +482,17 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
   }
   const zipBuffer = zip.toBuffer()
 
-  onProgress('Conectando con GitHub...', 1, 5)
+  // Step 2 — GitHub auth
+  onProgress('Conectando con GitHub...', 2, EXPORT_TOTAL_STEPS)
   const user = await ghRequest<{ login: string }>('GET', 'https://api.github.com/user', githubToken)
   const owner = user.login
 
-  onProgress('Preparando repositorio...', 2, 5)
+  // Step 3 — repo
+  onProgress('Preparando repositorio...', 3, EXPORT_TOTAL_STEPS)
   const branch = await ensureRepo(owner, repoName, githubToken)
 
-  onProgress('Eliminando versión anterior (si existe)...', 3, 5)
+  // Step 4 — release
+  onProgress('Creando versión en GitHub...', 4, EXPORT_TOTAL_STEPS)
   try {
     const existing = await ghRequest<{ id: number }>('GET', `https://api.github.com/repos/${owner}/${repoName}/releases/tags/v${version}`, githubToken)
     await ghRequest('DELETE', `https://api.github.com/repos/${owner}/${repoName}/releases/${existing.id}`, githubToken)
@@ -473,13 +500,15 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
   try {
     await ghRequest('DELETE', `https://api.github.com/repos/${owner}/${repoName}/git/refs/tags/v${version}`, githubToken)
   } catch { /* no existing tag */ }
-
-  onProgress('Creando versión en GitHub...', 3, 5)
   const release = await createGhRelease(owner, repoName, version, changelog, githubToken, branch)
 
-  onProgress(`Subiendo modpack (${files.length} archivos)...`, 4, 5)
+  // Step 5 — upload zip
+  const zipMB = (zipBuffer.length / 1024 / 1024).toFixed(1)
+  onProgress(`Subiendo ZIP (${zipMB} MB)...`, 5, EXPORT_TOTAL_STEPS)
   await uploadAssetBuffer(release.id, 'files.zip', zipBuffer, owner, repoName, githubToken)
 
+  // Step 6 — manifest + thumbnail
+  onProgress('Publicando manifiesto...', 6, EXPORT_TOTAL_STEPS)
   const zipUrl = `https://github.com/${owner}/${repoName}/releases/download/v${version}/files.zip`
   const manifest: ModpackManifest = {
     id: repoName, name, version,
@@ -491,8 +520,6 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
     filesZip: zipUrl,
     files: packFiles.map(f => ({ ...f, url: zipUrl }))
   }
-
-  onProgress('Publicando manifiesto...', 4, 5)
   try {
     const instanceDir = await resolveInstanceDir(instanceId)
     const instances = await loadInstances()
@@ -505,12 +532,12 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
       manifest.thumbnail = `https://raw.githubusercontent.com/${owner}/${repoName}/main/thumbnail.png`
     }
   } catch { /* thumbnail optional */ }
-
   const manifestContent = params.accessKey
     ? JSON.stringify(encryptManifest(manifest, params.accessKey))
     : JSON.stringify(manifest, null, 2)
   await upsertRepoFile(owner, repoName, 'modpack.json', manifestContent, githubToken, `Release v${version}`)
 
+  onProgress('¡Listo!', EXPORT_TOTAL_STEPS, EXPORT_TOTAL_STEPS)
   return `https://raw.githubusercontent.com/${owner}/${repoName}/main/modpack.json`
 }
 

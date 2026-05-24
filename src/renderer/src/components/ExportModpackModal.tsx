@@ -203,6 +203,16 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const hasToken = !!settings.githubToken
   const isExporting = !!progress
 
+  const EXPORT_STEPS = [
+    'Leyendo archivos',
+    'Empaquetando ZIP',
+    'Conectando con GitHub',
+    'Preparando repositorio',
+    'Creando versión',
+    'Subiendo archivos',
+    'Publicando manifiesto',
+  ]
+
   useEffect(() => {
     window.api.instances.listGameDir(instance.id).then(entries => {
       setRootEntries(entries)
@@ -327,7 +337,6 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const pct = progress && progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0
   const selectedCount = selected.size
 
   return (
@@ -384,18 +393,53 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
 
           {/* Progress */}
           {isExporting && (
-            <div>
-              <div className="flex justify-between items-center text-xs text-text-muted mb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <svg className="animate-spin w-3.5 h-3.5 flex-shrink-0 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M21 12a9 9 0 00-9-9"/>
-                  </svg>
-                  <span className="truncate">{progress.message}</span>
-                </div>
-                <span className="flex-shrink-0 ml-2">{pct}%</span>
+            <div className="space-y-3">
+              {/* Step list */}
+              <div className="bg-bg-primary border border-border rounded-xl overflow-hidden">
+                {EXPORT_STEPS.map((label, i) => {
+                  const stepIndex = i // step i maps to progress.current === i (active) or < i (pending) or > i (done)
+                  const isDone = progress.current > stepIndex
+                  const isActive = progress.current === stepIndex
+                  return (
+                    <div key={i} className={`flex items-center gap-3 px-4 py-2.5 ${i < EXPORT_STEPS.length - 1 ? 'border-b border-border/40' : ''} ${isActive ? 'bg-accent/5' : ''}`}>
+                      {/* Status icon */}
+                      <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
+                        {isDone ? (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400">
+                            <polyline points="20 6 9 17 4 12"/>
+                          </svg>
+                        ) : isActive ? (
+                          <svg className="animate-spin w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 12a9 9 0 00-9-9"/>
+                          </svg>
+                        ) : (
+                          <div className="w-3 h-3 rounded-full border border-border" />
+                        )}
+                      </div>
+                      {/* Label */}
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-xs ${isDone ? 'text-text-muted line-through' : isActive ? 'text-text-primary font-medium' : 'text-text-muted'}`}>
+                          {label}
+                        </span>
+                        {isActive && progress.message && (
+                          <p className="text-[10px] text-accent truncate mt-0.5">{progress.message}</p>
+                        )}
+                      </div>
+                      {/* Step number */}
+                      <span className="text-[10px] text-text-muted flex-shrink-0">{i + 1}/{EXPORT_STEPS.length}</span>
+                    </div>
+                  )
+                })}
               </div>
-              <div className="w-full h-2 bg-bg-hover rounded-full overflow-hidden">
-                <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+              {/* Overall bar */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-1.5 bg-bg-hover rounded-full overflow-hidden">
+                  <div className="h-full bg-accent rounded-full transition-all duration-500"
+                    style={{ width: `${Math.round((progress.current / EXPORT_STEPS.length) * 100)}%` }} />
+                </div>
+                <span className="text-[11px] text-text-muted flex-shrink-0 w-8 text-right">
+                  {Math.round((progress.current / EXPORT_STEPS.length) * 100)}%
+                </span>
               </div>
             </div>
           )}
