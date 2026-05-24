@@ -1365,8 +1365,12 @@ export default function FriendsPage() {
 
   function openCtxMenu(e: React.MouseEvent, msg: ChatMessage) {
     e.preventDefault()
-    const x = Math.min(e.clientX, window.innerWidth  - 210)
-    const y = Math.min(e.clientY, window.innerHeight - 340)
+    const menuW = 250
+    const menuH = 420
+    const x = (e.clientX + menuW > window.innerWidth)
+      ? Math.max(0, e.clientX - menuW)
+      : e.clientX
+    const y = Math.min(e.clientY, window.innerHeight - menuH)
     setCtxMenu({ msg, x, y })
   }
 
@@ -1914,6 +1918,7 @@ export default function FriendsPage() {
                           <div style={{
                             position:'relative',
                             maxWidth:'78%', padding:'9px 14px',
+                            wordBreak:'break-word', overflowWrap:'break-word',
                             borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
                             background: isSelected ? (mine ? 'rgba(124,58,237,.5)' : 'rgba(255,255,255,.12)') : (mine ? '#7c3aed' : C.card2),
                             color: mine ? '#fff' : C.text,
@@ -2018,8 +2023,8 @@ export default function FriendsPage() {
                     ))}
                   </div>
                 )}
-                <div style={{ display:'flex', alignItems:'flex-end', gap:8, padding:'10px 14px' }}>
-                  <button onClick={() => setShowEmoji(v => !v)} style={{ background: showEmoji ? 'rgba(124,58,237,.15)' : 'none', border:'none', color: showEmoji ? C.accent2 : C.muted, cursor:'pointer', fontSize:18, padding:'4px 7px', borderRadius:8, lineHeight:1, flexShrink:0 }}>😊</button>
+                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px' }}>
+                  <button onClick={() => setShowEmoji(v => !v)} style={{ background: showEmoji ? 'rgba(124,58,237,.15)' : 'none', border:'none', color: showEmoji ? C.accent2 : C.muted, cursor:'pointer', fontSize:18, padding:'4px 7px', borderRadius:8, lineHeight:1, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>😊</button>
                   {/* Pill: textarea + send */}
                   <div style={{ flex:1, display:'flex', alignItems:'flex-end', border:`1px solid ${C.border}`, borderRadius:9999, padding:'2px 4px', background:'transparent', overflow:'hidden' }}>
                     <textarea
@@ -2060,7 +2065,7 @@ export default function FriendsPage() {
                       }}
                     >
                       {sendingMsg ? <Spinner size={14} color="#fff" /> : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform:'rotate(-45deg) translateX(1px)' }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform:'rotate(-45deg)' }}>
                           <line x1="22" y1="2" x2="11" y2="13"/>
                           <polygon points="22 2 15 22 11 13 2 9 22 2"/>
                         </svg>
