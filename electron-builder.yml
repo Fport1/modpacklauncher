@@ -6,7 +6,6 @@ fileAssociations:
   - ext: fpack
     name: Modpack fport1
     description: Modpack instalable para ModpackLauncher
-    icon: build/icon
     role: Editor
     mimeType: application/x-fpack
 
