@@ -13,6 +13,7 @@ interface Props {
   onExport: () => void
   onDuplicate: () => void
   onChangeIcon: () => void
+  onSaveFpack?: () => void
   isLaunching?: boolean
   isRunning?: boolean
   hasUpdate?: boolean
@@ -62,6 +63,7 @@ export default function InstanceCard({
   onExport,
   onDuplicate,
   onChangeIcon,
+  onSaveFpack,
   isLaunching,
   isRunning,
   hasUpdate,
@@ -274,6 +276,14 @@ export default function InstanceCard({
                 className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
               >
                 Exportar modpack
+              </button>
+            )}
+            {onSaveFpack && (
+              <button
+                onClick={() => { onSaveFpack(); setShowMenu(false) }}
+                className="w-full px-3 py-1.5 text-left text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+              >
+                Guardar como .fpack
               </button>
             )}
             <div className="border-t border-border my-1" />

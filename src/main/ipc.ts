@@ -11,7 +11,7 @@ import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
 import { checkJavaStatus, ensureJava } from './java'
 import { checkForUpdates, openDownloadPage, downloadAndInstall } from './updater'
-import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack } from './modpacks'
+import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack, readFpackManifest, importFpack, saveFpackLocally } from './modpacks'
 import type { ExportParams } from './modpacks'
 import type { PublishedModpack } from '../shared/types'
 import type { UpdateManifest } from './updater'
@@ -409,6 +409,73 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       accessKey: params.accessKey || undefined
     })
     return url
+  })
+
+  // ── .fpack ────────────────────────────────────────────────────────────────────
+
+  ipcMain.handle('fpack:read-manifest', (_e, fpackPath: string) => readFpackManifest(fpackPath))
+
+  ipcMain.handle('fpack:import', async (e, fpackPath: string, instanceName: string) => {
+    const manifest = await readFpackManifest(fpackPath)
+    const instance = await createInstance({
+      name: instanceName || manifest.name,
+      minecraft: manifest.minecraft,
+      modloader: manifest.modloader,
+      modloaderVersion: manifest.modloaderVersion,
+      description: manifest.description,
+      modpackVersion: manifest.version,
+    })
+    resetCancel()
+    try {
+      await importFpack(fpackPath, instance.id, (current, total, message) => {
+        sendProgress(current, total, message, 'download')
+        e.sender.send('fpack:progress', { current, total, message })
+      })
+    } catch (err) {
+      // Clean up the partially-created instance on failure
+      await deleteInstance(instance.id).catch(() => {})
+      throw err
+    }
+    return instance
+  })
+
+  ipcMain.handle('fpack:choose-path', async (_e, instanceId: string) => {
+    const instances = await loadInstances()
+    const inst = instances.find(i => i.id === instanceId)
+    const defaultName = `${inst?.name ?? 'modpack'}.fpack`
+    const result = await dialog.showSaveDialog({
+      title: 'Guardar como .fpack',
+      defaultPath: defaultName,
+      filters: [{ name: 'Modpack fport1', extensions: ['fpack'] }],
+    })
+    return result.canceled ? null : (result.filePath ?? null)
+  })
+
+  ipcMain.handle('fpack:save-to', async (e, instanceId: string, outputPath: string, manifestOverride?: import('../shared/types').ModpackManifest) => {
+    await saveFpackLocally(instanceId, outputPath, (message, current, total) => {
+      e.sender.send('fpack:save-progress', { message, current, total })
+    }, manifestOverride)
+  })
+
+  ipcMain.handle('fpack:browse', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Seleccionar archivo .fpack',
+      filters: [{ name: 'Modpack (.fpack)', extensions: ['fpack'] }],
+      properties: ['openFile']
+    })
+    return canceled || filePaths.length === 0 ? null : filePaths[0]
+  })
+
+  ipcMain.handle('qr:save-image', async (_e, dataUrl: string, suggestedName: string) => {
+    const { canceled, filePath } = await dialog.showSaveDialog({
+      title: 'Guardar QR como imagen',
+      defaultPath: path.join(app.getPath('downloads'), suggestedName),
+      filters: [{ name: 'Imagen PNG', extensions: ['png'] }]
+    })
+    if (canceled || !filePath) return null
+    const base64 = dataUrl.replace(/^data:image\/png;base64,/, '')
+    await fs.promises.writeFile(filePath, Buffer.from(base64, 'base64'))
+    return filePath
   })
 
   // ── Modrinth ─────────────────────────────────────────────────────────────────

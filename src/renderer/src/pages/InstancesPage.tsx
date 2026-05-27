@@ -4,6 +4,8 @@ import InstanceCard from '../components/InstanceCard'
 import InstanceDetailModal from '../components/InstanceDetailModal'
 import RamSlider from '../components/RamSlider'
 import ExportModpackModal from '../components/ExportModpackModal'
+import FpackSaveModal from '../components/FpackSaveModal'
+import FpackImportModal from '../components/FpackImportModal'
 import type { Instance, Modloader, ModpackManifest } from '../../../shared/types'
 import { useT } from '../i18n'
 
@@ -351,6 +353,8 @@ export default function InstancesPage() {
   const [duplicateMinimized, setDuplicateMinimized] = useState(false)
   const [iconPickInstance, setIconPickInstance] = useState<Instance | null>(null)
   const [nameConflict, setNameConflict] = useState<{ pending: () => void; name: string; suggested: string } | null>(null)
+  const [fpackFile, setFpackFile] = useState<string | null>(null)
+  const [fpackSaveState, setFpackSaveState] = useState<{ instance: Instance; path: string } | null>(null)
   const [launching, setLaunching] = useState<string | null>(null)
   const [systemRam, setSystemRam] = useState(8192)
   const [updateMap, setUpdateMap] = useState<Map<string, boolean>>(new Map())
@@ -493,6 +497,11 @@ export default function InstancesPage() {
     window.api.system.getRam().then(setSystemRam)
     window.api.instances.getDefaultIcon().then(setDefaultIconBase64).catch(() => {})
     window.api.system.getDisplays().then(setDisplays).catch(() => {})
+  }, [])
+
+  // Listen for .fpack file opens (double-click from OS)
+  useEffect(() => {
+    return window.api.fpack.onOpen(path => setFpackFile(path))
   }, [])
 
   // Background modpack update checks — runs whenever instances list changes
@@ -961,6 +970,7 @@ export default function InstancesPage() {
                   onExport={() => setExportInstance(inst)}
                   onDuplicate={() => setDuplicateSource(inst)}
                   onChangeIcon={() => setIconPickInstance(inst)}
+                  onSaveFpack={() => window.api.fpack.choosePath(inst.id).then(path => { if (path) setFpackSaveState({ instance: inst, path }) }).catch(e => addToast(e?.message ?? 'Error al guardar', 'error'))}
                   isLaunching={launching === inst.id}
                   isRunning={runningInstances.has(inst.id)}
                   hasUpdate={updateMap.get(inst.id) === true}
@@ -1097,6 +1107,28 @@ export default function InstancesPage() {
         <IconPickerModal
           onClose={() => setShowFormIconPicker(false)}
           onPreviewPick={icon => { setPendingIcon(icon); setShowFormIconPicker(false) }}
+        />
+      )}
+
+      {/* ── .fpack install modal ── */}
+      {fpackFile && (
+        <FpackImportModal
+          filePath={fpackFile}
+          onClose={() => setFpackFile(null)}
+          onInstalled={inst => {
+            addInstance(inst)
+            setFpackFile(null)
+            addToast(`"${inst.name}" instalado`, 'success')
+          }}
+        />
+      )}
+
+      {/* ── .fpack save modal ── */}
+      {fpackSaveState && (
+        <FpackSaveModal
+          instance={fpackSaveState.instance}
+          outputPath={fpackSaveState.path}
+          onClose={() => setFpackSaveState(null)}
         />
       )}
 

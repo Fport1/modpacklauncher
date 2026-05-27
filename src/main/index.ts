@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, protocol, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, shell, protocol, Tray, Menu, nativeImage, session } from 'electron'
 import path from 'path'
 import fs from 'fs-extra'
 import { registerIpcHandlers, getSettings } from './ipc'
@@ -37,7 +37,25 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { bypassCSP: true, stream: true } }
 ])
 
+// macOS: open-file can fire before whenReady — capture early
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  handleFpackFile(filePath)
+})
+
 let mainWindow: BrowserWindow | null = null
+let pendingFpackFile: string | null = null
+
+function handleFpackFile(filePath: string): void {
+  if (!filePath.toLowerCase().endsWith('.fpack')) return
+  if (mainWindow) {
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('fpack:open', filePath)
+  } else {
+    pendingFpackFile = filePath
+  }
+}
 
 function createWindow(): void {
   const iconExt = process.platform === 'win32' ? 'ico' : process.platform === 'darwin' ? 'icns' : 'png'
@@ -73,6 +91,14 @@ function createWindow(): void {
   registerIpcHandlers(mainWindow)
   setLoggerWindow(mainWindow)
 
+  // Send any pending .fpack file once the renderer is ready
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (pendingFpackFile) {
+      mainWindow?.webContents.send('fpack:open', pendingFpackFile)
+      pendingFpackFile = null
+    }
+  })
+
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault()
   })
@@ -106,6 +132,11 @@ function handleDeepLink(url: string): void {
 }
 
 app.whenReady().then(() => {
+  // Allow camera access for QR scanning in the renderer
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'media')
+  })
+
   protocol.handle('media', async (request) => {
     try {
       const filePath = decodeURIComponent(request.url.slice('media:///'.length)).replace(/\//g, path.sep)
@@ -124,11 +155,13 @@ app.whenReady().then(() => {
   createWindow()
   if (mainWindow) createTray(mainWindow)
 
-  // Handle deep links from argv on Windows (first launch with URL)
+  // Handle deep links / .fpack files from argv on Windows/Linux (first launch)
   const urlArg = process.argv.find(a => a.startsWith('modpacklauncher://'))
   if (urlArg) handleDeepLink(urlArg)
+  const fpackArg = process.argv.find(a => a.toLowerCase().endsWith('.fpack'))
+  if (fpackArg) handleFpackFile(fpackArg)
 
-  // Handle second-instance (Windows/Linux — subsequent launches pass URL via argv)
+  // Handle second-instance (Windows/Linux — subsequent launches pass args via argv)
   app.on('second-instance', (_event, argv) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
@@ -137,10 +170,14 @@ app.whenReady().then(() => {
     }
     const url = argv.find(a => a.startsWith('modpacklauncher://'))
     if (url) handleDeepLink(url)
+    const fpack = argv.find(a => a.toLowerCase().endsWith('.fpack'))
+    if (fpack) handleFpackFile(fpack)
   })
 
   // Handle deep links on macOS via open-url event
   app.on('open-url', (_event, url) => handleDeepLink(url))
+
+  // open-file is already handled by the early listener registered before whenReady
 
   // Apply startup setting on launch
   const startupSetting = getSettings().launchAtStartup

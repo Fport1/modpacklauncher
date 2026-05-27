@@ -350,6 +350,40 @@ const api = {
     lookup: (username: string) => ipcRenderer.invoke('friends:lookup', username) as Promise<{ uuid: string; username: string } | null>,
   },
 
+  // .fpack file install
+  fpack: {
+    onOpen: (cb: (filePath: string) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, p: string) => cb(p)
+      ipcRenderer.on('fpack:open', handler)
+      return () => ipcRenderer.removeListener('fpack:open', handler)
+    },
+    readManifest: (filePath: string) =>
+      ipcRenderer.invoke('fpack:read-manifest', filePath) as Promise<ModpackManifest>,
+    import: (filePath: string, instanceName: string) =>
+      ipcRenderer.invoke('fpack:import', filePath, instanceName) as Promise<import('../shared/types').Instance>,
+    onProgress: (cb: (data: { current: number; total: number; message: string }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, d: { current: number; total: number; message: string }) => cb(d)
+      ipcRenderer.on('fpack:progress', handler)
+      return () => ipcRenderer.removeListener('fpack:progress', handler)
+    },
+    choosePath: (instanceId: string) =>
+      ipcRenderer.invoke('fpack:choose-path', instanceId) as Promise<string | null>,
+    saveTo: (instanceId: string, outputPath: string, manifest?: ModpackManifest) =>
+      ipcRenderer.invoke('fpack:save-to', instanceId, outputPath, manifest) as Promise<void>,
+    onSaveProgress: (cb: (data: { message: string; current: number; total: number }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, d: { message: string; current: number; total: number }) => cb(d)
+      ipcRenderer.on('fpack:save-progress', handler)
+      return () => ipcRenderer.removeListener('fpack:save-progress', handler)
+    },
+    browse: () => ipcRenderer.invoke('fpack:browse') as Promise<string | null>,
+  },
+
+  // QR utilities
+  qr: {
+    saveImage: (dataUrl: string, suggestedName: string) =>
+      ipcRenderer.invoke('qr:save-image', dataUrl, suggestedName) as Promise<string | null>,
+  },
+
   // Deep link events from main process (modpacklauncher:// protocol)
   onDeepLink: (cb: (action: string, params: Record<string, string>) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, action: string, params: Record<string, string>) => cb(action, params)

@@ -656,3 +656,106 @@ export async function getLocalModList(instanceId: string): Promise<string[]> {
     return []
   }
 }
+
+// ── .fpack file format ─────────────────────────────────────────────────────
+// A .fpack is a ZIP with manifest.json + optional overrides/ folder.
+// Files with a URL are downloaded; files without URL must be in overrides/.
+
+export async function readFpackManifest(fpackPath: string): Promise<ModpackManifest> {
+  const zip = new AdmZip(fpackPath)
+  const entry = zip.getEntry('manifest.json')
+  if (!entry) throw new Error('Archivo .fpack inválido: falta manifest.json')
+  const raw = JSON.parse(entry.getData().toString('utf8'))
+  validateManifest(raw)
+  return raw as ModpackManifest
+}
+
+export async function importFpack(
+  fpackPath: string,
+  instanceId: string,
+  onProgress?: ProgressCallback
+): Promise<void> {
+  const zip = new AdmZip(fpackPath)
+  const manifest = await readFpackManifest(fpackPath)
+  const gameDir = await getInstanceGameDir(instanceId)
+
+  // Extract overrides/ directly into game dir
+  const overrideEntries = zip.getEntries().filter(e => !e.isDirectory && e.entryName.startsWith('overrides/'))
+  for (const entry of overrideEntries) {
+    const relPath = entry.entryName.slice('overrides/'.length)
+    if (!relPath) continue
+    const destPath = path.join(gameDir, relPath)
+    await fs.ensureDir(path.dirname(destPath))
+    await fs.writeFile(destPath, entry.getData())
+  }
+
+  // Download files that have a URL
+  const files = (manifest.files ?? []).filter(f => !!f.url)
+  for (let i = 0; i < files.length; i++) {
+    checkCancel()
+    const file = files[i]
+    const destPath = path.join(gameDir, file.path)
+    onProgress?.(i, files.length, `Descargando ${path.basename(file.path)}...`)
+    await fs.ensureDir(path.dirname(destPath))
+    const exists = await fileExists(destPath)
+    const valid = exists && file.sha256 ? await fileMatchesHash(destPath, file.sha256) : exists
+    if (!valid) {
+      await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256)
+    }
+  }
+
+  await saveLocalManifest(instanceId, manifest)
+}
+
+async function walkDir(dir: string): Promise<string[]> {
+  const results: string[] = []
+  if (!(await fs.pathExists(dir))) return results
+  for (const entry of await fs.readdir(dir)) {
+    const full = path.join(dir, entry)
+    const stat = await fs.stat(full)
+    if (stat.isDirectory()) results.push(...(await walkDir(full)))
+    else results.push(full)
+  }
+  return results
+}
+
+export async function saveFpackLocally(
+  instanceId: string,
+  outputPath: string,
+  onProgress?: (msg: string, current: number, total: number) => void,
+  manifestOverride?: ModpackManifest
+): Promise<void> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const manifest = manifestOverride ?? await loadLocalManifest(instanceId)
+  if (!manifest) throw new Error('Esta instancia no tiene un manifiesto de modpack.\nPrimero publícala desde "Exportar modpack".')
+
+  const manifestPaths = new Set((manifest.files ?? []).map(f => f.path))
+  const overrideDirs = ['config', 'scripts', 'resourcepacks', 'shaderpacks']
+  const allFiles: { fullPath: string; relPath: string }[] = []
+
+  for (const dir of overrideDirs) {
+    const files = await walkDir(path.join(gameDir, dir))
+    for (const fullPath of files) {
+      const relPath = path.relative(gameDir, fullPath).replace(/\\/g, '/')
+      if (!manifestPaths.has(relPath)) allFiles.push({ fullPath, relPath })
+    }
+  }
+
+  const total = allFiles.length + 2 // manifest write + zip flush
+  let current = 0
+
+  const zip = new AdmZip()
+  onProgress?.('Escribiendo manifest.json…', current, total)
+  zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'))
+  current++
+
+  for (const { fullPath, relPath } of allFiles) {
+    onProgress?.(`Empaquetando ${relPath}…`, current, total)
+    zip.addFile(`overrides/${relPath}`, await fs.readFile(fullPath))
+    current++
+  }
+
+  onProgress?.('Escribiendo archivo…', current, total)
+  await fs.ensureDir(path.dirname(outputPath))
+  zip.writeZip(outputPath)
+}

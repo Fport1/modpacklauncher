@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
+import FpackSaveModal from './FpackSaveModal'
+import QRDisplay from './QRDisplay'
 
 interface Props {
   instance: Instance
@@ -199,6 +201,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [minimized, setMinimized] = useState(false)
+  const [fpackSavePath, setFpackSavePath] = useState<string | null>(null)
   const unsubRef = useRef<(() => void) | null>(null)
 
   const hasToken = !!settings.githubToken
@@ -373,6 +376,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   }
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-bg-secondary border border-border rounded-2xl w-[640px] max-h-[90vh] flex flex-col shadow-2xl">
 
@@ -425,12 +429,32 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                   {copied ? '¡Copiado!' : 'Copiar'}
                 </button>
               </div>
+
+              {/* QR code */}
+              <div className="flex justify-center py-2">
+                <QRDisplay
+                  url={resultUrl}
+                  filename={`qr-${instance.name.toLowerCase().replace(/\s+/g, '-')}.png`}
+                  size={160}
+                />
+              </div>
+
               <div className="bg-bg-card rounded-lg p-3 text-xs text-text-muted space-y-1.5">
                 <p className="text-text-secondary font-medium">¿Cómo instalar este modpack?</p>
-                <p>1. Comparte el enlace de arriba con tus jugadores.</p>
-                <p>2. En el launcher, ve a <span className="text-text-primary font-medium">Instancias → Nueva Instancia → Instalar Modpack</span>.</p>
-                <p>3. Pega el enlace y haz clic en <span className="text-text-primary font-medium">Obtener</span>.</p>
+                <p>1. Comparte el enlace o el QR con tus jugadores.</p>
+                <p>2. En el launcher, ve a <span className="text-text-primary font-medium">Modpacks → Añadir Modpack → QR</span> o pega la URL.</p>
+                <p>3. También puedes compartir el archivo .fpack directamente.</p>
               </div>
+              <button
+                onClick={() => window.api.fpack.choosePath(instance.id).then(p => { if (p) setFpackSavePath(p) })}
+                className="w-full flex items-center justify-center gap-2 py-2 border border-accent/40 text-accent hover:bg-accent/10 rounded-lg text-xs font-medium transition-colors"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+                Guardar también como .fpack
+              </button>
             </div>
           )}
 
@@ -637,5 +661,14 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
         )}
       </div>
     </div>
+
+    {fpackSavePath && (
+      <FpackSaveModal
+        instance={instance}
+        outputPath={fpackSavePath}
+        onClose={() => setFpackSavePath(null)}
+      />
+    )}
+    </>
   )
 }

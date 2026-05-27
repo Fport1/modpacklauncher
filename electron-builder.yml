@@ -2,6 +2,14 @@ appId: com.modpacklauncher.app
 productName: ModpackLauncher
 copyright: Copyright © 2024
 
+fileAssociations:
+  - ext: fpack
+    name: Modpack fport1
+    description: Modpack instalable para ModpackLauncher
+    icon: build/icon
+    role: Editor
+    mimeType: application/x-fpack
+
 directories:
   buildResources: build
   output: dist
@@ -41,6 +49,8 @@ mac:
       arch: [x64, arm64]
   icon: build/icon.icns
   category: public.app-category.games
+  extendInfo:
+    NSCameraUsageDescription: "ModpackLauncher necesita acceso a la cámara para escanear códigos QR de modpacks."
 
 dmg:
   writeUpdateInfo: false
