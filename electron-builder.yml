@@ -49,8 +49,7 @@ mac:
       arch: [x64, arm64]
   icon: build/icon.icns
   category: public.app-category.games
-  extendInfo:
-    NSCameraUsageDescription: "ModpackLauncher necesita acceso a la cámara para escanear códigos QR de modpacks."
+  extendInfo: build/mac-extra-info.plist
 
 dmg:
   writeUpdateInfo: false
