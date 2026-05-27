@@ -1,8 +1,14 @@
 import { app, BrowserWindow, shell, protocol, Tray, Menu, nativeImage, session } from 'electron'
+import { setMaxListeners } from 'events'
 import path from 'path'
 import fs from 'fs-extra'
 import { registerIpcHandlers, getSettings } from './ipc'
 import { installConsoleCapture, setLoggerWindow } from './logger'
+
+// @xmcl/installer uses concurrent downloads that each add an abort listener to the same
+// AbortSignal. With >10 concurrent downloads Node.js emits MaxListenersExceededWarning.
+// Setting 0 removes the limit without hiding real leaks (the listeners are all short-lived).
+setMaxListeners(0)
 
 installConsoleCapture()
 

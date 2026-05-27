@@ -65,7 +65,8 @@ import {
   deleteWorld,
   deleteScreenshot,
   getInstanceSize,
-  getInstanceGameDir
+  getInstanceGameDir,
+  getSharedDir
 } from './instances'
 import {
   launchInstance,
@@ -308,9 +309,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       if (e instanceof CancelError) { op.done(); return }
       if (e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)) {
         op.error('Error al descargar archivos de Minecraft')
+        const assetsPath = path.join(getSharedDir(), 'assets', 'objects')
         throw new Error(
-          'Error al descargar archivos de Minecraft. Revisa tu conexión a internet.\n' +
-          'Si el error persiste, borra la carpeta: AppData\\Roaming\\modpack-launcher\\shared\\assets\\objects'
+          `Error al descargar archivos de Minecraft. Revisa tu conexión a internet.\n` +
+          `Si el error persiste, borra la carpeta: ${assetsPath}`
         )
       }
       op.error((e as Error).message ?? 'Error')

@@ -700,7 +700,17 @@ export async function importFpack(
     const exists = await fileExists(destPath)
     const valid = exists && file.sha256 ? await fileMatchesHash(destPath, file.sha256) : exists
     if (!valid) {
-      await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256)
+      try {
+        await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256)
+      } catch (e) {
+        if ((e as Error).message?.startsWith('Hash mismatch')) {
+          // CDN may have updated the file since the .fpack was created; keep whatever arrived
+          console.warn(`[fpack:import] ${(e as Error).message} — usando el archivo descargado`)
+          await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined)
+        } else {
+          throw e
+        }
+      }
     }
   }
 
