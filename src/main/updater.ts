@@ -87,18 +87,15 @@ export async function downloadAndInstall(
   onProgress(100)
 
   if (platform === 'win32') {
-    // NSIS installer: run and quit
     spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
-    setTimeout(() => app.quit(), 500)
+    app.exit(0)
   } else if (platform === 'linux') {
-    // AppImage needs execute permission before it can be launched
     fs.chmodSync(dest, '755')
     spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
-    setTimeout(() => app.quit(), 500)
+    app.exit(0)
   } else if (platform === 'darwin') {
-    // Open the DMG in Finder — user drags the .app to Applications
     const err = await shell.openPath(dest)
     if (err) throw new Error(`No se pudo abrir el DMG: ${err}`)
-    setTimeout(() => app.quit(), 2000)
+    app.exit(0)
   }
 }

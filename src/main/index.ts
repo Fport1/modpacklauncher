@@ -189,8 +189,12 @@ app.whenReady().then(() => {
   })
 })
 
+app.on('before-quit', () => {
+  tray?.destroy()
+  tray = null
+})
+
 app.on('window-all-closed', () => {
-  // When close-to-tray is active we hide instead of close, so this only fires on real quit
   if (process.platform !== 'darwin') app.quit()
 })
 
