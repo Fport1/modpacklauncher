@@ -16,15 +16,11 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [installing, setInstalling] = useState(false)
-  const [progress, setProgress] = useState<{ current: number; total: number; message: string } | null>(null)
 
   useEffect(() => {
     window.api.fpack.readManifest(filePath)
       .then(m => { setManifest(m); setName(m.name) })
       .catch(e => setError(e?.message ?? 'Archivo .fpack inválido'))
-
-    const unsub = window.api.fpack.onProgress(d => setProgress(d))
-    return unsub
   }, [filePath])
 
   async function install() {
@@ -39,10 +35,6 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
       setInstalling(false)
     }
   }
-
-  const pct = progress && progress.total > 0
-    ? Math.round((progress.current / progress.total) * 100)
-    : 0
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
@@ -102,18 +94,6 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
               onKeyDown={e => e.key === 'Enter' && install()}
               autoFocus
             />
-
-            {installing && (
-              <div className="mb-4">
-                <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-xs text-text-muted truncate pr-2">{progress?.message ?? 'Instalando…'}</span>
-                  <span className="text-xs text-text-muted flex-shrink-0">{pct}%</span>
-                </div>
-                <div className="h-1.5 bg-bg-hover rounded-full overflow-hidden">
-                  <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
-                </div>
-              </div>
-            )}
 
             {error && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400 mb-4">{error}</div>

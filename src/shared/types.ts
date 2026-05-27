@@ -160,3 +160,21 @@ export const DEFAULT_SETTINGS: Settings = {
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/
+
+export type OperationType =
+  | 'install-modpack' | 'update-modpack' | 'install-mrpack' | 'install-curseforge'
+  | 'export-modpack' | 'import-fpack' | 'save-fpack'
+  | 'install-minecraft' | 'install-java'
+  | 'duplicate-instance' | 'download-update'
+
+export interface Operation {
+  id: string
+  name: string
+  type: OperationType
+  status: 'running' | 'done' | 'error'
+  message?: string
+  current?: number
+  total?: number
+  error?: string
+  startedAt: number
+}

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Instance, MinecraftAccount, Settings, DownloadProgress, Friend } from '../../../shared/types'
+import type { Instance, MinecraftAccount, Settings, DownloadProgress, Friend, Operation, OperationType } from '../../../shared/types'
 import { DEFAULT_SETTINGS } from '../../../shared/types'
 
 interface UpdateInfo {
@@ -16,6 +16,7 @@ interface AppState {
   settings: Settings
   progress: DownloadProgress | null
   progressStartedAt: number | null
+  operations: Map<string, Operation>
   pendingUpdate: UpdateInfo | null
   updateModalOpen: boolean
   gameLogs: Record<string, string[]>
@@ -36,6 +37,8 @@ interface AppState {
   setSettings: (settings: Partial<Settings>) => void
   addProgress: (progress: DownloadProgress) => void
   clearProgress: () => void
+  upsertOperation: (update: Partial<Operation> & { id: string }) => void
+  removeOperation: (id: string) => void
   setPendingUpdate: (update: UpdateInfo | null) => void
   setUpdateModalOpen: (open: boolean) => void
   appendGameLog: (instanceId: string, line: string) => void
@@ -57,6 +60,7 @@ export const useStore = create<AppState>((set) => ({
   settings: DEFAULT_SETTINGS,
   progress: null,
   progressStartedAt: null,
+  operations: new Map(),
   pendingUpdate: null,
   updateModalOpen: false,
   gameLogs: {},
@@ -91,6 +95,23 @@ export const useStore = create<AppState>((set) => ({
       progressStartedAt: s.progress === null ? Date.now() : s.progressStartedAt
     })),
   clearProgress: () => set({ progress: null, progressStartedAt: null }),
+  upsertOperation: (update) => set((s) => {
+    const existing = s.operations.get(update.id)
+    const merged: Operation = existing
+      ? { ...existing, ...update }
+      : { name: '', type: 'install-modpack' as OperationType, status: 'running', startedAt: Date.now(), ...update } as Operation
+    const next = new Map(s.operations)
+    next.set(update.id, merged)
+    if (merged.status === 'done') {
+      setTimeout(() => useStore.getState().removeOperation(update.id), 3000)
+    }
+    return { operations: next }
+  }),
+  removeOperation: (id) => set((s) => {
+    const next = new Map(s.operations)
+    next.delete(id)
+    return { operations: next }
+  }),
   setPendingUpdate: (update) => set({ pendingUpdate: update }),
   setUpdateModalOpen: (open) => set({ updateModalOpen: open }),
   appendGameLog: (instanceId, line) =>

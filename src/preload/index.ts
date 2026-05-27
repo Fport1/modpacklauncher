@@ -401,6 +401,15 @@ const api = {
   // Cancel current operation
   cancel: () => ipcRenderer.invoke('operation:cancel') as Promise<void>,
 
+  // Operations panel events
+  ops: {
+    onUpdate: (cb: (update: Record<string, unknown>) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, data: Record<string, unknown>) => cb(data)
+      ipcRenderer.on('ops:update', handler)
+      return () => ipcRenderer.removeListener('ops:update', handler)
+    }
+  },
+
   // Launcher console logs
   console: {
     getLogs: () => ipcRenderer.invoke('console:get-logs') as Promise<{ level: string; message: string; at: number }[]>,

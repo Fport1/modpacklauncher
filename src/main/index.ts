@@ -153,7 +153,7 @@ app.whenReady().then(() => {
   app.setAsDefaultProtocolClient('modpacklauncher')
 
   createWindow()
-  if (mainWindow) createTray(mainWindow)
+  if (mainWindow && process.platform !== 'darwin') createTray(mainWindow)
 
   // Handle deep links / .fpack files from argv on Windows/Linux (first launch)
   const urlArg = process.argv.find(a => a.startsWith('modpacklauncher://'))
@@ -208,7 +208,7 @@ ipcMain.on('window:maximize', () => {
 })
 ipcMain.on('window:close', () => {
   const { closeToTray } = getSettings()
-  if (closeToTray && tray) {
+  if (closeToTray && tray && process.platform !== 'darwin') {
     mainWindow?.hide()
   } else {
     mainWindow?.webContents.send('app:request-close')

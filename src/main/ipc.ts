@@ -109,6 +109,20 @@ function sendDone(mainWindow: BrowserWindow | null | undefined, msg = 'Cancelado
   sendToWindow(mainWindow, 'progress', { current: 0, total: 0, message: msg, type: 'install', done: true })
 }
 
+function makeOpEmitter(name: string, type: string) {
+  const id = uuidv4()
+  sendToWindow(currentMainWindow, 'ops:update', { id, name, type, status: 'running', startedAt: Date.now() })
+  return {
+    id,
+    progress: (message: string, current: number, total: number) =>
+      sendToWindow(currentMainWindow, 'ops:update', { id, message, current, total }),
+    done: (msg?: string) =>
+      sendToWindow(currentMainWindow, 'ops:update', { id, status: 'done', message: msg }),
+    error: (err: string) =>
+      sendToWindow(currentMainWindow, 'ops:update', { id, status: 'error', error: err }),
+  }
+}
+
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   currentMainWindow = mainWindow
   if (ipcHandlersRegistered) return
@@ -217,7 +231,21 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:delete-shaderpack', (_e, instanceId: string, filename: string) => deleteShaderpack(instanceId, filename))
   ipcMain.handle('instances:delete-world', (_e, instanceId: string, worldName: string) => deleteWorld(instanceId, worldName))
   ipcMain.handle('instances:delete-screenshot', (_e, instanceId: string, filename: string) => deleteScreenshot(instanceId, filename))
-  ipcMain.handle('instances:duplicate', (e, instanceId: string, newName: string) => duplicateInstance(instanceId, newName, (step) => e.sender.send('instances:duplicate-progress', step)))
+  ipcMain.handle('instances:duplicate', async (e, instanceId: string, newName: string) => {
+    const op = makeOpEmitter(`Duplicando → ${newName}`, 'duplicate-instance')
+    const steps = ['Preparando...', 'Copiando archivos...', 'Finalizando...']
+    try {
+      const result = await duplicateInstance(instanceId, newName, (step) => {
+        e.sender.send('instances:duplicate-progress', step)
+        op.progress(steps[step - 1] ?? 'Procesando...', step, 3)
+      })
+      op.done()
+      return result
+    } catch (err) {
+      op.error((err as Error).message ?? 'Error al duplicar')
+      throw err
+    }
+  })
   ipcMain.handle('instances:pick-icon', (_e, instanceId: string) => pickInstanceIcon(instanceId, getMainWindow()))
   ipcMain.handle('instances:get-icon', (_e, instanceId: string) => getInstanceIconBase64(instanceId))
   ipcMain.handle('instances:list-default-icons', () => listDefaultIcons())
@@ -263,33 +291,29 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       updateAccount(account)
     }
 
+    const op = makeOpEmitter(`Iniciando ${instance.name}`, 'install-minecraft')
     try {
       await launchInstance(
         instance, account, settings, getMainWindow(),
-        (current, total, message) => {
-          sendProgress(current, total, message, 'install')
-        },
+        (current, total, message) => op.progress(message, current, total),
         async (sessionMs) => {
           instance.playtime = (instance.playtime ?? 0) + sessionMs
           await updateInstance(instance)
         }
       )
-
       instance.lastPlayed = Date.now()
       await updateInstance(instance)
-      sendDone(currentMainWindow, 'Minecraft iniciado!')
+      op.done('Minecraft iniciado!')
     } catch (e) {
-      if (e instanceof CancelError) {
-        sendDone(currentMainWindow)
-        return
-      }
-      // AggregateError from @xmcl/installer = asset download failures (timeouts/corrupt files)
+      if (e instanceof CancelError) { op.done(); return }
       if (e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)) {
+        op.error('Error al descargar archivos de Minecraft')
         throw new Error(
           'Error al descargar archivos de Minecraft. Revisa tu conexión a internet.\n' +
           'Si el error persiste, borra la carpeta: AppData\\Roaming\\modpack-launcher\\shared\\assets\\objects'
         )
       }
+      op.error((e as Error).message ?? 'Error')
       throw e
     }
   })
@@ -298,27 +322,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     'launcher:install-version',
     async (_e, version: string, modloader?: string, modloaderVersion?: string) => {
       resetCancel()
+      const label = modloader && modloader !== 'vanilla'
+        ? `Instalando MC ${version} + ${modloader}`
+        : `Instalando Minecraft ${version}`
+      const op = makeOpEmitter(label, 'install-minecraft')
       try {
-        await installMinecraftVersion(version, (current, total, message) => {
-          sendProgress(current, total, message, 'install')
-        })
-
+        await installMinecraftVersion(version, (current, total, message) => op.progress(message, current, total))
         if (modloader && modloader !== 'vanilla') {
-          const fake = {
-            modloader: modloader as Instance['modloader'],
-            modloaderVersion,
-            minecraft: version
-          } as Instance
-          await installModloader(fake, (current, total, message) => {
-            sendProgress(current, total, message, 'install')
-          })
+          const fake = { modloader: modloader as Instance['modloader'], modloaderVersion, minecraft: version } as Instance
+          await installModloader(fake, (current, total, message) => op.progress(message, current, total))
         }
+        op.done('¡Versión instalada!')
       } catch (e) {
-        if (e instanceof CancelError) { sendDone(currentMainWindow); return }
-        sendDone(currentMainWindow, 'Error al instalar')
+        if (e instanceof CancelError) { op.done(); return }
+        op.error('Error al instalar')
         throw e
       }
-      sendDone(currentMainWindow, '¡Versión instalada!')
     }
   )
 
@@ -353,13 +372,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('modpacks:install', async (_e, instanceId: string, manifest: ModpackManifest) => {
     resetCancel()
+    const op = makeOpEmitter(`Instalando ${manifest.name}`, 'install-modpack')
     try {
-      await installModpack(instanceId, manifest, (current, total, message) => {
-        sendProgress(current, total, message, 'download')
-      })
-      sendDone(currentMainWindow, '¡Modpack instalado!')
+      await installModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total))
+      op.done('¡Modpack instalado!')
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(currentMainWindow); return }
+      if (e instanceof CancelError) { op.done(); return }
+      op.error((e as Error).message ?? 'Error')
       throw e
     }
   })
@@ -379,36 +398,43 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
 
     resetCancel()
+    const op = makeOpEmitter(`Actualizando ${instance.name}`, 'update-modpack')
     try {
-      const result = await updateModpack(instanceId, manifest, (current, total, message) => {
-        sendProgress(current, total, message, 'download')
-      })
-
+      const result = await updateModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total))
       instance.modpackVersion = manifest.version
       await updateInstance(instance)
-      sendDone(currentMainWindow, '¡Actualización completada!')
+      op.done('¡Actualización completada!')
       return { upToDate: false, manifest, ...result }
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(currentMainWindow); return { upToDate: false, manifest } }
+      if (e instanceof CancelError) { op.done(); return { upToDate: false, manifest } }
+      op.error((e as Error).message ?? 'Error')
       throw e
     }
   })
 
   ipcMain.handle('modpacks:export', async (e, params: ExportParams) => {
-    const url = await exportModpack(params, (message, current, total) => {
-      e.sender.send('modpacks:export-progress', { message, current, total })
-    })
-    await savePublishedModpack({
-      id: `${params.repoName}-${params.version}-${Date.now()}`,
-      name: params.name,
-      version: params.version,
-      minecraft: params.minecraft,
-      modloader: params.modloader,
-      url,
-      publishedAt: Date.now(),
-      accessKey: params.accessKey || undefined
-    })
-    return url
+    const op = makeOpEmitter(`Exportando ${params.name}`, 'export-modpack')
+    try {
+      const url = await exportModpack(params, (message, current, total) => {
+        op.progress(message, current, total)
+        e.sender.send('modpacks:export-progress', { message, current, total })
+      })
+      await savePublishedModpack({
+        id: `${params.repoName}-${params.version}-${Date.now()}`,
+        name: params.name,
+        version: params.version,
+        minecraft: params.minecraft,
+        modloader: params.modloader,
+        url,
+        publishedAt: Date.now(),
+        accessKey: params.accessKey || undefined
+      })
+      op.done()
+      return url
+    } catch (err) {
+      op.error((err as Error).message ?? 'Error al exportar')
+      throw err
+    }
   })
 
   // ── .fpack ────────────────────────────────────────────────────────────────────
@@ -425,14 +451,16 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       description: manifest.description,
       modpackVersion: manifest.version,
     })
+    const op = makeOpEmitter(`Importando ${instance.name}`, 'import-fpack')
     resetCancel()
     try {
       await importFpack(fpackPath, instance.id, (current, total, message) => {
-        sendProgress(current, total, message, 'download')
+        op.progress(message, current, total)
         e.sender.send('fpack:progress', { current, total, message })
       })
+      op.done()
     } catch (err) {
-      // Clean up the partially-created instance on failure
+      op.error((err as Error).message ?? 'Error al importar')
       await deleteInstance(instance.id).catch(() => {})
       throw err
     }
@@ -452,9 +480,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('fpack:save-to', async (e, instanceId: string, outputPath: string, manifestOverride?: import('../shared/types').ModpackManifest) => {
-    await saveFpackLocally(instanceId, outputPath, (message, current, total) => {
-      e.sender.send('fpack:save-progress', { message, current, total })
-    }, manifestOverride)
+    const fileName = path.basename(outputPath)
+    const op = makeOpEmitter(`Guardando ${fileName}`, 'save-fpack')
+    try {
+      await saveFpackLocally(instanceId, outputPath, (message, current, total) => {
+        op.progress(message, current, total)
+        e.sender.send('fpack:save-progress', { message, current, total })
+      }, manifestOverride)
+      op.done(outputPath)
+    } catch (err) {
+      op.error((err as Error).message ?? 'Error al guardar')
+      throw err
+    }
   })
 
   ipcMain.handle('fpack:browse', async () => {
@@ -508,14 +545,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('modrinth:install-mrpack', async (_e, instanceId: string, mrpackUrl: string) => {
     resetCancel()
+    const op = makeOpEmitter('Instalando desde Modrinth', 'install-mrpack')
     try {
-      const meta = await installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => {
-        sendProgress(current, total, message, 'download')
-      })
-      sendDone(currentMainWindow, '¡Modpack instalado!')
+      const meta = await installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => op.progress(message, current, total))
+      op.done('¡Modpack instalado!')
       return meta
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(currentMainWindow); return }
+      if (e instanceof CancelError) { op.done(); return }
+      op.error((e as Error).message ?? 'Error')
       throw e
     }
   })
@@ -562,12 +599,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('java:ensure', async (_e, mcVersion: string) => {
     resetCancel()
+    const op = makeOpEmitter(`Instalando Java para MC ${mcVersion}`, 'install-java')
     try {
-      return await ensureJava(mcVersion, (current, total, msg) => {
-        sendProgress(current, total, msg, 'install')
-      })
+      const result = await ensureJava(mcVersion, (current, total, msg) => op.progress(msg, current, total))
+      op.done()
+      return result
     } catch (e) {
-      if (e instanceof CancelError) { sendDone(currentMainWindow); return null }
+      if (e instanceof CancelError) { op.done(); return null }
+      op.error((e as Error).message ?? 'Error')
       throw e
     }
   })
@@ -1147,6 +1186,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('curseforge:install-modpack', async (e, instanceId: string, modId: number, fileId: number) => {
     resetCancel()
+    const op = makeOpEmitter('Instalando desde CurseForge', 'install-curseforge')
     const tmpDir = path.join(os.tmpdir(), `cf-modpack-${Date.now()}`)
     try {
       const urlData = await cfFetch(`/v1/mods/${modId}/files/${fileId}/download-url`)
@@ -1154,22 +1194,21 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await fs.promises.mkdir(tmpDir, { recursive: true })
       const zipPath = path.join(tmpDir, 'modpack.zip')
 
-      sendProgress(0, 1, 'Descargando modpack de CurseForge...', 'download')
+      op.progress('Descargando modpack de CurseForge...', 0, 1)
       const zipRes = await axios.get(downloadUrl, {
         responseType: 'arraybuffer',
         onDownloadProgress: (p) => {
-          if (p.total) e.sender.send('progress', { type: 'download', current: p.loaded, total: p.total, message: 'Descargando modpack...' })
+          if (p.total) op.progress('Descargando modpack...', p.loaded, p.total)
         }
       })
       await fs.promises.writeFile(zipPath, Buffer.from(zipRes.data as ArrayBuffer))
 
-      sendProgress(0, 1, 'Extrayendo modpack...', 'download')
+      op.progress('Extrayendo modpack...', 0, 1)
       const AdmZip = (await import('adm-zip')).default
       const zip = new AdmZip(zipPath)
       zip.extractAllTo(tmpDir, true)
 
       const manifest = JSON.parse(await fs.promises.readFile(path.join(tmpDir, 'manifest.json'), 'utf-8'))
-
       const gameDir = await getInstanceGameDir(instanceId)
       const modsDir = path.join(gameDir, 'mods')
       await fs.promises.mkdir(modsDir, { recursive: true })
@@ -1185,20 +1224,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
           await fs.promises.writeFile(path.join(modsDir, filename), Buffer.from(modData.data as ArrayBuffer))
         } catch { /* skip failed mods */ }
         done++
-        sendProgress(done, requiredFiles.length, `Instalando mods... (${done}/${requiredFiles.length})`, 'download')
+        op.progress(`Instalando mods... ${done}/${requiredFiles.length}`, done, requiredFiles.length)
       }
 
       const overridesDir = path.join(tmpDir, 'overrides')
-      try {
-        await fs.promises.cp(overridesDir, gameDir, { recursive: true, force: true })
-      } catch { /* no overrides */ }
+      try { await fs.promises.cp(overridesDir, gameDir, { recursive: true, force: true }) } catch { /* no overrides */ }
 
       await fs.promises.rm(tmpDir, { recursive: true, force: true })
-      sendDone(currentMainWindow, '¡Modpack de CurseForge instalado!')
+      op.done('¡Modpack de CurseForge instalado!')
       return manifest
     } catch (ex) {
       await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
-      if (ex instanceof CancelError) { sendDone(currentMainWindow); return }
+      if (ex instanceof CancelError) { op.done(); return }
+      op.error((ex as Error).message ?? 'Error')
       throw ex
     }
   })
@@ -1233,9 +1271,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('updater:download-and-install', async (e, manifest: UpdateManifest) => {
-    await downloadAndInstall(manifest, (pct) => {
-      e.sender.send('updater:download-progress', pct)
-    })
+    const op = makeOpEmitter(`Descargando v${manifest.version}`, 'download-update')
+    try {
+      await downloadAndInstall(manifest, (pct) => {
+        op.progress(`Descargando actualización... ${pct}%`, pct, 100)
+        e.sender.send('updater:download-progress', pct)
+      })
+      op.done()
+    } catch (err) {
+      op.error((err as Error).message ?? 'Error')
+      throw err
+    }
   })
 
   ipcMain.handle('textures:save-to-folder', async (_e, files: { name: string; dataUrl: string }[]) => {

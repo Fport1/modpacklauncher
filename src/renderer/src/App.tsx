@@ -3,7 +3,7 @@ import { nav } from './nav'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
-import ProgressModal from './components/ProgressModal'
+import OperationsPanel from './components/OperationsPanel'
 import UpdateModal from './components/UpdateModal'
 import HomePage from './pages/HomePage'
 import InstancesPage from './pages/InstancesPage'
@@ -27,8 +27,7 @@ export default function App() {
     setAccounts,
     setActiveAccountId,
     setSettings,
-    addProgress,
-    clearProgress,
+    upsertOperation,
     setPendingUpdate,
     setUpdateModalOpen,
     appendGameLog,
@@ -94,12 +93,8 @@ export default function App() {
     }
     init()
 
-    const unsubProgress = window.api.onProgress((progress) => {
-      if (progress.done || progress.error) {
-        clearProgress()
-      } else {
-        addProgress(progress)
-      }
+    const unsubOps = window.api.ops.onUpdate((update) => {
+      upsertOperation(update as Parameters<typeof upsertOperation>[0])
     })
 
     const unsubStarted = window.api.onGameStarted((id) => {
@@ -165,8 +160,9 @@ export default function App() {
 
     // Handle close request from main process
     const unsubClose = window.api.window.onRequestClose(() => {
-      const { progress } = useStore.getState()
-      if (progress) {
+      const { operations } = useStore.getState()
+      const hasRunning = [...operations.values()].some(op => op.status === 'running')
+      if (hasRunning) {
         setCloseConfirm(true)
       } else {
         window.api.window.confirmClose()
@@ -191,7 +187,7 @@ export default function App() {
     })
 
     return () => {
-      unsubProgress()
+      unsubOps()
       unsubStarted()
       unsubLog()
       unsubExit()
@@ -247,7 +243,7 @@ export default function App() {
             </Routes>
           </main>
         </div>
-        <ProgressModal />
+        <OperationsPanel />
         <UpdateModal />
       </div>
       {closeConfirm && (
