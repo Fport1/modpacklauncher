@@ -540,6 +540,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sideFilter, setSideFilter] = useState<'all' | 'client' | 'server' | 'both'>('all')
   const [updatesOnly, setUpdatesOnly] = useState(false)
+  const [checkingMeta, setCheckingMeta] = useState(false)
   const [versionPicker, setVersionPicker] = useState<{ filename: string; projectId: string; installedVersionId?: string; subFolder: string; modLoader: string; modName: string } | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
@@ -724,6 +725,36 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         if (displayHz === 0) window.api.system.getDisplayHz().then(setDisplayHz).catch(() => {})
       }
     } finally { setLoading(false) }
+  }
+
+  async function refreshMeta() {
+    if (checkingMeta) return
+    setCheckingMeta(true)
+    try {
+      if (tab === 'mods') {
+        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, instance.modloader)
+        setMods(prev => prev.map(m => {
+          const info = meta[m.filename]
+          if (!info) return m
+          return { ...m, meta: { ...m.meta, ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+        }))
+      } else if (tab === 'resourcepacks') {
+        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'resourcepacks', ['.zip', '.zip.disabled'])
+        setResourcepacks(prev => prev.map(m => {
+          const info = meta[m.filename]
+          if (!info) return m
+          return { ...m, meta: { ...m.meta, ...(!m.meta?.iconBase64 && info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+        }))
+      } else if (tab === 'shaderpacks') {
+        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'shaderpacks', ['.zip', '.zip.disabled'])
+        setShaderpacks(prev => prev.map(m => {
+          const info = meta[m.filename]
+          if (!info) return m
+          return { ...m, meta: { ...m.meta, ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+        }))
+      }
+    } catch {}
+    finally { setCheckingMeta(false) }
   }
 
   async function runAIAnalysis(content: string, type: 'crash' | 'log', configId: string) {
@@ -1405,6 +1436,13 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
                   Actualizables
+                </button>
+                <button onClick={refreshMeta} disabled={checkingMeta}
+                  title="Buscar actualizaciones"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-border/60 bg-bg-primary disabled:opacity-50 transition-colors flex-shrink-0">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={checkingMeta ? 'animate-spin' : ''}>
+                    <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+                  </svg>
                 </button>
               </div>
               <div className="flex items-center justify-between flex-shrink-0">
