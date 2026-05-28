@@ -154,18 +154,16 @@ export default function Sidebar() {
           </div>
         ))}
 
-        {/* macOS tools */}
-        {isMac && (
-          <div className="relative">
-            <NavLink to="/mac-tools" title="Utilidades macOS" className={({ isActive }) => navCls(isActive)}>
-              <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
-              </svg>
-            </NavLink>
-            {vlcInstalled === false && (
-              <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full border border-bg-secondary" />
-            )}
-          </div>
+        {/* macOS tools — only shown when VLC is missing or wrong arch */}
+        {isMac && vlcInstalled === false && (
+          <NavLink to="/mac-tools" title="Instalar VLC" className={({ isActive }) => navCls(isActive)}>
+            <svg width={ICO} height={ICO} viewBox="0 0 100 100">
+              <polygon points="50,8 78,82 22,82" fill="#F90" stroke="#E07000" strokeWidth="3" strokeLinejoin="round"/>
+              <rect x="31" y="50" width="38" height="8" rx="2" fill="white" opacity="0.85"/>
+              <rect x="27" y="64" width="46" height="8" rx="2" fill="white" opacity="0.85"/>
+              <rect x="16" y="82" width="68" height="12" rx="6" fill="#CCC"/>
+            </svg>
+          </NavLink>
         )}
 
         {/* Separator */}

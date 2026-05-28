@@ -1322,9 +1322,28 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('tools:check-vlc', async () => {
     if (process.platform !== 'darwin') return true
+    const { access } = await import('fs/promises')
+    const { execFile } = await import('child_process')
+    const { promisify } = await import('util')
+    const exec = promisify(execFile)
     const home = os.homedir()
-    return (await fs.pathExists('/Applications/VLC.app')) ||
-           (await fs.pathExists(path.join(home, 'Applications', 'VLC.app')))
+    const candidates = [
+      '/Applications/VLC.app/Contents/MacOS/VLC',
+      path.join(home, 'Applications', 'VLC.app', 'Contents', 'MacOS', 'VLC'),
+    ]
+    for (const bin of candidates) {
+      try {
+        await access(bin)
+        if (process.arch === 'arm64') {
+          const { stdout } = await exec('file', [bin])
+          if (!stdout.includes('arm64')) return false // Intel-only VLC on Apple Silicon
+        }
+        return true
+      } catch {
+        // not found at this path
+      }
+    }
+    return false
   })
 
   ipcMain.handle('tools:get-arch', () => process.arch)
