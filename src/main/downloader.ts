@@ -2,6 +2,7 @@ import axios from 'axios'
 import fs from 'fs-extra'
 import path from 'path'
 import crypto from 'crypto'
+import { getAbortSignal, CancelError } from './cancelToken'
 
 export type ProgressCallback = (current: number, total: number, message: string) => void
 
@@ -15,7 +16,8 @@ async function downloadFileOnce(
 
   const response = await axios.get(url, {
     responseType: 'stream',
-    timeout: 60_000
+    timeout: 60_000,
+    signal: getAbortSignal()
   })
 
   const total = parseInt(response.headers['content-length'] || '0', 10)
@@ -62,6 +64,10 @@ export async function downloadFile(
       await downloadFileOnce(url, destPath, onProgress, expectedSha256)
       return
     } catch (e) {
+      // Propagate cancellation immediately without retry
+      if (axios.isCancel(e) || (e as NodeJS.ErrnoException)?.code === 'ERR_CANCELED') {
+        throw new CancelError()
+      }
       lastError = e
       if (attempt < maxRetries - 1) {
         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))

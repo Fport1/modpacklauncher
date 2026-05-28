@@ -156,13 +156,17 @@ export async function installModpack(
       onProgress?.(0, 2, 'Descargando modpack...')
       await downloadFile(normalizeUrl(manifest.filesZip), tmpZip, onProgress)
       checkCancel()
-      onProgress?.(1, 2, 'Extrayendo archivos...')
       const zip = new AdmZip(tmpZip)
-      for (const entry of zip.getEntries()) {
-        if (entry.isDirectory) continue
+      const entries = zip.getEntries().filter(e => !e.isDirectory)
+      onProgress?.(0, entries.length, 'Extrayendo archivos...')
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i]
         const destPath = path.join(gameDir, entry.entryName)
         await fs.ensureDir(path.dirname(destPath))
         await fs.writeFile(destPath, entry.getData())
+        if (i % 100 === 0 || i === entries.length - 1) {
+          onProgress?.(i + 1, entries.length, `Extrayendo ${path.basename(entry.entryName)}...`)
+        }
       }
     } finally {
       await fs.remove(tmpZip).catch(() => {})
@@ -689,50 +693,54 @@ export async function importFpack(
     await fs.writeFile(destPath, entry.getData())
   }
 
-  // If the fpack was linked to a live modpack URL, fetch the fresh manifest
-  // so files always come from the latest version instead of the stale fpack snapshot
+  // If the fpack was linked to a live modpack URL, fetch the fresh manifest and
+  // use installModpack — which downloads a single filesZip (same as URL install, fast)
   let activeManifest = manifest
+  let hasFreshManifest = false
+
   if (manifest.sourceUrl) {
     try {
       onProgress?.(0, 1, 'Obteniendo manifiesto actualizado del modpack…')
       const fresh = await fetchManifest(manifest.sourceUrl, manifest.sourceKey)
       activeManifest = { ...manifest, ...fresh, sourceUrl: manifest.sourceUrl, sourceKey: manifest.sourceKey }
+      hasFreshManifest = true
     } catch (e) {
       console.warn('[fpack:import] No se pudo obtener el manifiesto fresco, usando el del fpack:', (e as Error).message)
     }
   }
 
-  // Download files — no hash verification (fpack hashes are stale snapshots)
-  // Behaves like a fresh URL install: download whatever the CDN serves, one attempt per file
-  const files = (activeManifest.files ?? []).filter(f => !!f.url)
-  let completed = 0
-  const CONCURRENCY = 16
+  if (hasFreshManifest) {
+    // Fresh manifest: delegate to installModpack which handles filesZip as a single download
+    await installModpack(instanceId, activeManifest, onProgress)
+  } else {
+    // Legacy fpack without sourceUrl: individual downloads, no hash check
+    const files = (activeManifest.files ?? []).filter(f => !!f.url)
+    let completed = 0
+    const CONCURRENCY = 16
 
-  async function downloadOne(file: typeof files[number]): Promise<void> {
-    checkCancel()
-    const destPath = path.join(gameDir, file.path)
-    await fs.ensureDir(path.dirname(destPath))
-
-    // Skip if already downloaded with content
-    const stat = await fs.stat(destPath).catch(() => null)
-    if (stat && stat.size > 0) {
+    async function downloadOne(file: typeof files[number]): Promise<void> {
+      checkCancel()
+      const destPath = path.join(gameDir, file.path)
+      await fs.ensureDir(path.dirname(destPath))
+      const stat = await fs.stat(destPath).catch(() => null)
+      if (stat && stat.size > 0) {
+        completed++
+        onProgress?.(completed, files.length, path.basename(file.path))
+        return
+      }
+      try {
+        await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined, 1)
+      } catch {
+        console.warn(`[fpack:import] No se pudo descargar: ${path.basename(file.path)}`)
+      }
       completed++
-      onProgress?.(completed, files.length, path.basename(file.path))
-      return
+      onProgress?.(completed, files.length, `Descargando ${path.basename(file.path)}...`)
     }
 
-    try {
-      await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined, 1)
-    } catch {
-      console.warn(`[fpack:import] No se pudo descargar: ${path.basename(file.path)}`)
+    for (let i = 0; i < files.length; i += CONCURRENCY) {
+      checkCancel()
+      await Promise.all(files.slice(i, i + CONCURRENCY).map(downloadOne))
     }
-    completed++
-    onProgress?.(completed, files.length, `Descargando ${path.basename(file.path)}...`)
-  }
-
-  for (let i = 0; i < files.length; i += CONCURRENCY) {
-    checkCancel()
-    await Promise.all(files.slice(i, i + CONCURRENCY).map(downloadOne))
   }
 
   await saveLocalManifest(instanceId, activeManifest)

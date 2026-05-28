@@ -194,7 +194,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('instances:update', (_e, instance: Instance) => updateInstance(instance))
 
-  ipcMain.handle('instances:delete', (_e, instanceId: string) => deleteInstance(instanceId))
+  ipcMain.handle('instances:delete', async (_e, instanceId: string) => {
+    const instances = await loadInstances()
+    const inst = instances.find(i => i.id === instanceId)
+    const op = makeOpEmitter(`Eliminando ${inst?.name ?? 'instancia'}`, 'delete-instance')
+    try {
+      op.progress('Borrando archivos...', 0, 1)
+      await deleteInstance(instanceId)
+      op.done('Instancia eliminada')
+    } catch (err) {
+      op.error((err as Error).message ?? 'Error al eliminar')
+      throw err
+    }
+  })
 
   ipcMain.handle('instances:open-folder', (_e, instanceId: string) =>
     openInstanceFolder(instanceId)

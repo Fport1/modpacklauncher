@@ -168,7 +168,7 @@ export type OperationType =
   | 'install-modpack' | 'update-modpack' | 'install-mrpack' | 'install-curseforge'
   | 'export-modpack' | 'import-fpack' | 'save-fpack'
   | 'install-minecraft' | 'install-java' | 'install-vlc'
-  | 'duplicate-instance' | 'download-update'
+  | 'duplicate-instance' | 'download-update' | 'delete-instance'
 
 export interface Operation {
   id: string
