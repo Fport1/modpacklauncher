@@ -499,11 +499,6 @@ export default function InstancesPage() {
     window.api.system.getDisplays().then(setDisplays).catch(() => {})
   }, [])
 
-  // Listen for .fpack file opens (double-click from OS)
-  useEffect(() => {
-    return window.api.fpack.onOpen(path => setFpackFile(path))
-  }, [])
-
   // Background modpack update checks — runs whenever instances list changes
   useEffect(() => {
     const modpackInstances = instances.filter(i => i.modpackUrl)

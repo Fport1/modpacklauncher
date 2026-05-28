@@ -167,7 +167,8 @@ function QRModal({ url, name, onClose }: { url: string; name: string; onClose: (
 /* ── Main page ───────────────────────────────────────────────── */
 export default function ModpacksPage() {
   const instances = useStore((s) => s.instances)
-  const { addInstance, updateInstance: updateInstanceStore, setInstances } = useStore()
+  const pendingFpackFile = useStore(s => s.pendingFpackFile)
+  const { addInstance, updateInstance: updateInstanceStore, setInstances, setPendingFpackFile } = useStore()
 
   const modpackInstances = instances.filter((i) => i.modpackUrl)
 
@@ -203,9 +204,14 @@ export default function ModpacksPage() {
   useEffect(() => {
     window.api.instances.list().then(setInstances)
     window.api.modpacks.getPublished().then(setPublished)
-    // Listen for OS double-click .fpack opens
-    return window.api.fpack.onOpen(path => setFpackFile(path))
   }, [])
+
+  useEffect(() => {
+    if (pendingFpackFile) {
+      setFpackFile(pendingFpackFile)
+      setPendingFpackFile(null)
+    }
+  }, [pendingFpackFile])
 
   useEffect(() => {
     if (modpackInstances.length === 0) return

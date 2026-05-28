@@ -23,6 +23,7 @@ interface AppState {
   runningInstances: Set<string>
   openDetailInstanceId: string | null
   sidebarCompact: boolean
+  pendingFpackFile: string | null
 
   setInstances: (instances: Instance[]) => void
   addInstance: (instance: Instance) => void
@@ -46,6 +47,7 @@ interface AppState {
   setInstanceRunning: (instanceId: string, running: boolean) => void
   setOpenDetailInstanceId: (id: string | null) => void
   setSidebarCompact: (compact: boolean) => void
+  setPendingFpackFile: (path: string | null) => void
 
   friends: Friend[]
   setFriends: (friends: Friend[]) => void
@@ -67,6 +69,7 @@ export const useStore = create<AppState>((set) => ({
   runningInstances: new Set(),
   openDetailInstanceId: null,
   sidebarCompact: localStorage.getItem('ml-sidebar-compact') === 'true',
+  pendingFpackFile: null,
   friends: [],
 
   setInstances: (instances) => set({ instances }),
@@ -129,6 +132,7 @@ export const useStore = create<AppState>((set) => ({
       return { runningInstances: next }
     }),
   setOpenDetailInstanceId: (id) => set({ openDetailInstanceId: id }),
+  setPendingFpackFile: (path) => set({ pendingFpackFile: path }),
   setSidebarCompact: (compact) => {
     localStorage.setItem('ml-sidebar-compact', String(compact))
     set({ sidebarCompact: compact })

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { nav } from './nav'
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import OperationsPanel from './components/OperationsPanel'
@@ -19,6 +19,18 @@ import FriendsPage from './pages/FriendsPage'
 import ConsolePage from './pages/ConsolePage'
 import MacToolsPage from './pages/MacToolsPage'
 import { useStore } from './store'
+
+function FpackOpenHandler() {
+  const navigate = useNavigate()
+  const setPendingFpackFile = useStore(s => s.setPendingFpackFile)
+  useEffect(() => {
+    return window.api.fpack.onOpen(path => {
+      setPendingFpackFile(path)
+      navigate('/modpacks')
+    })
+  }, [])
+  return null
+}
 
 const AFK_THRESHOLD = 3 * 60 * 1000
 const HOURLY_CHECK = 60 * 60 * 1000
@@ -222,6 +234,7 @@ export default function App() {
 
   return (
     <HashRouter>
+      <FpackOpenHandler />
       <div className="flex flex-col h-screen overflow-hidden">
         <TitleBar />
         <div className="flex flex-1 overflow-hidden">
