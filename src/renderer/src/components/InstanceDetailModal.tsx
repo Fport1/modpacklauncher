@@ -1329,6 +1329,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                       Abrir carpeta
                     </button>
+                    <div className="h-px bg-border/50 mx-2 my-1"/>
+                    <button onClick={() => { setGearOpen(false); setConfirm({ title: 'Reparar instancia', message: 'Se reverificarán y redescargarán los archivos de Minecraft, el modloader y los mods del modpack. ¿Continuar?', onConfirm: () => window.api.launcher.repair(instance.id).catch(() => {}) }) }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+                      Reparar instancia
+                    </button>
                     {onDelete && <><div className="h-px bg-border/50 mx-2 my-1"/><button onClick={() => { setGearOpen(false); onDelete() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
                       Eliminar instancia

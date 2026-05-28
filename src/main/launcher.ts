@@ -292,6 +292,57 @@ function resolveVersionId(instance: Instance): string {
   return instance.minecraft
 }
 
+export async function repairInstance(
+  instance: Instance,
+  settings: Settings,
+  onProgress?: (current: number, total: number, msg: string) => void
+): Promise<void> {
+  const sharedDir = getSharedDir()
+  const hasModpack = !!(instance.modpackUrl)
+  const STEPS = hasModpack ? 5 : 4
+
+  // 1. Ensure Java
+  onProgress?.(0, STEPS, 'Verificando Java...')
+  let javaPath = instance.javaPath || settings.javaPath
+  if (javaPath && path.isAbsolute(javaPath) && !(await fs.pathExists(javaPath))) javaPath = ''
+  if (!javaPath) {
+    javaPath = await ensureJava(instance.minecraft, (c, t, msg) => onProgress?.(0, STEPS, msg))
+  }
+  if (!javaPath) throw new Error('No se pudo encontrar ni instalar Java.')
+
+  // 2. Force-reinstall Minecraft version files
+  onProgress?.(1, STEPS, `Reinstalando Minecraft ${instance.minecraft}...`)
+  const versionJson = path.join(sharedDir, 'versions', instance.minecraft, `${instance.minecraft}.json`)
+  const versionJar  = path.join(sharedDir, 'versions', instance.minecraft, `${instance.minecraft}.jar`)
+  await fs.remove(versionJson).catch(() => {})
+  await fs.remove(versionJar).catch(() => {})
+  await installMinecraftVersion(instance.minecraft, (c, t, msg) => onProgress?.(1, STEPS, msg))
+
+  // 3. Force-reinstall modloader
+  if (instance.modloader !== 'vanilla' && instance.modloaderVersion) {
+    onProgress?.(2, STEPS, `Reinstalando ${instance.modloader} ${instance.modloaderVersion}...`)
+    const loaderVersionId = resolveVersionId(instance)
+    await fs.remove(path.join(sharedDir, 'versions', loaderVersionId)).catch(() => {})
+    await installModloader(instance, (c, t, msg) => onProgress?.(2, STEPS, msg), javaPath)
+  }
+
+  // 4. Re-verify all assets and libraries
+  onProgress?.(3, STEPS, 'Verificando assets y librerías...')
+  const { Version } = await import('@xmcl/core')
+  const { installDependencies } = await import('@xmcl/installer')
+  const versionId = resolveVersionId(instance)
+  const resolvedVersion = await Version.parse(sharedDir, versionId)
+  await installDependencies(resolvedVersion, { assetsDownloadConcurrency: 8, skipRevalidate: false })
+
+  // 5. Re-verify modpack files (re-downloads corrupt or missing ones)
+  if (hasModpack) {
+    onProgress?.(4, STEPS, 'Verificando archivos del modpack...')
+    const { fetchManifest, installModpack } = await import('./modpacks')
+    const manifest = await fetchManifest(instance.modpackUrl!, instance.modpackKey)
+    await installModpack(instance.id, manifest, (c, t, msg) => onProgress?.(4, STEPS, msg))
+  }
+}
+
 export async function getAvailableVersions(): Promise<
   Array<{ id: string; type: string; releaseTime: string }>
 > {

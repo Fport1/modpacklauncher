@@ -123,6 +123,7 @@ const api = {
     launch: (instanceId: string) => ipcRenderer.invoke('launcher:launch', instanceId),
     launchExtra: (instanceId: string) => ipcRenderer.invoke('launcher:launch-extra', instanceId) as Promise<void>,
     kill: (instanceId: string) => ipcRenderer.invoke('launcher:kill', instanceId),
+    repair: (instanceId: string) => ipcRenderer.invoke('launcher:repair', instanceId) as Promise<void>,
     installVersion: (version: string, modloader?: string, modloaderVersion?: string) =>
       ipcRenderer.invoke('launcher:install-version', version, modloader, modloaderVersion),
     getMcVersions: () =>

@@ -73,6 +73,7 @@ import {
   killInstance,
   installMinecraftVersion,
   installModloader,
+  repairInstance,
   getAvailableVersions,
   getForgeVersions,
   getFabricVersions,
@@ -362,6 +363,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('launcher:kill', (_e, instanceId: string) => killInstance(instanceId))
+
+  ipcMain.handle('launcher:repair', async (_e, instanceId: string) => {
+    resetCancel()
+    const instances = await loadInstances()
+    const instance = instances.find(i => i.id === instanceId)
+    if (!instance) throw new Error('Instancia no encontrada')
+    const settings = settingsStore.getAll()
+    const op = makeOpEmitter(`Reparando ${instance.name}`, 'install-minecraft')
+    try {
+      await repairInstance(instance, settings, (current, total, message) => op.progress(message, current, total))
+      op.done('Instancia reparada correctamente')
+    } catch (err) {
+      op.error((err as Error).message ?? 'Error al reparar la instancia')
+      throw err
+    }
+  })
   ipcMain.handle('launcher:get-mc-versions', () => getAvailableVersions())
   ipcMain.handle('launcher:get-forge-versions', (_e, mc: string) => getForgeVersions(mc))
   ipcMain.handle('launcher:get-fabric-versions', () => getFabricVersions())
