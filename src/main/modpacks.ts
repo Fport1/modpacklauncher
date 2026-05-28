@@ -689,13 +689,14 @@ export async function importFpack(
     await fs.writeFile(destPath, entry.getData())
   }
 
-  // Download files that have a URL
+  // Download files that have a URL — up to 8 concurrent downloads
   const files = (manifest.files ?? []).filter(f => !!f.url)
-  for (let i = 0; i < files.length; i++) {
+  let completed = 0
+  const CONCURRENCY = 8
+
+  async function downloadOne(file: typeof files[number]): Promise<void> {
     checkCancel()
-    const file = files[i]
     const destPath = path.join(gameDir, file.path)
-    onProgress?.(i, files.length, `Descargando ${path.basename(file.path)}...`)
     await fs.ensureDir(path.dirname(destPath))
     const exists = await fileExists(destPath)
     const valid = exists && file.sha256 ? await fileMatchesHash(destPath, file.sha256) : exists
@@ -704,14 +705,39 @@ export async function importFpack(
         await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256)
       } catch (e) {
         if ((e as Error).message?.startsWith('Hash mismatch')) {
-          // CDN may have updated the file since the .fpack was created; keep whatever arrived
-          console.warn(`[fpack:import] ${(e as Error).message} — usando el archivo descargado`)
+          console.warn(`[fpack:import] ${(e as Error).message} — descargando sin verificación`)
           await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined)
+          // Validate downloaded JARs are real ZIPs (not CDN error pages)
+          if (file.path.endsWith('.jar') || file.path.endsWith('.jar.disabled')) {
+            try {
+              const header = await new Promise<Buffer>((res, rej) => {
+                const s = fs.createReadStream(destPath, { start: 0, end: 3 })
+                const chunks: Buffer[] = []
+                s.on('data', c => chunks.push(c as Buffer))
+                s.on('end', () => res(Buffer.concat(chunks)))
+                s.on('error', rej)
+              })
+              if (header.length < 2 || header[0] !== 0x50 || header[1] !== 0x4B) {
+                await fs.remove(destPath)
+                console.warn(`[fpack:import] Archivo no es un JAR válido (posible error del CDN), omitiendo: ${path.basename(file.path)}`)
+              }
+            } catch { await fs.remove(destPath).catch(() => {}) }
+          }
         } else {
           throw e
         }
       }
     }
+    completed++
+    onProgress?.(completed, files.length, `Descargando ${path.basename(file.path)}...`)
+  }
+
+  // Run in batches of CONCURRENCY
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    checkCancel()
+    const batch = files.slice(i, i + CONCURRENCY)
+    onProgress?.(completed, files.length, `Descargando ${path.basename(batch[0].path)}...`)
+    await Promise.all(batch.map(downloadOne))
   }
 
   await saveLocalManifest(instanceId, manifest)
