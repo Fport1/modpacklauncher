@@ -164,7 +164,7 @@ export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/
 export type OperationType =
   | 'install-modpack' | 'update-modpack' | 'install-mrpack' | 'install-curseforge'
   | 'export-modpack' | 'import-fpack' | 'save-fpack'
-  | 'install-minecraft' | 'install-java'
+  | 'install-minecraft' | 'install-java' | 'install-vlc'
   | 'duplicate-instance' | 'download-update'
 
 export interface Operation {

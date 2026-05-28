@@ -1318,6 +1318,76 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
 
+  // ── macOS Tools ───────────────────────────────────────────────────────────
+
+  ipcMain.handle('tools:check-vlc', async () => {
+    if (process.platform !== 'darwin') return true
+    const home = os.homedir()
+    return (await fs.pathExists('/Applications/VLC.app')) ||
+           (await fs.pathExists(path.join(home, 'Applications', 'VLC.app')))
+  })
+
+  ipcMain.handle('tools:get-arch', () => process.arch)
+
+  ipcMain.handle('tools:install-vlc', async (_e, arch: 'arm64' | 'x64') => {
+    const op = makeOpEmitter('Instalando VLC', 'install-vlc')
+    const tmpPath = path.join(os.tmpdir(), `vlc-installer-${Date.now()}.dmg`)
+    const archStr = arch === 'arm64' ? 'arm64' : 'intel64'
+    const VLC_VERSION = '3.0.21'
+    const url = `https://download.videolan.org/pub/videolan/vlc/${VLC_VERSION}/macosx/vlc-${VLC_VERSION}-${archStr}.dmg`
+
+    let mountPoint = ''
+    try {
+      // 1 — download
+      op.progress('Descargando VLC...', 0, 100)
+      const response = await axios.get(url, { responseType: 'stream', timeout: 600_000 })
+      const total = parseInt(response.headers['content-length'] || '0', 10)
+      let downloaded = 0
+
+      await new Promise<void>((resolve, reject) => {
+        const writer = fs.createWriteStream(tmpPath)
+        response.data.on('data', (chunk: Buffer) => {
+          downloaded += chunk.length
+          if (total > 0) op.progress(`Descargando VLC... ${Math.round((downloaded / total) * 100)}%`, downloaded, total)
+        })
+        response.data.pipe(writer)
+        writer.on('finish', resolve)
+        writer.on('error', reject)
+        response.data.on('error', reject)
+      })
+
+      // 2 — mount
+      op.progress('Montando imagen de disco...', total, total)
+      const { execFile } = await import('child_process')
+      const { promisify } = await import('util')
+      const exec = promisify(execFile)
+
+      const { stdout } = await exec('hdiutil', ['attach', '-nobrowse', '-noverify', tmpPath])
+      const volMatch = stdout.split('\n').reverse().find(l => l.includes('/Volumes/'))
+      if (!volMatch) throw new Error('No se pudo montar el DMG de VLC')
+      mountPoint = volMatch.replace(/^.*\t/, '').trim()
+
+      // 3 — copy
+      op.progress('Instalando VLC en /Applications...', total, total)
+      const vlcSrc = path.join(mountPoint, 'VLC.app')
+      const vlcDst = '/Applications/VLC.app'
+      await fs.remove(vlcDst).catch(() => {})
+      await exec('ditto', [vlcSrc, vlcDst])
+
+      op.done('VLC instalado correctamente')
+    } catch (err) {
+      op.error((err as Error).message ?? 'Error al instalar VLC')
+      throw err
+    } finally {
+      if (mountPoint) {
+        const { execFile } = await import('child_process')
+        const { promisify } = await import('util')
+        promisify(execFile)('hdiutil', ['detach', mountPoint, '-force']).catch(() => {})
+      }
+      await fs.remove(tmpPath).catch(() => {})
+    }
+  })
+
   // ── Console / Dev logs ────────────────────────────────────────────────────
 
   ipcMain.handle('console:get-logs', () => getLogBuffer())

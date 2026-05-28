@@ -4,6 +4,8 @@ import { useStore, activeAccount } from '../store'
 import { SkinAvatar } from '../pages/SettingsPage'
 import { useT } from '../i18n'
 
+const isMac = navigator.userAgent.toLowerCase().includes('macintosh')
+
 const ICO = 22
 
 const navItems = [
@@ -66,6 +68,11 @@ export default function Sidebar() {
     .filter(i => i.lastPlayed)
     .sort((a, b) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0))
     .slice(0, 3)
+
+  const [vlcInstalled, setVlcInstalled] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (isMac) window.api.tools.checkVlc().then(setVlcInstalled).catch(() => {})
+  }, [])
 
   const [recentIcons, setRecentIcons] = useState<Record<string, string>>({})
   useEffect(() => {
@@ -146,6 +153,20 @@ export default function Sidebar() {
             ))}
           </div>
         ))}
+
+        {/* macOS tools */}
+        {isMac && (
+          <div className="relative">
+            <NavLink to="/mac-tools" title="Utilidades macOS" className={({ isActive }) => navCls(isActive)}>
+              <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
+              </svg>
+            </NavLink>
+            {vlcInstalled === false && (
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full border border-bg-secondary" />
+            )}
+          </div>
+        )}
 
         {/* Separator */}
         {recentInstances.length > 0 && (

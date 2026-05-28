@@ -13,6 +13,7 @@ const OP_META: Record<OperationType, { label: string; icon: React.ReactNode }> =
   'save-fpack':         { label: 'Guardando',    icon: <SaveIcon /> },
   'install-minecraft':  { label: 'Preparando',   icon: <GearIcon /> },
   'install-java':       { label: 'Instalando Java', icon: <CodeIcon /> },
+  'install-vlc':        { label: 'Instalando VLC',  icon: <VideoIcon /> },
   'duplicate-instance': { label: 'Duplicando',   icon: <CopyIcon /> },
   'download-update':    { label: 'Descargando',  icon: <DownloadIcon /> },
 }
@@ -43,6 +44,9 @@ function CopyIcon() {
 }
 function DownloadIcon() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+}
+function VideoIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
 }
 
 /* ── single chip ───────────────────────────────────────────────── */

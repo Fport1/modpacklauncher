@@ -17,6 +17,7 @@ import AdminPage from './pages/AdminPage'
 import BlockPreviewPage from './pages/BlockPreviewPage'
 import FriendsPage from './pages/FriendsPage'
 import ConsolePage from './pages/ConsolePage'
+import MacToolsPage from './pages/MacToolsPage'
 import { useStore } from './store'
 
 const AFK_THRESHOLD = 3 * 60 * 1000
@@ -239,6 +240,7 @@ export default function App() {
               <Route path="/block-preview" element={<BlockPreviewPage />} />
               <Route path="/friends" element={<FriendsPage />} />
               <Route path="/console" element={<ConsolePage />} />
+              <Route path="/mac-tools" element={<MacToolsPage />} />
               <Route path="/admin" element={<AdminPage />} />
             </Routes>
           </main>

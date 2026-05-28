@@ -410,6 +410,13 @@ const api = {
     }
   },
 
+  // macOS tools
+  tools: {
+    checkVlc: () => ipcRenderer.invoke('tools:check-vlc') as Promise<boolean>,
+    getArch: () => ipcRenderer.invoke('tools:get-arch') as Promise<string>,
+    installVlc: (arch: 'arm64' | 'x64') => ipcRenderer.invoke('tools:install-vlc', arch) as Promise<void>,
+  },
+
   // Launcher console logs
   console: {
     getLogs: () => ipcRenderer.invoke('console:get-logs') as Promise<{ level: string; message: string; at: number }[]>,
