@@ -1334,7 +1334,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     for (const bin of candidates) {
       try {
         await access(bin)
-        if (process.arch === 'arm64') {
+        // Use uname -m for real hardware arch (process.arch lies under Rosetta)
+        const { stdout: unameOut } = await exec('uname', ['-m'])
+        if (unameOut.trim() === 'arm64') {
           const { stdout } = await exec('file', [bin])
           if (!stdout.includes('arm64')) return false // Intel-only VLC on Apple Silicon
         }
@@ -1346,7 +1348,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return false
   })
 
-  ipcMain.handle('tools:get-arch', () => process.arch)
+  ipcMain.handle('tools:get-arch', async () => {
+    if (process.platform !== 'darwin') return process.arch
+    try {
+      const { execFile } = await import('child_process')
+      const { promisify } = await import('util')
+      const { stdout } = await promisify(execFile)('uname', ['-m'])
+      return stdout.trim() === 'arm64' ? 'arm64' : 'x64'
+    } catch {
+      return process.arch
+    }
+  })
 
   ipcMain.handle('tools:install-vlc', async (_e, arch: 'arm64' | 'x64') => {
     const op = makeOpEmitter('Instalando VLC', 'install-vlc')
