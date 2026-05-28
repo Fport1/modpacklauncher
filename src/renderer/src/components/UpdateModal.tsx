@@ -3,9 +3,10 @@ import { useStore } from '../store'
 import { APP_VERSION } from '../../../shared/types'
 
 export default function UpdateModal() {
-  const { pendingUpdate, updateModalOpen, setUpdateModalOpen } = useStore()
+  const { pendingUpdate, updateModalOpen, setUpdateModalOpen, operations } = useStore()
   const [downloading, setDownloading] = useState(false)
   const [progress, setProgress] = useState(0)
+  const [forceConfirm, setForceConfirm] = useState(false)
   const unsubRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
@@ -15,9 +16,15 @@ export default function UpdateModal() {
   if (!updateModalOpen || !pendingUpdate) return null
 
   const isMac = /Mac/.test(navigator.userAgent)
+  const hasRunning = [...operations.values()].some(op => op.status === 'running')
 
   async function handleUpdate() {
     if (!pendingUpdate) return
+    if (hasRunning && !forceConfirm) {
+      setForceConfirm(true)
+      return
+    }
+    setForceConfirm(false)
     setDownloading(true)
     setProgress(0)
     unsubRef.current = window.api.updater.onDownloadProgress((pct) => setProgress(pct))
@@ -94,25 +101,33 @@ export default function UpdateModal() {
           </div>
         )}
 
+        {/* Warning: operations running */}
+        {forceConfirm && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 mb-4">
+            <p className="text-sm font-medium text-amber-400 mb-1">⚠️ Hay operaciones en curso</p>
+            <p className="text-xs text-text-muted">Hay descargas o instalaciones activas. Si actualizas ahora se interrumpirán y podrían quedar archivos incompletos.</p>
+          </div>
+        )}
+
         {/* Actions */}
         {!downloading && (
           <div className="flex gap-3">
             <button
-              onClick={() => setUpdateModalOpen(false)}
+              onClick={() => { setUpdateModalOpen(false); setForceConfirm(false) }}
               className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors"
             >
               Más tarde
             </button>
             <button
               onClick={handleUpdate}
-              className="flex-1 flex items-center justify-center gap-2 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-white rounded-lg text-sm font-medium transition-colors ${forceConfirm ? 'bg-amber-500 hover:bg-amber-400' : 'bg-accent hover:bg-accent-hover'}`}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              Actualizar ahora
+              {forceConfirm ? 'Actualizar de todas formas' : 'Actualizar ahora'}
             </button>
           </div>
         )}
