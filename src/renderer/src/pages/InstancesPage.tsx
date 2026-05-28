@@ -356,6 +356,7 @@ export default function InstancesPage() {
   const [fpackFile, setFpackFile] = useState<string | null>(null)
   const [fpackSaveState, setFpackSaveState] = useState<{ instance: Instance; path: string } | null>(null)
   const [launching, setLaunching] = useState<string | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [systemRam, setSystemRam] = useState(8192)
   const [updateMap, setUpdateMap] = useState<Map<string, boolean>>(new Map())
 
@@ -763,8 +764,11 @@ export default function InstancesPage() {
   }
 
   function handleDelete(id: string) {
-    if (!confirm('¿Eliminar esta instancia? Los archivos del juego se borrarán permanentemente.')) return
-    // Close UI immediately so the user can continue
+    setDeleteConfirmId(id)
+  }
+
+  function confirmDelete(id: string) {
+    setDeleteConfirmId(null)
     if (fullDetailInstance?.id === id) setFullDetailInstance(null)
     if (detailInstance?.id === id) setDetailInstance(null)
     removeInstance(id)
@@ -1668,6 +1672,32 @@ export default function InstancesPage() {
               <button onClick={() => editingGroup.name.trim() && handleEditGroup(editingGroup.originalName, editingGroup.name.trim(), editingGroup.color)}
                 className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors">
                 Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete confirmation ── */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[200]">
+          <div className="bg-bg-secondary border border-border rounded-2xl p-6 w-[380px] shadow-2xl">
+            <h2 className="text-base font-bold text-text-primary mb-2">¿Eliminar instancia?</h2>
+            <p className="text-sm text-text-muted mb-5">
+              Los archivos del juego de esta instancia se borrarán permanentemente. Esta acción no se puede deshacer.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => confirmDelete(deleteConfirmId)}
+                className="flex-1 py-2 bg-red-500 hover:bg-red-400 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Eliminar
               </button>
             </div>
           </div>

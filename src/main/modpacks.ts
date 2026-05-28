@@ -718,25 +718,31 @@ export async function importFpack(
         await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256, 1)
       } catch (e) {
         if ((e as Error).message?.startsWith('Hash mismatch')) {
-          console.warn(`[fpack:import] ${(e as Error).message} — descargando sin verificación`)
-          await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined, 1)
-          // Detect CDN error pages (HTML) for any file type
-          try {
-            const header = await new Promise<Buffer>((res, rej) => {
-              const s = fs.createReadStream(destPath, { start: 0, end: 3 })
-              const chunks: Buffer[] = []
-              s.on('data', c => chunks.push(c as Buffer))
-              s.on('end', () => res(Buffer.concat(chunks)))
-              s.on('error', rej)
-            })
-            const isHtml = header.length > 0 && header[0] === 0x3C // '<'
-            const isJar = file.path.endsWith('.jar') || file.path.endsWith('.jar.disabled')
-            const invalidJar = isJar && (header.length < 2 || header[0] !== 0x50 || header[1] !== 0x4B)
-            if (isHtml || invalidJar) {
-              await fs.remove(destPath)
-              console.warn(`[fpack:import] Respuesta del CDN no válida, omitiendo: ${path.basename(file.path)}`)
-            }
-          } catch { await fs.remove(destPath).catch(() => {}) }
+          if (activeManifest.sourceUrl) {
+            // Fresh manifest has correct hashes — if CDN still returns wrong content, skip the file
+            console.warn(`[fpack:import] CDN devuelve contenido incorrecto para ${path.basename(file.path)}, omitiendo`)
+          } else {
+            // Legacy fpack: re-download without hash check (CDN may have updated the file)
+            console.warn(`[fpack:import] ${(e as Error).message} — descargando sin verificación`)
+            await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined, 1)
+            // Skip files that are clearly CDN error pages (HTML or invalid JAR)
+            try {
+              const header = await new Promise<Buffer>((res, rej) => {
+                const s = fs.createReadStream(destPath, { start: 0, end: 3 })
+                const chunks: Buffer[] = []
+                s.on('data', c => chunks.push(c as Buffer))
+                s.on('end', () => res(Buffer.concat(chunks)))
+                s.on('error', rej)
+              })
+              const isHtml = header.length > 0 && header[0] === 0x3C
+              const isJar = file.path.endsWith('.jar') || file.path.endsWith('.jar.disabled')
+              const invalidJar = isJar && (header.length < 2 || header[0] !== 0x50 || header[1] !== 0x4B)
+              if (isHtml || invalidJar) {
+                await fs.remove(destPath)
+                console.warn(`[fpack:import] Respuesta no válida del CDN, omitiendo: ${path.basename(file.path)}`)
+              }
+            } catch { await fs.remove(destPath).catch(() => {}) }
+          }
         } else {
           throw e
         }
