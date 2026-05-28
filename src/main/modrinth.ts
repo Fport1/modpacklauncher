@@ -258,38 +258,46 @@ export async function getInstalledModsMeta(
   const cachedResult: Record<string, InstalledModMeta> = {}
   const uncachedHashes: string[] = []
   const hashToFile: Record<string, string> = {}
+  const allHashes = Object.values(fileHashMap)
 
   for (const [file, hash] of Object.entries(fileHashMap)) {
+    hashToFile[hash] = file
     const entry = cache[hash]
     if (entry && entry.mcVersion === mcVersion && entry.loader === normalizedLoader) {
-      const { mcVersion: _mv, loader: _l, ...meta } = entry
-      cachedResult[file] = meta
+      const { mcVersion: _mv, loader: _l, hasUpdate: _hu, ...meta } = entry
+      cachedResult[file] = { ...meta, hasUpdate: false } // hasUpdate recomputed fresh below
     } else {
       uncachedHashes.push(hash)
-      hashToFile[hash] = file
     }
   }
 
-  if (uncachedHashes.length === 0) return cachedResult
-
   try {
-    const updateBody: Record<string, unknown> = { hashes: uncachedHashes, algorithm: 'sha1' }
+    // Always fetch latest versions for ALL files — hasUpdate must never come from cache
+    const updateBody: Record<string, unknown> = { hashes: allHashes, algorithm: 'sha1' }
     if (mcVersion) updateBody.game_versions = [mcVersion]
     if (loader && loader !== 'vanilla') updateBody.loaders = [loader]
 
-    const [installedRes, latestRes] = await Promise.allSettled([
-      axios.post<Record<string, { id: string; project_id: string }>>(
-        `${BASE}/version_files`, { hashes: uncachedHashes, algorithm: 'sha1' }, { headers: HEADERS, timeout: 15_000 }
-      ),
-      axios.post<Record<string, { id: string; project_id: string }>>(
-        `${BASE}/version_files/update`, updateBody, { headers: HEADERS, timeout: 15_000 }
-      )
-    ])
+    const latestRes = await axios.post<Record<string, { id: string; project_id: string }>>(
+      `${BASE}/version_files/update`, updateBody, { headers: HEADERS, timeout: 15_000 }
+    )
+    const latestData = latestRes.data
 
-    const installedData: Record<string, { id: string; project_id: string }> =
-      installedRes.status === 'fulfilled' ? installedRes.value.data : {}
-    const latestData: Record<string, { id: string; project_id: string }> =
-      latestRes.status === 'fulfilled' ? latestRes.value.data : {}
+    // Update hasUpdate for already-cached files using stored installedVersionId
+    for (const [hash, file] of Object.entries(hashToFile)) {
+      if (cachedResult[file]) {
+        const installedId = cache[hash]?.installedVersionId
+        const latest = latestData[hash]
+        cachedResult[file].hasUpdate = !!(installedId && latest && installedId !== latest.id)
+      }
+    }
+
+    if (uncachedHashes.length === 0) return cachedResult
+
+    // Fetch installed version info for files not in cache
+    const installedRes = await axios.post<Record<string, { id: string; project_id: string }>>(
+      `${BASE}/version_files`, { hashes: uncachedHashes, algorithm: 'sha1' }, { headers: HEADERS, timeout: 15_000 }
+    )
+    const installedData = installedRes.data
 
     const projectIds = [...new Set(Object.values(installedData).map(v => v.project_id).filter(Boolean))]
     const projectMeta: Record<string, { icon_url: string | null; client_side: string; server_side: string }> = {}
