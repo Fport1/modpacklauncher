@@ -1320,6 +1320,25 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── macOS Tools ───────────────────────────────────────────────────────────
 
+  function getMacArch(): 'arm64' | 'x64' {
+    // Native arm64 build — definitive
+    if (process.arch === 'arm64') return 'arm64'
+    // x64 build: could be Intel OR Apple Silicon + Rosetta 2
+    // sysctl.proc_translated === '1' means running under Rosetta
+    try {
+      const { execSync } = require('child_process')
+      const translated = execSync('sysctl -n sysctl.proc_translated', { timeout: 1000 }).toString().trim()
+      if (translated === '1') return 'arm64'
+    } catch {}
+    // Final fallback: actual machine arch from uname
+    try {
+      const { execSync } = require('child_process')
+      const machineArch = execSync('uname -m', { timeout: 1000 }).toString().trim()
+      if (machineArch === 'arm64') return 'arm64'
+    } catch {}
+    return 'x64'
+  }
+
   ipcMain.handle('tools:check-vlc', async () => {
     if (process.platform !== 'darwin') return true
     const { access } = await import('fs/promises')
@@ -1334,9 +1353,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     for (const bin of candidates) {
       try {
         await access(bin)
-        // Use uname -m for real hardware arch (process.arch lies under Rosetta)
-        const { stdout: unameOut } = await exec('uname', ['-m'])
-        if (unameOut.trim() === 'arm64') {
+        if (getMacArch() === 'arm64') {
           const { stdout } = await exec('file', [bin])
           if (!stdout.includes('arm64')) return false // Intel-only VLC on Apple Silicon
         }
@@ -1348,16 +1365,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return false
   })
 
-  ipcMain.handle('tools:get-arch', async () => {
+  ipcMain.handle('tools:get-arch', () => {
     if (process.platform !== 'darwin') return process.arch
-    try {
-      const { execFile } = await import('child_process')
-      const { promisify } = await import('util')
-      const { stdout } = await promisify(execFile)('uname', ['-m'])
-      return stdout.trim() === 'arm64' ? 'arm64' : 'x64'
-    } catch {
-      return process.arch
-    }
+    return getMacArch()
   })
 
   ipcMain.handle('tools:install-vlc', async (_e, arch: 'arm64' | 'x64') => {
