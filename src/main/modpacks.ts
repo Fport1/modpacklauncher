@@ -720,22 +720,23 @@ export async function importFpack(
         if ((e as Error).message?.startsWith('Hash mismatch')) {
           console.warn(`[fpack:import] ${(e as Error).message} — descargando sin verificación`)
           await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined, 1)
-          // Validate downloaded JARs are real ZIPs (not CDN error pages)
-          if (file.path.endsWith('.jar') || file.path.endsWith('.jar.disabled')) {
-            try {
-              const header = await new Promise<Buffer>((res, rej) => {
-                const s = fs.createReadStream(destPath, { start: 0, end: 3 })
-                const chunks: Buffer[] = []
-                s.on('data', c => chunks.push(c as Buffer))
-                s.on('end', () => res(Buffer.concat(chunks)))
-                s.on('error', rej)
-              })
-              if (header.length < 2 || header[0] !== 0x50 || header[1] !== 0x4B) {
-                await fs.remove(destPath)
-                console.warn(`[fpack:import] Archivo no es un JAR válido (posible error del CDN), omitiendo: ${path.basename(file.path)}`)
-              }
-            } catch { await fs.remove(destPath).catch(() => {}) }
-          }
+          // Detect CDN error pages (HTML) for any file type
+          try {
+            const header = await new Promise<Buffer>((res, rej) => {
+              const s = fs.createReadStream(destPath, { start: 0, end: 3 })
+              const chunks: Buffer[] = []
+              s.on('data', c => chunks.push(c as Buffer))
+              s.on('end', () => res(Buffer.concat(chunks)))
+              s.on('error', rej)
+            })
+            const isHtml = header.length > 0 && header[0] === 0x3C // '<'
+            const isJar = file.path.endsWith('.jar') || file.path.endsWith('.jar.disabled')
+            const invalidJar = isJar && (header.length < 2 || header[0] !== 0x50 || header[1] !== 0x4B)
+            if (isHtml || invalidJar) {
+              await fs.remove(destPath)
+              console.warn(`[fpack:import] Respuesta del CDN no válida, omitiendo: ${path.basename(file.path)}`)
+            }
+          } catch { await fs.remove(destPath).catch(() => {}) }
         } else {
           throw e
         }

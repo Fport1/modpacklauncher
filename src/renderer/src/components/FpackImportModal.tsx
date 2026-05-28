@@ -23,17 +23,12 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
       .catch(e => setError(e?.message ?? 'Archivo .fpack inválido'))
   }, [filePath])
 
-  async function install() {
+  function install() {
     if (!manifest || !name.trim() || installing) return
-    setInstalling(true)
-    setError('')
-    try {
-      const inst = await window.api.fpack.import(filePath, name.trim())
-      onInstalled(inst)
-    } catch (e: any) {
-      setError(e?.message ?? 'Error al instalar')
-      setInstalling(false)
-    }
+    window.api.fpack.import(filePath, name.trim())
+      .then(inst => onInstalled(inst))
+      .catch(() => {})
+    onClose()
   }
 
   return (
