@@ -97,7 +97,10 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
             </p>
             {isRunning && (
               <div className="mt-1 h-1 bg-bg-hover rounded-full overflow-hidden">
-                <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                {pct > 0
+                  ? <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                  : <div className="h-full bg-accent/60 rounded-full animate-pulse w-full" />
+                }
               </div>
             )}
             {isDone && op.message && (

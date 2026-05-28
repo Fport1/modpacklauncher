@@ -709,29 +709,30 @@ export async function importFpack(
     }
   }
 
-  if (hasFreshManifest) {
-    // Fresh manifest: delegate to installModpack which handles filesZip as a single download
+  // Use installModpack only when fresh manifest has a filesZip (single download = fast)
+  // Otherwise always use the parallel no-hash loop
+  if (hasFreshManifest && activeManifest.filesZip) {
     await installModpack(instanceId, activeManifest, onProgress)
   } else {
-    // Legacy fpack without sourceUrl: individual downloads, no hash check
     const files = (activeManifest.files ?? []).filter(f => !!f.url)
     let completed = 0
     const CONCURRENCY = 16
 
     async function downloadOne(file: typeof files[number]): Promise<void> {
       checkCancel()
-      const destPath = path.join(gameDir, file.path)
-      await fs.ensureDir(path.dirname(destPath))
-      const stat = await fs.stat(destPath).catch(() => null)
-      if (stat && stat.size > 0) {
-        completed++
-        onProgress?.(completed, files.length, path.basename(file.path))
-        return
-      }
       try {
+        const destPath = path.join(gameDir, file.path)
+        await fs.ensureDir(path.dirname(destPath))
+        const stat = await fs.stat(destPath).catch(() => null)
+        if (stat && stat.size > 0) {
+          completed++
+          onProgress?.(completed, files.length, path.basename(file.path))
+          return
+        }
         await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined, 1)
-      } catch {
-        console.warn(`[fpack:import] No se pudo descargar: ${path.basename(file.path)}`)
+      } catch (e) {
+        if ((e as Error).name === 'CancelError') throw e
+        console.warn(`[fpack:import] Error con ${path.basename(file.path)}: ${(e as Error).message}`)
       }
       completed++
       onProgress?.(completed, files.length, `Descargando ${path.basename(file.path)}...`)
