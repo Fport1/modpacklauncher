@@ -52,7 +52,8 @@ export async function installMinecraftVersion(
 
 export async function installModloader(
   instance: Instance,
-  onProgress?: (current: number, total: number, msg: string) => void
+  onProgress?: (current: number, total: number, msg: string) => void,
+  javaPath?: string
 ): Promise<void> {
   const sharedDir = getSharedDir()
 
@@ -105,7 +106,7 @@ export async function installModloader(
   } else if (instance.modloader === 'neoforge' && instance.modloaderVersion) {
     onProgress?.(0, 2, 'Instalando NeoForge...')
     const { installNeoForged } = await import('@xmcl/installer')
-    await installNeoForged('neoforge', instance.modloaderVersion, sharedDir, {})
+    await installNeoForged('neoforge', instance.modloaderVersion, sharedDir, javaPath ? { java: javaPath } : {})
     onProgress?.(2, 2, 'NeoForge instalado!')
   }
 }
@@ -132,18 +133,33 @@ export async function launchInstance(
 
   checkCancel()
 
-  // 2. Ensure modloader is installed
+  // 2. Resolve Java early — NeoForge post-processors need it during install
+  onProgress?.(1, 6, 'Verificando Java...')
+  let javaPath = instance.javaPath || settings.javaPath
+  if (javaPath && path.isAbsolute(javaPath) && !(await fs.pathExists(javaPath))) {
+    javaPath = ''
+  }
+  if (!javaPath) {
+    javaPath = await ensureJava(instance.minecraft, (current, total, msg) => {
+      onProgress?.(1, 6, msg)
+    })
+  }
+  if (!javaPath) throw new Error('No se pudo encontrar ni instalar Java. Configúralo manualmente en Ajustes.')
+
+  checkCancel()
+
+  // 3. Ensure modloader is installed (passes javaPath for NeoForge post-processors)
   if (instance.modloader !== 'vanilla' && instance.modloaderVersion) {
     const loaderVersionId = resolveVersionId(instance)
     const loaderJson = path.join(sharedDir, 'versions', loaderVersionId, `${loaderVersionId}.json`)
     if (!(await fs.pathExists(loaderJson))) {
-      await installModloader(instance, onProgress)
+      await installModloader(instance, onProgress, javaPath)
     }
   }
 
   checkCancel()
 
-  // 3. Always verify + download assets & libraries (idempotent — skips valid files)
+  // 4. Always verify + download assets & libraries (idempotent — skips valid files)
   const { Version } = await import('@xmcl/core')
   const { installDependencies } = await import('@xmcl/installer')
   const versionId = resolveVersionId(instance)
@@ -163,10 +179,20 @@ export async function launchInstance(
     })
   } catch (e) {
     checkCancel()
-    // Some assets failed — warn and proceed; Minecraft will report specific issues
-    if (e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)) {
+    const isAggregate = e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)
+    if (isAggregate) {
+      const errors: unknown[] = (e as { errors: unknown[] }).errors ?? []
+      // If any failure involves net.minecraft libraries, the game cannot run — rethrow
+      const hasCritical = errors.some(err => {
+        const msg = String(err instanceof Error ? err.message : err)
+        return msg.includes('net.minecraft') || msg.includes('net/minecraft')
+      })
+      if (hasCritical) {
+        clearInterval(timer)
+        throw e
+      }
       sendToWindow(mainWindow, 'game:log', instance.id,
-        '[Launcher] Algunos assets fallaron al descargar. El juego puede funcionar igualmente.'
+        `[Launcher] ${errors.length} asset(s) fallaron al descargar. El juego puede funcionar igualmente.`
       )
     } else {
       clearInterval(timer)
@@ -178,20 +204,8 @@ export async function launchInstance(
 
   checkCancel()
 
-  // 4. Ensure Java is available (auto-install if needed)
-  onProgress?.(4, 6, 'Verificando Java...')
-  let javaPath = instance.javaPath || settings.javaPath
-  // If the stored path is absolute but the file is gone (e.g. Java was uninstalled), clear it so
-  // ensureJava can auto-detect/install a working one rather than passing a dead path to spawn().
-  if (javaPath && path.isAbsolute(javaPath) && !(await fs.pathExists(javaPath))) {
-    javaPath = ''
-  }
-  if (!javaPath) {
-    javaPath = await ensureJava(instance.minecraft, (current, total, msg) => {
-      onProgress?.(4, 6, msg)
-    })
-  }
-  if (!javaPath) throw new Error('No se pudo encontrar ni instalar Java. Configúralo manualmente en Ajustes.')
+  // Java already resolved in step 2 — javaPath is guaranteed non-empty here
+  onProgress?.(4, 6, 'Java listo.')
 
   checkCancel()
 
