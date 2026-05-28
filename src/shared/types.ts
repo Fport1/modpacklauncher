@@ -107,7 +107,6 @@ export interface Settings {
   updateManifestUrl: string
   githubToken?: string
   modInstallChannel: 'all' | 'stable'
-  closeToTray: boolean
   launchAtStartup: boolean
   aiConfigs: AIConfig[]
   aiDefaultId?: string
@@ -155,7 +154,6 @@ export const DEFAULT_SETTINGS: Settings = {
   checkUpdatesOnStart: true,
   updateManifestUrl: 'https://raw.githubusercontent.com/Fport1/modpacklauncher-updates/main/update.json',
   modInstallChannel: 'all',
-  closeToTray: true,
   launchAtStartup: false,
   aiConfigs: [],
   language: 'es',

@@ -624,20 +624,6 @@ export default function SettingsPage() {
           Sistema
         </h2>
         <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
-          {!isMac && (
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <span className="text-sm text-text-secondary">Minimizar a bandeja al cerrar</span>
-                <p className="text-xs text-text-muted mt-0.5">Al pulsar X el launcher se oculta en la barra del sistema en vez de cerrarse.</p>
-              </div>
-              <button
-                onClick={() => setLocalSettings({ ...localSettings, closeToTray: !localSettings.closeToTray })}
-                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.closeToTray ? 'bg-accent' : 'bg-border'}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.closeToTray ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
-            </label>
-          )}
           <label className="flex items-center justify-between cursor-pointer">
             <div>
               <span className="text-sm text-text-secondary">{isMac ? 'Iniciar con el sistema' : 'Iniciar con Windows'}</span>

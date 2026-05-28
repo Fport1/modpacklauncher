@@ -11,7 +11,7 @@ import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
 import { checkJavaStatus, ensureJava } from './java'
 import { checkForUpdates, openDownloadPage, downloadAndInstall } from './updater'
-import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack, readFpackManifest, importFpack, saveFpackLocally } from './modpacks'
+import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack, readFpackManifest, readFpackUrlFormat, fetchManifest, importFpack, installModpack, saveFpackLocally } from './modpacks'
 import type { ExportParams } from './modpacks'
 import type { PublishedModpack } from '../shared/types'
 import type { UpdateManifest } from './updater'
@@ -470,10 +470,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── .fpack ────────────────────────────────────────────────────────────────────
 
-  ipcMain.handle('fpack:read-manifest', (_e, fpackPath: string) => readFpackManifest(fpackPath))
+  ipcMain.handle('fpack:read-manifest', async (_e, fpackPath: string) => {
+    const urlFormat = await readFpackUrlFormat(fpackPath)
+    if (urlFormat) return fetchManifest(urlFormat.manifestUrl, urlFormat.accessKey)
+    return readFpackManifest(fpackPath)
+  })
 
   ipcMain.handle('fpack:import', async (e, fpackPath: string, instanceName: string) => {
-    const manifest = await readFpackManifest(fpackPath)
+    const urlFormat = await readFpackUrlFormat(fpackPath)
+    const manifest = urlFormat
+      ? await fetchManifest(urlFormat.manifestUrl, urlFormat.accessKey)
+      : await readFpackManifest(fpackPath)
     const instance = await createInstance({
       name: instanceName || manifest.name,
       minecraft: manifest.minecraft,
@@ -481,14 +488,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       modloaderVersion: manifest.modloaderVersion,
       description: manifest.description,
       modpackVersion: manifest.version,
+      ...(urlFormat ? { modpackUrl: urlFormat.manifestUrl, modpackKey: urlFormat.accessKey } : {}),
     })
     const op = makeOpEmitter(`Importando ${instance.name}`, 'import-fpack')
     resetCancel()
     try {
-      await importFpack(fpackPath, instance.id, (current, total, message) => {
-        op.progress(message, current, total)
-        e.sender.send('fpack:progress', { current, total, message })
-      })
+      if (urlFormat) {
+        await installModpack(instance.id, manifest, (current, total, message) => {
+          op.progress(message, current, total)
+          e.sender.send('fpack:progress', { current, total, message })
+        })
+      } else {
+        await importFpack(fpackPath, instance.id, (current, total, message) => {
+          op.progress(message, current, total)
+          e.sender.send('fpack:progress', { current, total, message })
+        })
+      }
       op.done()
     } catch (err) {
       if ((err as Error).name === 'CancelError') {

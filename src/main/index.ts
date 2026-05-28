@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, protocol, Tray, Menu, nativeImage, session } from 'electron'
+import { app, BrowserWindow, shell, protocol, session } from 'electron'
 import { setMaxListeners } from 'events'
 import path from 'path'
 import fs from 'fs-extra'
@@ -16,27 +16,6 @@ installConsoleCapture()
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
-}
-
-let tray: Tray | null = null
-
-function createTray(win: BrowserWindow): void {
-  const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
-  const iconPath = path.join(__dirname, `../../build/${iconFile}`)
-  const img = fs.existsSync(iconPath)
-    ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })
-    : nativeImage.createEmpty()
-
-  tray = new Tray(img)
-  tray.setToolTip('ModpackLauncher')
-  tray.on('click', () => { win.show(); win.focus() })
-
-  const menu = Menu.buildFromTemplate([
-    { label: 'Abrir ModpackLauncher', click: () => { win.show(); win.focus() } },
-    { type: 'separator' },
-    { label: 'Salir', click: () => { tray?.destroy(); app.exit(0) } }
-  ])
-  tray.setContextMenu(menu)
 }
 
 protocol.registerSchemesAsPrivileged([
@@ -159,7 +138,6 @@ app.whenReady().then(() => {
   app.setAsDefaultProtocolClient('modpacklauncher')
 
   createWindow()
-  if (mainWindow && process.platform !== 'darwin') createTray(mainWindow)
 
   // Handle deep links / .fpack files from argv on Windows/Linux (first launch)
   const urlArg = process.argv.find(a => a.startsWith('modpacklauncher://'))
@@ -195,11 +173,6 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
-  tray?.destroy()
-  tray = null
-})
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
@@ -213,11 +186,6 @@ ipcMain.on('window:maximize', () => {
   else mainWindow?.maximize()
 })
 ipcMain.on('window:close', () => {
-  const { closeToTray } = getSettings()
-  if (closeToTray && tray && process.platform !== 'darwin') {
-    mainWindow?.hide()
-  } else {
-    mainWindow?.webContents.send('app:request-close')
-  }
+  mainWindow?.webContents.send('app:request-close')
 })
-ipcMain.on('app:confirm-close', () => { tray?.destroy(); mainWindow?.destroy() })
+ipcMain.on('app:confirm-close', () => { mainWindow?.destroy() })

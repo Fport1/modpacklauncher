@@ -662,8 +662,21 @@ export async function getLocalModList(instanceId: string): Promise<string[]> {
 }
 
 // ── .fpack file format ─────────────────────────────────────────────────────
-// A .fpack is a ZIP with manifest.json + optional overrides/ folder.
-// Files with a URL are downloaded; files without URL must be in overrides/.
+// New format: plain JSON { manifestUrl, accessKey? } — tiny shortcut file.
+// Legacy format: ZIP with manifest.json + optional overrides/ folder.
+
+export async function readFpackUrlFormat(fpackPath: string): Promise<{ manifestUrl: string; accessKey?: string } | null> {
+  try {
+    const content = await fs.readFile(fpackPath, 'utf8')
+    const parsed = JSON.parse(content)
+    if (typeof parsed.manifestUrl === 'string') {
+      return { manifestUrl: parsed.manifestUrl, accessKey: parsed.accessKey ?? undefined }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
 
 export async function readFpackManifest(fpackPath: string): Promise<ModpackManifest> {
   const zip = new AdmZip(fpackPath)
@@ -765,17 +778,23 @@ export async function saveFpackLocally(
   onProgress?: (msg: string, current: number, total: number) => void,
   manifestOverride?: ModpackManifest
 ): Promise<void> {
+  const instances = await loadInstances()
+  const instance = instances.find(i => i.id === instanceId)
+
+  // URL-based instances: save as tiny shortcut file instead of ZIP
+  if (instance?.modpackUrl) {
+    const urlFpack: { manifestUrl: string; accessKey?: string } = { manifestUrl: instance.modpackUrl }
+    if (instance.modpackKey) urlFpack.accessKey = instance.modpackKey
+    onProgress?.('Guardando archivo…', 0, 1)
+    await fs.ensureDir(path.dirname(outputPath))
+    await fs.writeFile(outputPath, JSON.stringify(urlFpack, null, 2), 'utf8')
+    onProgress?.('Listo', 1, 1)
+    return
+  }
+
   const gameDir = await getInstanceGameDir(instanceId)
   const manifest = manifestOverride ?? await loadLocalManifest(instanceId)
   if (!manifest) throw new Error('Esta instancia no tiene un manifiesto de modpack.\nPrimero publícala desde "Exportar modpack".')
-
-  // Embed the live modpack URL so fpack import can always fetch a fresh manifest
-  const instances = await loadInstances()
-  const instance = instances.find(i => i.id === instanceId)
-  if (instance?.modpackUrl) {
-    manifest.sourceUrl = instance.modpackUrl
-    if (instance.modpackKey) manifest.sourceKey = instance.modpackKey
-  }
 
   const manifestPaths = new Set((manifest.files ?? []).map(f => f.path))
   const overrideDirs = ['config', 'scripts', 'resourcepacks', 'shaderpacks']
