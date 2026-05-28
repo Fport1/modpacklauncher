@@ -60,6 +60,9 @@ export interface ModpackManifest {
   mods?: ModEntry[]
   configs?: ConfigEntry[]
   changelog?: string
+  // fpack linking — if set, import fetches a fresh manifest from this URL
+  sourceUrl?: string
+  sourceKey?: string
 }
 
 export interface ModEntry {

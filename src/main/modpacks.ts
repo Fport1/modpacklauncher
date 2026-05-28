@@ -689,8 +689,21 @@ export async function importFpack(
     await fs.writeFile(destPath, entry.getData())
   }
 
+  // If the fpack was linked to a live modpack URL, fetch the fresh manifest
+  // so files always come from the latest version instead of the stale fpack snapshot
+  let activeManifest = manifest
+  if (manifest.sourceUrl) {
+    try {
+      onProgress?.(0, 1, 'Obteniendo manifiesto actualizado del modpack…')
+      const fresh = await fetchManifest(manifest.sourceUrl, manifest.sourceKey)
+      activeManifest = { ...manifest, ...fresh, sourceUrl: manifest.sourceUrl, sourceKey: manifest.sourceKey }
+    } catch (e) {
+      console.warn('[fpack:import] No se pudo obtener el manifiesto fresco, usando el del fpack:', (e as Error).message)
+    }
+  }
+
   // Download files that have a URL — up to 8 concurrent downloads
-  const files = (manifest.files ?? []).filter(f => !!f.url)
+  const files = (activeManifest.files ?? []).filter(f => !!f.url)
   let completed = 0
   const CONCURRENCY = 8
 
@@ -740,7 +753,7 @@ export async function importFpack(
     await Promise.all(batch.map(downloadOne))
   }
 
-  await saveLocalManifest(instanceId, manifest)
+  await saveLocalManifest(instanceId, activeManifest)
 }
 
 async function walkDir(dir: string): Promise<string[]> {
@@ -764,6 +777,14 @@ export async function saveFpackLocally(
   const gameDir = await getInstanceGameDir(instanceId)
   const manifest = manifestOverride ?? await loadLocalManifest(instanceId)
   if (!manifest) throw new Error('Esta instancia no tiene un manifiesto de modpack.\nPrimero publícala desde "Exportar modpack".')
+
+  // Embed the live modpack URL so fpack import can always fetch a fresh manifest
+  const instances = await loadInstances()
+  const instance = instances.find(i => i.id === instanceId)
+  if (instance?.modpackUrl) {
+    manifest.sourceUrl = instance.modpackUrl
+    if (instance.modpackKey) manifest.sourceKey = instance.modpackKey
+  }
 
   const manifestPaths = new Set((manifest.files ?? []).map(f => f.path))
   const overrideDirs = ['config', 'scripts', 'resourcepacks', 'shaderpacks']
