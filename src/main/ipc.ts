@@ -479,9 +479,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       })
       op.done()
     } catch (err) {
-      op.error((err as Error).message ?? 'Error al importar')
-      await deleteInstance(instance.id).catch(() => {})
-      throw err
+      if ((err as Error).name === 'CancelError') {
+        op.done('Importación cancelada')
+        await deleteInstance(instance.id).catch(() => {})
+      } else {
+        op.error((err as Error).message ?? 'Error al importar')
+        await deleteInstance(instance.id).catch(() => {})
+        throw err
+      }
     }
     return instance
   })

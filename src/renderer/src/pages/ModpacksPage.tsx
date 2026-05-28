@@ -266,11 +266,8 @@ export default function ModpacksPage() {
 
   async function handleInstall() {
     if (!fetchedManifest) return
-    setLoading(true)
     setError('')
-    setInstallProgress(null)
-    unsubRef.current?.()
-    unsubRef.current = window.api.onProgress(setInstallProgress)
+    setLoading(true)
     try {
       const newInst = await window.api.instances.create({
         name: instanceName.trim() || fetchedManifest.name,
@@ -282,16 +279,13 @@ export default function ModpacksPage() {
         modpackVersion: fetchedManifest.version,
         modpackKey: keyInput.trim() || undefined
       })
-      await window.api.modpacks.install(newInst.id, fetchedManifest)
-      const allInstances = await window.api.instances.list()
-      setInstances(allInstances)
       closeAddModal()
+      window.api.modpacks.install(newInst.id, fetchedManifest)
+        .then(() => window.api.instances.list().then(setInstances))
+        .catch(() => {})
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Installation failed')
-    } finally {
+      setError(e instanceof Error ? e.message : 'Error al crear la instancia')
       setLoading(false)
-      setInstallProgress(null)
-      unsubRef.current?.()
     }
   }
 

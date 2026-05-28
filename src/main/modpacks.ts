@@ -715,11 +715,11 @@ export async function importFpack(
     const valid = exists && file.sha256 ? await fileMatchesHash(destPath, file.sha256) : exists
     if (!valid) {
       try {
-        await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256)
+        await downloadFile(normalizeUrl(file.url), destPath, undefined, file.sha256, 1)
       } catch (e) {
         if ((e as Error).message?.startsWith('Hash mismatch')) {
           console.warn(`[fpack:import] ${(e as Error).message} — descargando sin verificación`)
-          await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined)
+          await downloadFile(normalizeUrl(file.url), destPath, undefined, undefined, 1)
           // Validate downloaded JARs are real ZIPs (not CDN error pages)
           if (file.path.endsWith('.jar') || file.path.endsWith('.jar.disabled')) {
             try {
