@@ -966,6 +966,7 @@ export default function InstancesPage() {
                   onDuplicate={() => setDuplicateSource(inst)}
                   onChangeIcon={() => setIconPickInstance(inst)}
                   onSaveFpack={() => window.api.fpack.choosePath(inst.id).then(path => { if (path) setFpackSaveState({ instance: inst, path }) }).catch(e => addToast(e?.message ?? 'Error al guardar', 'error'))}
+                  onRepair={() => window.api.launcher.repair(inst.id).catch(() => {})}
                   isLaunching={launching === inst.id}
                   isRunning={runningInstances.has(inst.id)}
                   hasUpdate={updateMap.get(inst.id) === true}

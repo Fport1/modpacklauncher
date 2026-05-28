@@ -1280,6 +1280,15 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               {instanceSize && ` · ${instanceSize}`}
             </p>
           </div>
+          {!isRunning && (
+            <button
+              onClick={() => setConfirm({ title: 'Reparar instancia', message: 'Se reverificarán y redescargarán los archivos de Minecraft, el modloader y los mods del modpack. ¿Continuar?', onConfirm: () => window.api.launcher.repair(instance.id).catch(() => {}) })}
+              title="Reparar instancia"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-hover hover:bg-bg-card border border-border text-text-secondary hover:text-text-primary text-xs rounded-lg transition-colors">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+              Reparar
+            </button>
+          )}
           {isRunning ? (
             <button onClick={() => window.api.launcher.kill(instance.id)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs rounded-lg transition-colors">
