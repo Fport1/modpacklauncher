@@ -199,7 +199,7 @@ export default function ModpacksPage() {
   // .fpack import (from browse or OS open)
   const [fpackFile, setFpackFile] = useState<string | null>(null)
   // .fpack save (from modpack instance or published modpack)
-  const [fpackSaveState, setFpackSaveState] = useState<{ instance: Instance; path: string; manifest?: ModpackManifest } | null>(null)
+  const [fpackSaveState, setFpackSaveState] = useState<{ instance: Instance; path: string; manifest?: ModpackManifest; modpackUrl?: string; accessKey?: string } | null>(null)
 
   useEffect(() => {
     window.api.instances.list().then(setInstances)
@@ -345,7 +345,7 @@ export default function ModpacksPage() {
     }
     const filePath = await window.api.fpack.choosePath(match.id)
     if (!filePath) return
-    setFpackSaveState({ instance: match, path: filePath, manifest })
+    setFpackSaveState({ instance: match, path: filePath, manifest, modpackUrl: mp.url, accessKey: mp.accessKey ?? undefined })
   }
 
   async function handleUpdate(inst: Instance) {
@@ -852,6 +852,8 @@ export default function ModpacksPage() {
           instance={fpackSaveState.instance}
           outputPath={fpackSaveState.path}
           manifest={fpackSaveState.manifest}
+          modpackUrl={fpackSaveState.modpackUrl}
+          accessKey={fpackSaveState.accessKey}
           onClose={() => setFpackSaveState(null)}
         />
       )}

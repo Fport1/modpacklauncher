@@ -6,11 +6,13 @@ interface Props {
   outputPath: string
   onClose: () => void
   manifest?: ModpackManifest
+  modpackUrl?: string
+  accessKey?: string
 }
 
-export default function FpackSaveModal({ instance, outputPath, onClose, manifest }: Props) {
+export default function FpackSaveModal({ instance, outputPath, onClose, manifest, modpackUrl, accessKey }: Props) {
   useEffect(() => {
-    window.api.fpack.saveTo(instance.id, outputPath, manifest)
+    window.api.fpack.saveTo(instance.id, outputPath, manifest, modpackUrl, accessKey)
       .catch(() => {})
     onClose()
   }, [])

@@ -369,8 +369,8 @@ const api = {
     },
     choosePath: (instanceId: string) =>
       ipcRenderer.invoke('fpack:choose-path', instanceId) as Promise<string | null>,
-    saveTo: (instanceId: string, outputPath: string, manifest?: ModpackManifest) =>
-      ipcRenderer.invoke('fpack:save-to', instanceId, outputPath, manifest) as Promise<void>,
+    saveTo: (instanceId: string, outputPath: string, manifest?: ModpackManifest, modpackUrl?: string, accessKey?: string) =>
+      ipcRenderer.invoke('fpack:save-to', instanceId, outputPath, manifest, modpackUrl, accessKey) as Promise<void>,
     onSaveProgress: (cb: (data: { message: string; current: number; total: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, d: { message: string; current: number; total: number }) => cb(d)
       ipcRenderer.on('fpack:save-progress', handler)

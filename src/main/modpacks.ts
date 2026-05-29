@@ -776,15 +776,20 @@ export async function saveFpackLocally(
   instanceId: string,
   outputPath: string,
   onProgress?: (msg: string, current: number, total: number) => void,
-  manifestOverride?: ModpackManifest
+  manifestOverride?: ModpackManifest,
+  modpackUrlOverride?: string,
+  accessKeyOverride?: string
 ): Promise<void> {
   const instances = await loadInstances()
   const instance = instances.find(i => i.id === instanceId)
 
+  const effectiveUrl = modpackUrlOverride ?? instance?.modpackUrl
+  const effectiveKey = accessKeyOverride ?? instance?.modpackKey
+
   // URL-based instances: save as tiny shortcut file instead of ZIP
-  if (instance?.modpackUrl) {
-    const urlFpack: { manifestUrl: string; accessKey?: string } = { manifestUrl: instance.modpackUrl }
-    if (instance.modpackKey) urlFpack.accessKey = instance.modpackKey
+  if (effectiveUrl) {
+    const urlFpack: { manifestUrl: string; accessKey?: string } = { manifestUrl: effectiveUrl }
+    if (effectiveKey) urlFpack.accessKey = effectiveKey
     onProgress?.('Guardando archivo…', 0, 1)
     await fs.ensureDir(path.dirname(outputPath))
     await fs.writeFile(outputPath, JSON.stringify(urlFpack, null, 2), 'utf8')

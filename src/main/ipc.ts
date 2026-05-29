@@ -530,14 +530,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return result.canceled ? null : (result.filePath ?? null)
   })
 
-  ipcMain.handle('fpack:save-to', async (e, instanceId: string, outputPath: string, manifestOverride?: import('../shared/types').ModpackManifest) => {
+  ipcMain.handle('fpack:save-to', async (e, instanceId: string, outputPath: string, manifestOverride?: import('../shared/types').ModpackManifest, modpackUrlOverride?: string, accessKeyOverride?: string) => {
     const fileName = path.basename(outputPath)
     const op = makeOpEmitter(`Guardando ${fileName}`, 'save-fpack')
     try {
       await saveFpackLocally(instanceId, outputPath, (message, current, total) => {
         op.progress(message, current, total)
         e.sender.send('fpack:save-progress', { message, current, total })
-      }, manifestOverride)
+      }, manifestOverride, modpackUrlOverride, accessKeyOverride)
       op.done(outputPath)
     } catch (err) {
       op.error((err as Error).message ?? 'Error al guardar')
