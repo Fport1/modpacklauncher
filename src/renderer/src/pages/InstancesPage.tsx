@@ -772,7 +772,6 @@ export default function InstancesPage() {
     if (fullDetailInstance?.id === id) setFullDetailInstance(null)
     if (detailInstance?.id === id) setDetailInstance(null)
     removeInstance(id)
-    addToast('Eliminando instancia...', 'info', 8000)
     window.api.instances.delete(id).catch(e =>
       addToast(`Error al eliminar: ${e?.message ?? 'Error desconocido'}`, 'error')
     )
