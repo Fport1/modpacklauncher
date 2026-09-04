@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, protocol, session } from 'electron'
 import { setMaxListeners } from 'events'
+import { setDefaultAutoSelectFamily } from 'net'
 import path from 'path'
 import fs from 'fs-extra'
 import { registerIpcHandlers, getSettings } from './ipc'
@@ -9,6 +10,12 @@ import { installConsoleCapture, setLoggerWindow } from './logger'
 // AbortSignal. With >10 concurrent downloads Node.js emits MaxListenersExceededWarning.
 // Setting 0 removes the limit without hiding real leaks (the listeners are all short-lived).
 setMaxListeners(0)
+
+// Happy Eyeballs: si una dirección (típicamente la IPv6) no responde, prueba la
+// siguiente en vez de esperar al timeout completo. curl lo hace por su cuenta,
+// undici no, y en redes que anuncian IPv6 sin enrutarlo bien las descargas de
+// assets morían con "Connect Timeout Error" mientras el navegador iba fino.
+setDefaultAutoSelectFamily(true)
 
 installConsoleCapture()
 

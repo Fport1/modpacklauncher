@@ -46,6 +46,87 @@ async function pruneEmptyAssets(sharedDir: string): Promise<number> {
   return empty.length
 }
 
+type ResolvedVersion = Awaited<ReturnType<typeof import('@xmcl/core').Version.parse>>
+
+/**
+ * Concurrencia de descarga por intento, de más a menos agresiva.
+ *
+ * En conexiones que no aguantan 8 descargas en paralelo, undici corta con
+ * "Connect Timeout Error" en la mayoría de assets pero deja pasar unos pocos:
+ * un caso real bajó de 4267 a 4066 vacíos en una sola pasada. installDependencies
+ * no reintenta, agrega los fallos y termina, así que cada intento avanzaba unos
+ * cientos y el usuario tenía que pulsar Reparar una y otra vez. Reintentando con
+ * menos paralelismo cada vez, la descarga acaba completándose sola.
+ */
+const ASSET_CONCURRENCY_STEPS = [8, 4, 2, 1]
+
+/** Devuelve los sub-errores de un AggregateError, o null si no lo es. */
+function aggregateErrors(e: unknown): unknown[] | null {
+  const isAggregate = e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)
+  if (!isAggregate) return null
+  return (e as { errors: unknown[] }).errors ?? []
+}
+
+/**
+ * installDependencies con reintentos. Entre intentos borra los ficheros que
+ * quedaron a 0 bytes, que es lo que deja una descarga cortada a medias.
+ *
+ * Un fallo en una librería net.minecraft aborta de inmediato: sin ella el juego
+ * no arranca y reintentar no aporta nada.
+ */
+async function installDependenciesWithRetry(
+  resolvedVersion: ResolvedVersion,
+  sharedDir: string,
+  note?: (msg: string) => void
+): Promise<void> {
+  const { installDependencies } = await import('@xmcl/installer')
+  let lastError: unknown
+
+  for (const [attempt, concurrency] of ASSET_CONCURRENCY_STEPS.entries()) {
+    checkCancel()
+    const pruned = await pruneEmptyAssets(sharedDir)
+    if (pruned > 0) note?.(`${pruned} asset(s) vacíos, se vuelven a descargar...`)
+
+    try {
+      await installDependencies(resolvedVersion, {
+        assetsDownloadConcurrency: concurrency,
+        skipRevalidate: false
+      })
+      lastError = undefined
+      break
+    } catch (e) {
+      checkCancel()
+      const errors = aggregateErrors(e)
+      if (!errors) throw e
+
+      const hasCritical = errors.some((err) => {
+        const msg = String(err instanceof Error ? err.message : err)
+        return msg.includes('net.minecraft') || msg.includes('net/minecraft')
+      })
+      if (hasCritical) throw e
+
+      lastError = e
+      const left = ASSET_CONCURRENCY_STEPS.length - attempt - 1
+      if (left > 0) {
+        note?.(`${errors.length} asset(s) fallaron. Reintentando con menos descargas en paralelo...`)
+      }
+    }
+  }
+
+  // Da igual si el último intento "terminó bien": lo que decide es que no queden
+  // ficheros vacíos, porque son los que dejan el juego en negro.
+  const stillEmpty = await findEmptyFiles(path.join(sharedDir, 'assets', 'objects'))
+  if (stillEmpty.length > 0) {
+    const detail = aggregateErrors(lastError)?.length
+      ? ` Último error: ${String((aggregateErrors(lastError)![0] as Error)?.message ?? '')}`.slice(0, 200)
+      : ''
+    throw new Error(
+      `${stillEmpty.length} assets no se pudieron descargar tras ${ASSET_CONCURRENCY_STEPS.length} intentos. ` +
+        `El juego se vería en negro.${detail}`
+    )
+  }
+}
+
 export function killInstance(instanceId: string): void {
   const proc = runningProcesses.get(instanceId)
   if (proc) {
@@ -192,16 +273,8 @@ export async function launchInstance(
 
   // 4. Always verify + download assets & libraries (idempotent — skips valid files)
   const { Version } = await import('@xmcl/core')
-  const { installDependencies } = await import('@xmcl/installer')
   const versionId = resolveVersionId(instance)
   const resolvedVersion = await Version.parse(sharedDir, versionId)
-
-  const pruned = await pruneEmptyAssets(sharedDir)
-  if (pruned > 0) {
-    sendToWindow(mainWindow, 'game:log', instance.id,
-      `[Launcher] ${pruned} asset(s) estaban vacíos y se volverán a descargar.`
-    )
-  }
 
   let elapsed = 0
   const timer = setInterval(() => {
@@ -211,43 +284,12 @@ export async function launchInstance(
   onProgress?.(2, 6, 'Verificando assets y librerías...')
 
   try {
-    await installDependencies(resolvedVersion, {
-      assetsDownloadConcurrency: 8,
-      skipRevalidate: false
+    await installDependenciesWithRetry(resolvedVersion, sharedDir, (msg) => {
+      sendToWindow(mainWindow, 'game:log', instance.id, `[Launcher] ${msg}`)
+      onProgress?.(2, 6, msg)
     })
-  } catch (e) {
-    checkCancel()
-    const isAggregate = e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)
-    if (isAggregate) {
-      const errors: unknown[] = (e as { errors: unknown[] }).errors ?? []
-      // If any failure involves net.minecraft libraries, the game cannot run — rethrow
-      const hasCritical = errors.some(err => {
-        const msg = String(err instanceof Error ? err.message : err)
-        return msg.includes('net.minecraft') || msg.includes('net/minecraft')
-      })
-      if (hasCritical) {
-        clearInterval(timer)
-        throw e
-      }
-      sendToWindow(mainWindow, 'game:log', instance.id,
-        `[Launcher] ${errors.length} asset(s) fallaron al descargar. El juego puede funcionar igualmente.`
-      )
-    } else {
-      clearInterval(timer)
-      throw e
-    }
   } finally {
     clearInterval(timer)
-  }
-
-  // Si tras instalar siguen quedando assets vacíos, el juego arrancaría con
-  // texturas en blanco y pantalla negra. Mejor fallar aquí y decir por qué.
-  const stillEmpty = await findEmptyFiles(path.join(sharedDir, 'assets', 'objects'))
-  if (stillEmpty.length > 0) {
-    throw new Error(
-      `${stillEmpty.length} assets se descargaron vacíos. El juego se vería en negro. ` +
-        'Comprueba tu conexión y pulsa Reparar en la instancia.'
-    )
   }
 
   checkCancel()
@@ -377,12 +419,11 @@ export async function repairInstance(
   // 4. Re-verify all assets and libraries
   onProgress?.(3, STEPS, 'Verificando assets y librerías...')
   const { Version } = await import('@xmcl/core')
-  const { installDependencies } = await import('@xmcl/installer')
   const versionId = resolveVersionId(instance)
   const resolvedVersion = await Version.parse(sharedDir, versionId)
-  const pruned = await pruneEmptyAssets(sharedDir)
-  if (pruned > 0) onProgress?.(3, STEPS, `Redescargando ${pruned} assets vacíos...`)
-  await installDependencies(resolvedVersion, { assetsDownloadConcurrency: 8, skipRevalidate: false })
+  await installDependenciesWithRetry(resolvedVersion, sharedDir, (msg) =>
+    onProgress?.(3, STEPS, msg)
+  )
 
   // 5. Re-verify modpack files (re-downloads corrupt or missing ones)
   if (hasModpack) {
