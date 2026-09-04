@@ -6,26 +6,16 @@
 // firma valida no se puede ejecutar: macOS lo bloquea con "Malware bloqueado"
 // sin opcion de abrirlo igualmente.
 //
-// Firmamos ad-hoc (identidad "-") de dentro hacia fuera. No sustituye a la
-// notarizacion: el usuario aun vera el aviso de desarrollador no identificado
-// la primera vez, pero podra abrir la app.
+// Se usa --deep porque codesign se niega a firmar un bundle cuyos
+// subcomponentes anidados no estan firmados (Electron Framework contiene
+// helpers como chrome_crashpad_handler varios niveles mas abajo). --deep se
+// desaconseja cuando cada binario necesita sus propios entitlements o hardened
+// runtime; aqui no usamos ninguno de los dos, asi que es el enfoque adecuado.
+//
+// Esto no sustituye a la notarizacion: el usuario aun vera el aviso de
+// desarrollador no identificado la primera vez, pero podra abrir la app.
 const { execFileSync } = require('child_process')
-const fs = require('fs')
 const path = require('path')
-
-function sign(target) {
-  execFileSync('codesign', ['--force', '--sign', '-', '--timestamp=none', target], {
-    stdio: 'inherit'
-  })
-}
-
-function nestedBundles(dir) {
-  if (!fs.existsSync(dir)) return []
-  return fs
-    .readdirSync(dir)
-    .filter((name) => name.endsWith('.app') || name.endsWith('.framework'))
-    .map((name) => path.join(dir, name))
-}
 
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== 'darwin') return
@@ -39,12 +29,12 @@ exports.default = async function afterPack(context) {
     `${context.packager.appInfo.productFilename}.app`
   )
 
-  // Primero los bundles anidados (helpers y frameworks), luego el contenedor.
-  for (const bundle of nestedBundles(path.join(appPath, 'Contents', 'Frameworks'))) {
-    sign(bundle)
-  }
-  sign(appPath)
-
+  execFileSync(
+    'codesign',
+    ['--force', '--deep', '--sign', '-', '--timestamp=none', appPath],
+    { stdio: 'inherit' }
+  )
   execFileSync('codesign', ['--verify', '--deep', '--strict', appPath], { stdio: 'inherit' })
+
   console.log(`[mac-adhoc-sign] firma ad-hoc aplicada a ${appPath}`)
 }
