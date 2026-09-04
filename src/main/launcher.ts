@@ -15,6 +15,37 @@ function sendToWindow(window: BrowserWindow, channel: string, ...args: unknown[]
   return true
 }
 
+/**
+ * Busca ficheros de 0 bytes bajo `dir`.
+ *
+ * Una descarga que falla a medias puede dejar el fichero creado y vacío. La
+ * revalidación de @xmcl/installer no siempre los vuelve a pedir, y Minecraft
+ * arranca sin quejarse: el pack.mcmeta vanilla se lee como JSON vacío y las
+ * texturas fallan con "PNG header missing", así que el juego se ve todo negro
+ * sin ningún error visible.
+ */
+async function findEmptyFiles(dir: string): Promise<string[]> {
+  const found: string[] = []
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      found.push(...(await findEmptyFiles(full)))
+    } else if (entry.isFile()) {
+      const stat = await fs.stat(full).catch(() => null)
+      if (stat?.size === 0) found.push(full)
+    }
+  }
+  return found
+}
+
+/** Borra los assets vacíos para que installDependencies los vuelva a descargar. */
+async function pruneEmptyAssets(sharedDir: string): Promise<number> {
+  const empty = await findEmptyFiles(path.join(sharedDir, 'assets', 'objects'))
+  await Promise.all(empty.map((file) => fs.remove(file)))
+  return empty.length
+}
+
 export function killInstance(instanceId: string): void {
   const proc = runningProcesses.get(instanceId)
   if (proc) {
@@ -165,6 +196,13 @@ export async function launchInstance(
   const versionId = resolveVersionId(instance)
   const resolvedVersion = await Version.parse(sharedDir, versionId)
 
+  const pruned = await pruneEmptyAssets(sharedDir)
+  if (pruned > 0) {
+    sendToWindow(mainWindow, 'game:log', instance.id,
+      `[Launcher] ${pruned} asset(s) estaban vacíos y se volverán a descargar.`
+    )
+  }
+
   let elapsed = 0
   const timer = setInterval(() => {
     elapsed += 3
@@ -200,6 +238,16 @@ export async function launchInstance(
     }
   } finally {
     clearInterval(timer)
+  }
+
+  // Si tras instalar siguen quedando assets vacíos, el juego arrancaría con
+  // texturas en blanco y pantalla negra. Mejor fallar aquí y decir por qué.
+  const stillEmpty = await findEmptyFiles(path.join(sharedDir, 'assets', 'objects'))
+  if (stillEmpty.length > 0) {
+    throw new Error(
+      `${stillEmpty.length} assets se descargaron vacíos. El juego se vería en negro. ` +
+        'Comprueba tu conexión y pulsa Reparar en la instancia.'
+    )
   }
 
   checkCancel()
@@ -253,7 +301,7 @@ export async function launchInstance(
     launchOpts.width = instance.width
     launchOpts.height = instance.height
   }
-  const proc = await launch(launchOpts as Parameters<typeof launch>[0])
+  const proc = await launch(launchOpts as unknown as Parameters<typeof launch>[0])
 
   const extra = options?.suppressEvents === true
   if (!extra) {
@@ -332,6 +380,8 @@ export async function repairInstance(
   const { installDependencies } = await import('@xmcl/installer')
   const versionId = resolveVersionId(instance)
   const resolvedVersion = await Version.parse(sharedDir, versionId)
+  const pruned = await pruneEmptyAssets(sharedDir)
+  if (pruned > 0) onProgress?.(3, STEPS, `Redescargando ${pruned} assets vacíos...`)
   await installDependencies(resolvedVersion, { assetsDownloadConcurrency: 8, skipRevalidate: false })
 
   // 5. Re-verify modpack files (re-downloads corrupt or missing ones)
