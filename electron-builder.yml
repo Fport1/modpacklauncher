@@ -13,6 +13,9 @@ directories:
   buildResources: build
   output: dist
 
+# Firma ad-hoc del .app en macOS (ver scripts/mac-adhoc-sign.js)
+afterPack: scripts/mac-adhoc-sign.js
+
 files:
   - out/**/*
 
@@ -49,6 +52,9 @@ mac:
   icon: build/icon.icns
   category: public.app-category.games
   extendInfo: build/mac-extra-info.plist
+  # Sin certificado Developer ID: electron-builder no firma y el hook afterPack
+  # aplica la firma ad-hoc, obligatoria para que arranque en Apple Silicon
+  identity: null
 
 dmg:
   writeUpdateInfo: false
