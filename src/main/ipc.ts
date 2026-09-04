@@ -111,6 +111,29 @@ function sendDone(mainWindow: BrowserWindow | null | undefined, msg = 'Cancelado
   sendToWindow(mainWindow, 'progress', { current: 0, total: 0, message: msg, type: 'install', done: true })
 }
 
+/**
+ * Convierte un error en un texto que se pueda enseñar al usuario.
+ *
+ * Un AggregateError (el que lanza installDependencies cuando fallan descargas)
+ * tiene `message` vacío y toda la información en `errors`. Como `??` solo cae al
+ * fallback con null/undefined, el panel acababa mostrando un chip rojo sin
+ * ningún motivo: se veía como si "Reparando" se hubiera quedado colgado.
+ */
+function describeError(err: unknown, fallback: string): string {
+  const nested = (err as { errors?: unknown[] })?.errors
+  if (Array.isArray(nested) && nested.length > 0) {
+    const messages = nested
+      .slice(0, 3)
+      .map((e) => (e instanceof Error ? e.message : String(e)))
+      .filter(Boolean)
+    const extra = nested.length > 3 ? ` (+${nested.length - 3} más)` : ''
+    if (messages.length > 0) return `${messages.join('; ')}${extra}`
+    return `${nested.length} operaciones fallaron`
+  }
+  const message = err instanceof Error ? err.message : typeof err === 'string' ? err : ''
+  return message || fallback
+}
+
 function makeOpEmitter(name: string, type: string) {
   const id = uuidv4()
   sendToWindow(currentMainWindow, 'ops:update', { id, name, type, status: 'running', startedAt: Date.now() })
@@ -203,7 +226,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await deleteInstance(instanceId)
       op.done('Instancia eliminada')
     } catch (err) {
-      op.error((err as Error).message ?? 'Error al eliminar')
+      op.error(describeError(err, 'Error al eliminar'))
       throw err
     }
   })
@@ -256,7 +279,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       op.done()
       return result
     } catch (err) {
-      op.error((err as Error).message ?? 'Error al duplicar')
+      op.error(describeError(err, 'Error al duplicar'))
       throw err
     }
   })
@@ -328,7 +351,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
           `Si el error persiste, borra la carpeta: ${assetsPath}`
         )
       }
-      op.error((e as Error).message ?? 'Error')
+      op.error(describeError(e, 'Error'))
       throw e
     }
   })
@@ -387,7 +410,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       await repairInstance(instance, settings, (current, total, message) => op.progress(message, current, total))
       op.done('Instancia reparada correctamente')
     } catch (err) {
-      op.error((err as Error).message ?? 'Error al reparar la instancia')
+      op.error(describeError(err, 'Error al reparar la instancia'))
       throw err
     }
   })
@@ -409,7 +432,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       op.done('¡Modpack instalado!')
     } catch (e) {
       if (e instanceof CancelError) { op.done(); return }
-      op.error((e as Error).message ?? 'Error')
+      op.error(describeError(e, 'Error'))
       throw e
     }
   })
@@ -438,7 +461,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       return { upToDate: false, manifest, ...result }
     } catch (e) {
       if (e instanceof CancelError) { op.done(); return { upToDate: false, manifest } }
-      op.error((e as Error).message ?? 'Error')
+      op.error(describeError(e, 'Error'))
       throw e
     }
   })
@@ -463,7 +486,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       op.done()
       return url
     } catch (err) {
-      op.error((err as Error).message ?? 'Error al exportar')
+      op.error(describeError(err, 'Error al exportar'))
       throw err
     }
   })
@@ -510,7 +533,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         op.done('Importación cancelada')
         await deleteInstance(instance.id).catch(() => {})
       } else {
-        op.error((err as Error).message ?? 'Error al importar')
+        op.error(describeError(err, 'Error al importar'))
         await deleteInstance(instance.id).catch(() => {})
         throw err
       }
@@ -540,7 +563,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       }, manifestOverride, modpackUrlOverride, accessKeyOverride)
       op.done(outputPath)
     } catch (err) {
-      op.error((err as Error).message ?? 'Error al guardar')
+      op.error(describeError(err, 'Error al guardar'))
       throw err
     }
   })
@@ -603,7 +626,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       return meta
     } catch (e) {
       if (e instanceof CancelError) { op.done(); return }
-      op.error((e as Error).message ?? 'Error')
+      op.error(describeError(e, 'Error'))
       throw e
     }
   })
@@ -657,7 +680,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       return result
     } catch (e) {
       if (e instanceof CancelError) { op.done(); return null }
-      op.error((e as Error).message ?? 'Error')
+      op.error(describeError(e, 'Error'))
       throw e
     }
   })
@@ -1287,7 +1310,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     } catch (ex) {
       await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
       if (ex instanceof CancelError) { op.done(); return }
-      op.error((ex as Error).message ?? 'Error')
+      op.error(describeError(ex, 'Error'))
       throw ex
     }
   })
@@ -1330,7 +1353,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       })
       op.done()
     } catch (err) {
-      op.error((err as Error).message ?? 'Error')
+      op.error(describeError(err, 'Error'))
       throw err
     }
   })
@@ -1466,7 +1489,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
       op.done('VLC instalado correctamente')
     } catch (err) {
-      op.error((err as Error).message ?? 'Error al instalar VLC')
+      op.error(describeError(err, 'Error al instalar VLC'))
       throw err
     } finally {
       if (mountPoint) {

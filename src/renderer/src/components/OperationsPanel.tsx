@@ -106,8 +106,10 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
             {isDone && op.message && (
               <p className="text-[10px] text-green-400/70 truncate mt-0.5">{op.message}</p>
             )}
-            {isError && op.error && (
-              <p className="text-[10px] text-red-400/70 truncate mt-0.5">{op.error}</p>
+            {/* Sin `|| 'Error'` un error de mensaje vacío pinta el chip rojo
+                sin decir nada, y parece que la operación sigue en marcha. */}
+            {isError && (
+              <p className="text-[10px] text-red-400/70 truncate mt-0.5">{op.error || 'Error desconocido'}</p>
             )}
           </div>
 
