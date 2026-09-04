@@ -10,10 +10,7 @@ const XSTS_AUTH_URL = 'https://xsts.auth.xboxlive.com/xsts/authorize'
 const MC_AUTH_URL = 'https://api.minecraftservices.com/authentication/login_with_xbox'
 const MC_PROFILE_URL = 'https://api.minecraftservices.com/minecraft/profile'
 
-export async function loginMicrosoft(
-  mainWindow: BrowserWindow,
-  _clientId?: string
-): Promise<MinecraftAccount> {
+export async function loginMicrosoft(mainWindow: BrowserWindow): Promise<MinecraftAccount> {
   const authUrl =
     `https://login.live.com/oauth20_authorize.srf` +
     `?client_id=${MS_CLIENT_ID}` +
@@ -27,10 +24,7 @@ export async function loginMicrosoft(
   return await authenticateWithXbox(msTokens.access_token, msTokens.refresh_token)
 }
 
-export async function refreshMicrosoftToken(
-  account: MinecraftAccount,
-  _clientId?: string
-): Promise<MinecraftAccount> {
+export async function refreshMicrosoftToken(account: MinecraftAccount): Promise<MinecraftAccount> {
   if (!account.refreshToken) throw new Error('No refresh token available')
 
   const decryptedRefresh = safeStorage.isEncryptionAvailable()
@@ -45,11 +39,26 @@ export async function refreshMicrosoftToken(
     scope: 'XboxLive.signin offline_access'
   })
 
-  const { data } = await axios.post(
-    'https://login.live.com/oauth20_token.srf',
-    params.toString(),
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-  )
+  let data: { access_token: string; refresh_token: string }
+  try {
+    const res = await axios.post(
+      'https://login.live.com/oauth20_token.srf',
+      params.toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
+    )
+    data = res.data
+  } catch (e: unknown) {
+    // Microsoft responde 400 invalid_grant cuando el refresh token caducó (90
+    // días sin uso), se revocó al cambiar la contraseña, o ya se consumió.
+    const err = (e as { response?: { status?: number; data?: { error?: string } } }).response
+    if (err?.status === 400) {
+      throw new Error(
+        `Tu sesión de Microsoft ha caducado (${err.data?.error ?? 'invalid_grant'}). ` +
+          'Ve a Ajustes, elimina la cuenta y vuelve a iniciar sesión.'
+      )
+    }
+    throw new Error('No se pudo renovar la sesión de Microsoft. Comprueba tu conexión.')
+  }
 
   return authenticateWithXbox(data.access_token, data.refresh_token)
 }
@@ -129,19 +138,32 @@ async function authenticateWithXbox(
 ): Promise<MinecraftAccount> {
   console.log('[auth] Step 1: Xbox Live auth...')
   // Xbox Live auth
-  const { data: xblData } = await axios.post(
-    XBOX_AUTH_URL,
-    {
-      Properties: {
-        AuthMethod: 'RPS',
-        SiteName: 'user.auth.xboxlive.com',
-        RpsTicket: `d=${msAccessToken}`
+  let xblData: { Token: string; DisplayClaims: { xui: { uhs: string }[] } }
+  try {
+    const res = await axios.post(
+      XBOX_AUTH_URL,
+      {
+        Properties: {
+          AuthMethod: 'RPS',
+          SiteName: 'user.auth.xboxlive.com',
+          RpsTicket: `d=${msAccessToken}`
+        },
+        RelyingParty: 'http://auth.xboxlive.com',
+        TokenType: 'JWT'
       },
-      RelyingParty: 'http://auth.xboxlive.com',
-      TokenType: 'JWT'
-    },
-    { headers: { 'Content-Type': 'application/json', Accept: 'application/json' } }
-  )
+      { headers: { 'Content-Type': 'application/json', Accept: 'application/json' } }
+    )
+    xblData = res.data
+  } catch (e: unknown) {
+    // 400 aquí significa que el token de Microsoft no sirve como ticket RPS.
+    const status = (e as { response?: { status?: number } }).response?.status
+    if (status === 400) {
+      throw new Error(
+        'Xbox Live rechazó la sesión de Microsoft. Ve a Ajustes, elimina la cuenta y vuelve a iniciar sesión.'
+      )
+    }
+    throw new Error('No se pudo conectar con Xbox Live. Comprueba tu conexión.')
+  }
 
   console.log('[auth] Step 1 OK. Step 2: XSTS...')
   const xblToken = xblData.Token
