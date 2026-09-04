@@ -37,7 +37,8 @@ export async function checkForUpdates(manifestUrl: string): Promise<UpdateCheckR
   if (!manifestUrl?.trim()) return { hasUpdate: false, currentVersion: APP_VERSION }
 
   const { data } = await axios.get<UpdateManifest>(manifestUrl.trim(), {
-    timeout: 10_000,
+    // 30s en vez de 10s: hay redes lentas donde la comprobacion se agotaba
+    timeout: 30_000,
     headers: { 'Cache-Control': 'no-cache' }
   })
 

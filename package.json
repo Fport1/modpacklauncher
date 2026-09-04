@@ -1,6 +1,6 @@
 {
   "name": "modpack-launcher",
-  "version": "1.8.6",
+  "version": "1.8.7",
   "description": "Cross-platform Minecraft modpack launcher with auto-update support",
   "main": "out/main/index.js",
   "scripts": {
@@ -26,6 +26,7 @@
     "monaco-editor": "^0.55.1",
     "qrcode": "^1.5.4",
     "skinview3d": "^3.4.1",
+    "undici": "7.2.3",
     "uuid": "^9.0.1"
   },
   "devDependencies": {

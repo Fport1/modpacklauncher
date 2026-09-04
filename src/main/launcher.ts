@@ -60,11 +60,43 @@ type ResolvedVersion = Awaited<ReturnType<typeof import('@xmcl/core').Version.pa
  */
 const ASSET_CONCURRENCY_STEPS = [8, 4, 2, 1]
 
+/**
+ * undici corta a los 10s por defecto al establecer la conexión, y hay redes
+ * donde eso no basta: un caso real fallaba cada asset con "Connect Timeout
+ * Error" mientras curl contra el mismo dominio respondía al instante, y la
+ * comprobación de actualizaciones (una sola peticion) también se agotaba a los
+ * 10s. Con margen de sobra la descarga sí llega.
+ */
+async function makeTolerantDispatcher(): Promise<import('undici').Agent> {
+  const { Agent } = await import('undici')
+  return new Agent({
+    connect: { timeout: 60_000 },
+    headersTimeout: 60_000,
+    bodyTimeout: 120_000
+  })
+}
+
 /** Devuelve los sub-errores de un AggregateError, o null si no lo es. */
 function aggregateErrors(e: unknown): unknown[] | null {
   const isAggregate = e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)
   if (!isAggregate) return null
   return (e as { errors: unknown[] }).errors ?? []
+}
+
+/**
+ * Vuelca al log el detalle de los primeros fallos.
+ *
+ * El chip del panel trunca el mensaje justo donde empieza lo util: undici pone
+ * las direcciones que intento en "Connect Timeout Error (attempted addresses:
+ * ...)", y sin eso no se puede distinguir un bloqueo de red de un timeout corto.
+ */
+function logDownloadFailures(errors: unknown[], note?: (msg: string) => void): void {
+  for (const err of errors.slice(0, 3)) {
+    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    console.error(`[assets] ${msg}`)
+  }
+  if (errors.length > 3) console.error(`[assets] ...y ${errors.length - 3} fallos más`)
+  note?.(`${errors.length} asset(s) fallaron. Detalle en la Consola del Launcher.`)
 }
 
 /**
@@ -80,37 +112,42 @@ async function installDependenciesWithRetry(
   note?: (msg: string) => void
 ): Promise<void> {
   const { installDependencies } = await import('@xmcl/installer')
+  const dispatcher = await makeTolerantDispatcher()
   let lastError: unknown
 
-  for (const [attempt, concurrency] of ASSET_CONCURRENCY_STEPS.entries()) {
-    checkCancel()
-    const pruned = await pruneEmptyAssets(sharedDir)
-    if (pruned > 0) note?.(`${pruned} asset(s) vacíos, se vuelven a descargar...`)
-
-    try {
-      await installDependencies(resolvedVersion, {
-        assetsDownloadConcurrency: concurrency,
-        skipRevalidate: false
-      })
-      lastError = undefined
-      break
-    } catch (e) {
+  try {
+    for (const [attempt, concurrency] of ASSET_CONCURRENCY_STEPS.entries()) {
       checkCancel()
-      const errors = aggregateErrors(e)
-      if (!errors) throw e
+      const pruned = await pruneEmptyAssets(sharedDir)
+      if (pruned > 0) note?.(`${pruned} asset(s) vacíos, se vuelven a descargar...`)
 
-      const hasCritical = errors.some((err) => {
-        const msg = String(err instanceof Error ? err.message : err)
-        return msg.includes('net.minecraft') || msg.includes('net/minecraft')
-      })
-      if (hasCritical) throw e
+      try {
+        await installDependencies(resolvedVersion, {
+          assetsDownloadConcurrency: concurrency,
+          skipRevalidate: false,
+          dispatcher
+        })
+        lastError = undefined
+        break
+      } catch (e) {
+        checkCancel()
+        const errors = aggregateErrors(e)
+        if (!errors) throw e
 
-      lastError = e
-      const left = ASSET_CONCURRENCY_STEPS.length - attempt - 1
-      if (left > 0) {
-        note?.(`${errors.length} asset(s) fallaron. Reintentando con menos descargas en paralelo...`)
+        const hasCritical = errors.some((err) => {
+          const msg = String(err instanceof Error ? err.message : err)
+          return msg.includes('net.minecraft') || msg.includes('net/minecraft')
+        })
+        if (hasCritical) throw e
+
+        lastError = e
+        logDownloadFailures(errors, note)
+        const left = ASSET_CONCURRENCY_STEPS.length - attempt - 1
+        if (left > 0) note?.('Reintentando con menos descargas en paralelo...')
       }
     }
+  } finally {
+    await dispatcher.close().catch(() => {})
   }
 
   // Da igual si el último intento "terminó bien": lo que decide es que no queden
