@@ -60,6 +60,19 @@ type ResolvedVersion = Awaited<ReturnType<typeof import('@xmcl/core').Version.pa
  */
 const ASSET_CONCURRENCY_STEPS = [8, 4, 2, 1]
 
+/**
+ * Tope de rondas de descarga de assets.
+ *
+ * Cuatro no bastaban en una máquina donde cada pasada recuperaba entre 150 y
+ * 200 assets de 4267: avanzaba de verdad (4267 → 4066 → 3949 → 3780), pero se
+ * rendía mucho antes de terminar y había que pulsar Reparar una y otra vez.
+ *
+ * En una máquina sana esto no cambia nada: la primera ronda termina sin errores
+ * y se sale. Solo entran más rondas cuando ya está fallando, y se corta en
+ * cuanto una ronda no recupera nada.
+ */
+const MAX_ASSET_ROUNDS = 40
+
 
 /** Devuelve los sub-errores de un AggregateError, o null si no lo es. */
 function aggregateErrors(e: unknown): unknown[] | null {
@@ -98,9 +111,14 @@ async function installDependenciesWithRetry(
 ): Promise<void> {
   const { installDependencies } = await import('@xmcl/installer')
   let lastError: unknown
+  let previousFailures = Infinity
+  let rounds = 0
 
-  for (const [attempt, concurrency] of ASSET_CONCURRENCY_STEPS.entries()) {
+  for (let round = 0; round < MAX_ASSET_ROUNDS; round++) {
+    rounds = round + 1
     checkCancel()
+    const concurrency =
+      ASSET_CONCURRENCY_STEPS[Math.min(round, ASSET_CONCURRENCY_STEPS.length - 1)]
     const pruned = await pruneEmptyAssets(sharedDir)
     if (pruned > 0) note?.(`${pruned} asset(s) vacíos, se vuelven a descargar...`)
 
@@ -124,8 +142,15 @@ async function installDependenciesWithRetry(
 
       lastError = e
       logDownloadFailures(errors, note)
-      const left = ASSET_CONCURRENCY_STEPS.length - attempt - 1
-      if (left > 0) note?.('Reintentando con menos descargas en paralelo...')
+
+      // Si una ronda no recupera nada, insistir no lleva a ningún sitio: se
+      // corta aquí en vez de agotar las 40 haciendo perder el tiempo.
+      if (errors.length >= previousFailures) {
+        note?.('La descarga no avanza, se deja de reintentar.')
+        break
+      }
+      previousFailures = errors.length
+      note?.(`Ronda ${rounds}: quedan ${errors.length} por descargar, reintentando...`)
     }
   }
 
@@ -137,7 +162,7 @@ async function installDependenciesWithRetry(
       ? ` Último error: ${String((aggregateErrors(lastError)![0] as Error)?.message ?? '')}`.slice(0, 200)
       : ''
     throw new Error(
-      `${stillEmpty.length} assets no se pudieron descargar tras ${ASSET_CONCURRENCY_STEPS.length} intentos. ` +
+      `${stillEmpty.length} assets no se pudieron descargar tras ${rounds} rondas. ` +
         `El juego se vería en negro.${detail}`
     )
   }
