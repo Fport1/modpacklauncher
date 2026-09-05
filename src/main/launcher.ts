@@ -60,43 +60,6 @@ type ResolvedVersion = Awaited<ReturnType<typeof import('@xmcl/core').Version.pa
  */
 const ASSET_CONCURRENCY_STEPS = [8, 4, 2, 1]
 
-/**
- * undici corta a los 10s por defecto al establecer la conexión, y hay redes
- * donde eso no basta: un caso real fallaba cada asset con "Connect Timeout
- * Error" mientras curl contra el mismo dominio respondía al instante, y la
- * comprobación de actualizaciones (una sola peticion) también se agotaba a los
- * 10s. Con margen de sobra la descarga sí llega.
- */
-async function makeTolerantDispatcher(): Promise<import('undici').Agent> {
-  const { Agent } = await import('undici')
-  return new Agent({
-    connect: { timeout: 60_000 },
-    headersTimeout: 60_000,
-    bodyTimeout: 120_000,
-    // Por defecto undici abre sockets sin límite por origen:
-    // assetsDownloadConcurrency limita las descargas, no las conexiones.
-    connections: 4,
-    pipelining: 1
-  })
-}
-
-/**
- * Servidores de assets, en orden de preferencia.
- *
- * El de Mojang es el primero y el que se usa siempre que responde. La réplica
- * existe porque hay máquinas donde ese host concreto no acepta conexiones desde
- * la app (timeout al conectar) mientras el resto de descargas del launcher —
- * librerías, mods, el jar — funcionan con normalidad, e incluso curl contra ese
- * mismo dominio conecta al instante desde la misma máquina.
- *
- * Solo se piden ficheros públicos de assets y @xmcl valida el SHA1 de cada uno
- * contra el índice oficial, así que una réplica no puede colar contenido
- * distinto: como mucho, no responder.
- */
-const ASSETS_HOSTS = [
-  'https://resources.download.minecraft.net',
-  'https://bmclapi2.bangbang93.com/assets'
-]
 
 /** Devuelve los sub-errores de un AggregateError, o null si no lo es. */
 function aggregateErrors(e: unknown): unknown[] | null {
@@ -134,43 +97,36 @@ async function installDependenciesWithRetry(
   note?: (msg: string) => void
 ): Promise<void> {
   const { installDependencies } = await import('@xmcl/installer')
-  const dispatcher = await makeTolerantDispatcher()
   let lastError: unknown
 
-  try {
-    for (const [attempt, concurrency] of ASSET_CONCURRENCY_STEPS.entries()) {
+  for (const [attempt, concurrency] of ASSET_CONCURRENCY_STEPS.entries()) {
+    checkCancel()
+    const pruned = await pruneEmptyAssets(sharedDir)
+    if (pruned > 0) note?.(`${pruned} asset(s) vacíos, se vuelven a descargar...`)
+
+    try {
+      await installDependencies(resolvedVersion, {
+        assetsDownloadConcurrency: concurrency,
+        skipRevalidate: false
+      })
+      lastError = undefined
+      break
+    } catch (e) {
       checkCancel()
-      const pruned = await pruneEmptyAssets(sharedDir)
-      if (pruned > 0) note?.(`${pruned} asset(s) vacíos, se vuelven a descargar...`)
+      const errors = aggregateErrors(e)
+      if (!errors) throw e
 
-      try {
-        await installDependencies(resolvedVersion, {
-          assetsDownloadConcurrency: concurrency,
-          skipRevalidate: false,
-          assetsHost: ASSETS_HOSTS,
-          dispatcher
-        })
-        lastError = undefined
-        break
-      } catch (e) {
-        checkCancel()
-        const errors = aggregateErrors(e)
-        if (!errors) throw e
+      const hasCritical = errors.some((err) => {
+        const msg = String(err instanceof Error ? err.message : err)
+        return msg.includes('net.minecraft') || msg.includes('net/minecraft')
+      })
+      if (hasCritical) throw e
 
-        const hasCritical = errors.some((err) => {
-          const msg = String(err instanceof Error ? err.message : err)
-          return msg.includes('net.minecraft') || msg.includes('net/minecraft')
-        })
-        if (hasCritical) throw e
-
-        lastError = e
-        logDownloadFailures(errors, note)
-        const left = ASSET_CONCURRENCY_STEPS.length - attempt - 1
-        if (left > 0) note?.('Reintentando con menos descargas en paralelo...')
-      }
+      lastError = e
+      logDownloadFailures(errors, note)
+      const left = ASSET_CONCURRENCY_STEPS.length - attempt - 1
+      if (left > 0) note?.('Reintentando con menos descargas en paralelo...')
     }
-  } finally {
-    await dispatcher.close().catch(() => {})
   }
 
   // Da igual si el último intento "terminó bien": lo que decide es que no queden
