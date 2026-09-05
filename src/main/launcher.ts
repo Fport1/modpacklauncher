@@ -72,9 +72,31 @@ async function makeTolerantDispatcher(): Promise<import('undici').Agent> {
   return new Agent({
     connect: { timeout: 60_000 },
     headersTimeout: 60_000,
-    bodyTimeout: 120_000
+    bodyTimeout: 120_000,
+    // Por defecto undici abre sockets sin límite por origen:
+    // assetsDownloadConcurrency limita las descargas, no las conexiones.
+    connections: 4,
+    pipelining: 1
   })
 }
+
+/**
+ * Servidores de assets, en orden de preferencia.
+ *
+ * El de Mojang es el primero y el que se usa siempre que responde. La réplica
+ * existe porque hay máquinas donde ese host concreto no acepta conexiones desde
+ * la app (timeout al conectar) mientras el resto de descargas del launcher —
+ * librerías, mods, el jar — funcionan con normalidad, e incluso curl contra ese
+ * mismo dominio conecta al instante desde la misma máquina.
+ *
+ * Solo se piden ficheros públicos de assets y @xmcl valida el SHA1 de cada uno
+ * contra el índice oficial, así que una réplica no puede colar contenido
+ * distinto: como mucho, no responder.
+ */
+const ASSETS_HOSTS = [
+  'https://resources.download.minecraft.net',
+  'https://bmclapi2.bangbang93.com/assets'
+]
 
 /** Devuelve los sub-errores de un AggregateError, o null si no lo es. */
 function aggregateErrors(e: unknown): unknown[] | null {
@@ -125,6 +147,7 @@ async function installDependenciesWithRetry(
         await installDependencies(resolvedVersion, {
           assetsDownloadConcurrency: concurrency,
           skipRevalidate: false,
+          assetsHost: ASSETS_HOSTS,
           dispatcher
         })
         lastError = undefined
