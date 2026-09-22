@@ -33,6 +33,9 @@ jobs:
 
   build-mac:
     runs-on: macos-latest
+    # La notarizacion no tiene timeout propio: si Apple no responde, el job se
+    # quedaria colgado hasta el limite de 6 horas gastando minutos de runner.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,6 +57,9 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Traza del proceso de notarizacion, que por defecto no imprime nada
+          # mientras espera a Apple.
+          DEBUG: electron-notarize*
         run: |
           npm run build
           if [ -n "$MAC_CSC_LINK" ] && [ -n "$APPLE_API_KEY_ID" ]; then
