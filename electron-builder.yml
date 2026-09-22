@@ -1,4 +1,11 @@
 appId: com.modpacklauncher.app
+
+# De aqui sale app-update.yml dentro de la app y los latest*.yml de la release,
+# que son el feed que consulta electron-updater.
+publish:
+  provider: github
+  owner: Fport1
+  repo: modpacklauncher
 productName: ModpackLauncher
 copyright: Copyright © 2024
 
@@ -47,7 +54,11 @@ nsis:
 
 mac:
   target:
+    # El zip es el que usa la autoactualizacion (Squirrel.Mac no sabe leer
+    # un DMG); el DMG se mantiene para la instalacion inicial.
     - target: dmg
+      arch: [x64, arm64]
+    - target: zip
       arch: [x64, arm64]
   icon: build/icon.icns
   category: public.app-category.games

@@ -4,6 +4,10 @@ import path from 'path'
 import fs from 'fs-extra'
 import { registerIpcHandlers, getSettings } from './ipc'
 import { installConsoleCapture, setLoggerWindow } from './logger'
+import { checkForUpdates } from './updater'
+
+/** Cada cuánto se mira si hay versión nueva, con la app abierta. */
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 // @xmcl/installer uses concurrent downloads that each add an abort listener to the same
 // AbortSignal. With >10 concurrent downloads Node.js emits MaxListenersExceededWarning.
@@ -166,6 +170,14 @@ app.whenReady().then(() => {
   // Apply startup setting on launch
   const startupSetting = getSettings().launchAtStartup
   app.setLoginItemSettings({ openAtLogin: startupSetting })
+
+  // Comprobar actualizaciones sin que el usuario haga nada: al arrancar y cada
+  // pocas horas. Encontrar una versión nueva dispara la descarga en segundo
+  // plano, y se instala al cerrar la app. Los fallos se ignoran a propósito —
+  // quedarse sin internet no debe molestar a nadie con un aviso.
+  const checkQuietly = (): void => { checkForUpdates().catch(() => { /* sin red, ya se reintenta */ }) }
+  setTimeout(checkQuietly, 10_000)
+  setInterval(checkQuietly, UPDATE_CHECK_INTERVAL_MS)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -1,9 +1,5 @@
 import { shell, app } from 'electron'
-import { spawn } from 'child_process'
-import axios from 'axios'
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
+import { autoUpdater, type UpdateInfo } from 'electron-updater'
 import { APP_VERSION } from '../shared/types'
 
 export interface UpdateManifest {
@@ -23,80 +19,106 @@ export interface UpdateCheckResult {
   manifest?: UpdateManifest
 }
 
-function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(Number)
-  const pb = b.split('.').map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
-    if (diff !== 0) return diff
+const RELEASES_PAGE = 'https://github.com/Fport1/modpacklauncher/releases/latest'
+
+// Comportamiento de Discord, Steam o el launcher oficial: en cuanto se detecta
+// una versión nueva se descarga en segundo plano, y se aplica sola al cerrar la
+// app. El usuario puede además reiniciar en el momento desde el aviso.
+autoUpdater.autoDownload = true
+autoUpdater.autoInstallOnAppQuit = true
+
+/**
+ * La actualización ya descargada y lista para instalarse, si la hay.
+ *
+ * Hace falta guardarla porque la descarga arranca sola al comprobar: cuando el
+ * usuario pulsa "instalar" puede haber terminado ya, y entonces esperar al
+ * evento `update-downloaded` colgaría para siempre.
+ */
+let readyToInstall: UpdateInfo | null = null
+autoUpdater.on('update-downloaded', (info) => {
+  readyToInstall = info
+})
+
+function toManifest(info: UpdateInfo): UpdateManifest {
+  const notes =
+    typeof info.releaseNotes === 'string'
+      ? info.releaseNotes
+      : info.releaseNotes?.map((n) => n.note ?? '').join('\n\n')
+
+  return {
+    version: info.version,
+    releaseNotes: notes || undefined,
+    date: info.releaseDate,
+    // electron-updater resuelve el fichero concreto por su cuenta; estos
+    // enlaces son solo para el botón de "descargar manualmente".
+    files: { win32: RELEASES_PAGE, darwin: RELEASES_PAGE, linux: RELEASES_PAGE }
   }
-  return 0
 }
 
-export async function checkForUpdates(manifestUrl: string): Promise<UpdateCheckResult> {
-  if (!manifestUrl?.trim()) return { hasUpdate: false, currentVersion: APP_VERSION }
+/**
+ * El parámetro se conserva por compatibilidad con la llamada existente, pero ya
+ * no se usa: electron-updater lee el feed de `app-update.yml`, que
+ * electron-builder genera con la configuración `publish` y apunta a las
+ * releases de GitHub. El ajuste de URL de manifiesto queda sin efecto.
+ */
+export async function checkForUpdates(_manifestUrl?: string): Promise<UpdateCheckResult> {
+  // En desarrollo no hay app empaquetada contra la que comparar.
+  if (!app.isPackaged) return { hasUpdate: false, currentVersion: APP_VERSION }
 
-  const { data } = await axios.get<UpdateManifest>(manifestUrl.trim(), {
-    // 30s en vez de 10s: hay redes lentas donde la comprobacion se agotaba
-    timeout: 30_000,
-    headers: { 'Cache-Control': 'no-cache' }
-  })
+  if (readyToInstall) {
+    return { hasUpdate: true, currentVersion: APP_VERSION, manifest: toManifest(readyToInstall) }
+  }
 
-  if (!data?.version) throw new Error('El archivo de actualización no tiene un campo "version"')
+  const result = await autoUpdater.checkForUpdates()
+  const info = result?.updateInfo
+  if (!info || info.version === APP_VERSION) {
+    return { hasUpdate: false, currentVersion: APP_VERSION }
+  }
 
-  const hasUpdate = compareVersions(data.version, APP_VERSION) > 0
-  return { hasUpdate, currentVersion: APP_VERSION, manifest: data }
+  return { hasUpdate: true, currentVersion: APP_VERSION, manifest: toManifest(info) }
 }
 
-export function openDownloadPage(manifest: UpdateManifest): void {
-  const platform = process.platform as 'win32' | 'darwin' | 'linux'
-  const url = manifest.files[platform]
-  if (!url) throw new Error(`No hay enlace de descarga para ${platform} en el manifiesto`)
-  shell.openExternal(url)
+export function openDownloadPage(_manifest: UpdateManifest): void {
+  shell.openExternal(RELEASES_PAGE)
 }
 
+/**
+ * Espera a que termine la descarga (que ya va sola en segundo plano) y reinicia
+ * aplicando la actualización.
+ *
+ * No hace falta verificar la descarga a mano: electron-updater comprueba el
+ * SHA-512 de cada fichero contra el publicado en `latest*.yml` y aborta si no
+ * cuadra, y en Windows valida además la firma del instalador.
+ */
 export async function downloadAndInstall(
-  manifest: UpdateManifest,
+  _manifest: UpdateManifest,
   onProgress: (pct: number) => void
 ): Promise<void> {
-  const platform = process.platform as 'win32' | 'darwin' | 'linux'
-  const url = manifest.files[platform]
-  if (!url) throw new Error(`No hay enlace de descarga para ${platform} en el manifiesto`)
+  if (!app.isPackaged) throw new Error('Las actualizaciones solo funcionan en la app instalada')
 
-  const filename = url.split('/').pop() ?? `update-${manifest.version}.exe`
-  const dest = path.join(os.tmpdir(), filename)
+  if (!readyToInstall) {
+    await new Promise<void>((resolve, reject) => {
+      const onProgressEvent = (p: { percent: number }): void => onProgress(Math.round(p.percent))
+      const onDone = (): void => { cleanup(); resolve() }
+      const onError = (err: Error): void => { cleanup(); reject(err) }
+      function cleanup(): void {
+        autoUpdater.off('download-progress', onProgressEvent)
+        autoUpdater.off('update-downloaded', onDone)
+        autoUpdater.off('error', onError)
+      }
 
-  const response = await axios.get<NodeJS.ReadableStream>(url, {
-    responseType: 'stream',
-    timeout: 0
-  })
+      autoUpdater.on('download-progress', onProgressEvent)
+      autoUpdater.once('update-downloaded', onDone)
+      autoUpdater.once('error', onError)
 
-  const total = parseInt(response.headers['content-length'] ?? '0', 10)
-  let downloaded = 0
-
-  await new Promise<void>((resolve, reject) => {
-    const writer = fs.createWriteStream(dest)
-    response.data.on('data', (chunk: Buffer) => {
-      downloaded += chunk.length
-      if (total > 0) onProgress(Math.round((downloaded / total) * 100))
+      // Si autoDownload no llegó a arrancarla (por ejemplo tras un error
+      // anterior), se pide explícitamente.
+      autoUpdater.downloadUpdate().catch(onError)
     })
-    response.data.pipe(writer)
-    writer.on('finish', resolve)
-    writer.on('error', reject)
-  })
+  }
 
   onProgress(100)
-
-  if (platform === 'win32') {
-    spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
-    app.exit(0)
-  } else if (platform === 'linux') {
-    fs.chmodSync(dest, '755')
-    spawn(dest, [], { detached: true, stdio: 'ignore' }).unref()
-    app.exit(0)
-  } else if (platform === 'darwin') {
-    const err = await shell.openPath(dest)
-    if (err) throw new Error(`No se pudo abrir el DMG: ${err}`)
-    app.exit(0)
-  }
+  // isSilent=false en Windows para que el instalador muestre su progreso;
+  // isForceRunAfter reabre la app ya actualizada.
+  autoUpdater.quitAndInstall(false, true)
 }
