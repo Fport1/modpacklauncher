@@ -74,7 +74,10 @@ jobs:
             rm -f "$RUNNER_TEMP/cert.p12"
 
             export CSC_KEYCHAIN="$KEYCHAIN"
-            CSC_NAME=$(security find-identity -v -p codesigning "$KEYCHAIN" | head -1 | sed -E 's/.*"(.*)".*/\1/')
+            # Sin el prefijo "Developer ID Application:": electron-builder elige
+            # el tipo de certificado por su cuenta y rechaza el nombre completo.
+            CSC_NAME=$(security find-identity -v -p codesigning "$KEYCHAIN" \
+              | head -1 | sed -E 's/.*"Developer ID Application: (.*)".*/\1/')
             export CSC_NAME
             echo "Identidad de firma: $CSC_NAME"
 
