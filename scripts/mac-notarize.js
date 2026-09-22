@@ -25,7 +25,10 @@ exports.default = async function afterSign(context) {
   if (context.electronPlatformName !== 'darwin') return
   if (process.platform !== 'darwin') return
 
-  const { APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER } = process.env
+  // Nombres propios a proposito: con APPLE_API_KEY* en el entorno,
+  // electron-builder activa su notarizacion por su cuenta (sin necesidad de
+  // notarize: true), corre antes que este hook y se cuelga sin timeout.
+  const { NOTARY_KEY: APPLE_API_KEY, NOTARY_KEY_ID: APPLE_API_KEY_ID, NOTARY_ISSUER: APPLE_API_ISSUER } = process.env
   if (!APPLE_API_KEY || !APPLE_API_KEY_ID || !APPLE_API_ISSUER) {
     console.log('[notarize] omitido: faltan las credenciales de App Store Connect')
     return

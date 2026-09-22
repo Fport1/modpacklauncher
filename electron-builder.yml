@@ -69,6 +69,8 @@ mac:
   # Sin él lo salta y se queda la firma ad-hoc del hook afterPack, que es lo
   # mínimo para que arranque en Apple Silicon.
   hardenedRuntime: true
+  # La notarizacion la hace scripts/mac-notarize.js, con timeout propio.
+  notarize: false
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
