@@ -35,7 +35,8 @@ jobs:
     runs-on: macos-latest
     # La notarizacion no tiene timeout propio: si Apple no responde, el job se
     # quedaria colgado hasta el limite de 6 horas gastando minutos de runner.
-    timeout-minutes: 45
+    # Dos arquitecturas, cada una con su notarizacion de hasta 35 minutos.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

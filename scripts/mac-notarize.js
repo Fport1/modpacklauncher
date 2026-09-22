@@ -14,8 +14,14 @@ const fs = require('fs')
 const os = require('os')
 const path = require('path')
 
-/** Minutos que se espera a Apple antes de rendirse. */
-const TIMEOUT = '20m'
+/**
+ * Minutos que se espera a Apple antes de rendirse.
+ *
+ * 20 se quedaron cortos: el envio se acepta y se queda "In Progress" mas de
+ * ese rato. El escaneo de Apple no tiene tiempo garantizado y se resiente
+ * cuando su infraestructura de subida va tocada.
+ */
+const TIMEOUT = '35m'
 
 function run(cmd, args) {
   execFileSync(cmd, args, { stdio: 'inherit' })
