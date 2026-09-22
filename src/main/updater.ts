@@ -1,6 +1,7 @@
 import { shell, app } from 'electron'
 import { autoUpdater, type UpdateInfo } from 'electron-updater'
 import { APP_VERSION } from '../shared/types'
+import { hasRunningInstances } from './launcher'
 
 export interface UpdateManifest {
   version: string
@@ -37,6 +38,15 @@ autoUpdater.autoInstallOnAppQuit = true
 let readyToInstall: UpdateInfo | null = null
 autoUpdater.on('update-downloaded', (info) => {
   readyToInstall = info
+})
+
+// Nunca instalar con una partida abierta. El proceso de Minecraft es hijo del
+// launcher, asi que reiniciar para actualizar se lo llevaria por delante y el
+// usuario perderia lo que estuviera haciendo. La actualizacion ya descargada
+// se queda esperando y entra en el siguiente cierre con el juego cerrado,
+// que es como se comportan Steam o Discord.
+app.on('before-quit', () => {
+  autoUpdater.autoInstallOnAppQuit = !hasRunningInstances()
 })
 
 function toManifest(info: UpdateInfo): UpdateManifest {
@@ -95,6 +105,9 @@ export async function downloadAndInstall(
   onProgress: (pct: number) => void
 ): Promise<void> {
   if (!app.isPackaged) throw new Error('Las actualizaciones solo funcionan en la app instalada')
+  if (hasRunningInstances()) {
+    throw new Error('Cierra Minecraft antes de actualizar: al reiniciar el launcher se cerraria la partida.')
+  }
 
   if (!readyToInstall) {
     await new Promise<void>((resolve, reject) => {

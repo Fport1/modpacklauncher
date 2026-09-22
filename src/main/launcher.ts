@@ -168,6 +168,11 @@ async function installDependenciesWithRetry(
   }
 }
 
+/** Si hay alguna instancia de Minecraft abierta ahora mismo. */
+export function hasRunningInstances(): boolean {
+  return runningProcesses.size > 0
+}
+
 export function killInstance(instanceId: string): void {
   const proc = runningProcesses.get(instanceId)
   if (proc) {
