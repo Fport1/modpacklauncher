@@ -44,16 +44,40 @@ jobs:
       # el build de siempre con firma ad-hoc, para no romper la release.
       - name: Build macOS
         env:
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          # Deliberadamente NO se llaman CSC_LINK/CSC_KEY_PASSWORD: con esos
+          # nombres electron-builder monta el llavero por su cuenta, y lo hace
+          # mal — pasa la contraseña del .p12 a `security set-key-partition-list`,
+          # que espera la del llavero, y falla con "passphrase not correct".
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npm run build
-          if [ -n "$CSC_LINK" ] && [ -n "$APPLE_API_KEY_ID" ]; then
+          if [ -n "$MAC_CSC_LINK" ] && [ -n "$APPLE_API_KEY_ID" ]; then
             echo "Firmando y notarizando con Developer ID"
+
+            KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+            KEYCHAIN_PASSWORD=$(openssl rand -base64 24)
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+            security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed 's/"//g')
+
+            echo "$MAC_CSC_LINK" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+              -P "$MAC_CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+            security set-key-partition-list -S apple-tool:,apple:,codesign: \
+              -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+            rm -f "$RUNNER_TEMP/cert.p12"
+
+            export CSC_KEYCHAIN="$KEYCHAIN"
+            CSC_NAME=$(security find-identity -v -p codesigning "$KEYCHAIN" | head -1 | sed -E 's/.*"(.*)".*/\1/')
+            export CSC_NAME
+            echo "Identidad de firma: $CSC_NAME"
+
             # notarytool quiere la clave como fichero, no como variable
             printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/AuthKey.p8"
             export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
