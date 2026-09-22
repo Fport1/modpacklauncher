@@ -90,7 +90,7 @@ jobs:
             # notarytool quiere la clave como fichero, no como variable
             printf '%s' "$APPLE_API_KEY_CONTENT" > "$RUNNER_TEMP/AuthKey.p8"
             export APPLE_API_KEY="$RUNNER_TEMP/AuthKey.p8"
-            npx electron-builder --mac --publish never --config.mac.notarize=true
+            npx electron-builder --mac --publish never
           else
             echo "Sin secrets de Apple: build sin notarizar"
             npx electron-builder --mac --publish never
