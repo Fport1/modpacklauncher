@@ -23,6 +23,12 @@ exports.default = async function afterPack(context) {
     console.warn('[mac-adhoc-sign] omitido: codesign solo existe en macOS')
     return
   }
+  // Con certificado Developer ID firma electron-builder, con hardened runtime y
+  // entitlements. Firmar ad-hoc antes no aporta nada y solo puede estorbar.
+  if (process.env.CSC_LINK || process.env.CSC_NAME) {
+    console.log('[mac-adhoc-sign] omitido: hay un certificado real configurado')
+    return
+  }
 
   const appPath = path.join(
     context.appOutDir,

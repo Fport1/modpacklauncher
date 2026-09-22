@@ -52,9 +52,13 @@ mac:
   icon: build/icon.icns
   category: public.app-category.games
   extendInfo: build/mac-extra-info.plist
-  # Sin certificado Developer ID: electron-builder no firma y el hook afterPack
-  # aplica la firma ad-hoc, obligatoria para que arranque en Apple Silicon
-  identity: null
+  # Con CSC_LINK en el entorno electron-builder firma con el Developer ID.
+  # Sin él lo salta y se queda la firma ad-hoc del hook afterPack, que es lo
+  # mínimo para que arranque en Apple Silicon.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
 
 dmg:
   writeUpdateInfo: false
