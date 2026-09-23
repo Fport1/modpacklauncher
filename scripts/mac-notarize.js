@@ -66,6 +66,22 @@ exports.default = async function afterSign(context) {
     run('xcrun', ['stapler', 'staple', appPath])
     run('xcrun', ['stapler', 'validate', appPath])
     console.log('[notarize] listo')
+  } catch (error) {
+    // No se aborta la release por esto.
+    //
+    // La app queda firmada con el Developer ID, que es lo que exige Squirrel
+    // para poder autoactualizarse, y macOS la abre con el aviso de
+    // desarrollador no identificado — el suave, con su boton de abrir
+    // igualmente, no el bloqueo duro de una app sin firma. Sin notarizar es
+    // un escalon peor que el ideal, pero quedarse sin poder publicar lo es
+    // mucho mas.
+    console.warn('══════════════════════════════════════════════════════════')
+    console.warn('[notarize] AVISO: la notarizacion no termino a tiempo.')
+    console.warn('[notarize] La app va FIRMADA pero SIN NOTARIZAR.')
+    console.warn('[notarize] Los usuarios veran el aviso de desarrollador no')
+    console.warn('[notarize] identificado la primera vez que la abran.')
+    console.warn(`[notarize] Motivo: ${error instanceof Error ? error.message : error}`)
+    console.warn('══════════════════════════════════════════════════════════')
   } finally {
     fs.rmSync(zipPath, { force: true })
   }
