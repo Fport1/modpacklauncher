@@ -5,6 +5,20 @@ import { SkinAvatar } from '../pages/SettingsPage'
 import { useT } from '../i18n'
 
 const isMac = navigator.userAgent.toLowerCase().includes('macintosh')
+const isWindows = navigator.userAgent.toLowerCase().includes('windows')
+
+/** Bloque de hierba pixelado, el icono de Minecraft Bedrock. */
+const GrassIcon = (
+  <svg width={24} height={24} viewBox="0 0 16 16" shapeRendering="crispEdges">
+    <polygon points="8,1 15,4.5 8,8 1,4.5" fill="#6fb24a" />
+    <polygon points="1,4.5 8,8 8,15 1,11.5" fill="#8a5a32" />
+    <polygon points="15,4.5 8,8 8,15 15,11.5" fill="#6b4424" />
+    <polygon points="1,4.5 8,8 8,9.5 1,6" fill="#5d9a3c" />
+    <polygon points="15,4.5 8,8 8,9.5 15,6" fill="#4c8230" />
+    <rect x="3" y="8" width="1" height="1" fill="#5d9a3c" /><rect x="11" y="9" width="1" height="1" fill="#4c8230" />
+    <rect x="4" y="11" width="1" height="1" fill="#6e4526" /><rect x="12" y="12" width="1" height="1" fill="#553518" />
+  </svg>
+)
 
 const ICO = 22
 
@@ -152,6 +166,11 @@ export default function Sidebar() {
             <NavLink to={item.to} title={t(item.labelKey)} className={({ isActive }) => navCls(isActive)}>
               {item.icon}
             </NavLink>
+            {item.to === '/instances' && isWindows && account?.type === 'microsoft' && (
+              <NavLink to="/bedrock" title="Minecraft Bedrock" className={({ isActive }) => navCls(isActive)}>
+                {GrassIcon}
+              </NavLink>
+            )}
             {item.to === '/modpacks' && extraNavItems.filter(e => e.show).map(e => (
               <NavLink key={e.to} to={e.to} title={t(e.labelKey)} className={({ isActive }) => e.social ? navClsSocial(isActive) : navCls(isActive)}>
                 {e.icon}

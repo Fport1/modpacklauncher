@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, shell } from 'electron'
 import path from 'path'
 import fs from 'fs-extra'
+import { nativeTitleBar } from './titleBar'
 
 // Los dos cuadros de Servidores (este equipo y el servidor) se pueden sacar,
 // cada uno por su lado, a una ventana propia: uno en una pantalla con lo que
@@ -56,7 +57,7 @@ export function openPaneWindow(side: PaneSide, from: BrowserWindow | null): void
     ...pickBounds(from),
     minWidth: 520,
     minHeight: 420,
-    frame: false,
+    ...nativeTitleBar(),
     title: side === 'local' ? 'Este equipo — Modpack Launcher' : 'Servidor — Modpack Launcher',
     backgroundColor: '#0f0f14',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,

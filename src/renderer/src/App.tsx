@@ -19,6 +19,7 @@ import FriendsPage from './pages/FriendsPage'
 import ConsolePage from './pages/ConsolePage'
 import MacToolsPage from './pages/MacToolsPage'
 import FtpPage from './pages/FtpPage'
+import BedrockPage from './pages/BedrockPage'
 import AssistHostPanel from './components/assist/AssistHostPanel'
 import { useStore } from './store'
 
@@ -297,6 +298,7 @@ export default function App() {
               <Route path="/discover" element={<DiscoverPage />} />
               <Route path="/models" element={<ModelsPage />} />
               <Route path="/ftp" element={<FtpPage />} />
+              <Route path="/bedrock" element={<BedrockPage />} />
               <Route path="/block-preview" element={<Navigate to="/models" replace />} />
               <Route path="/friends" element={<FriendsPage />} />
               <Route path="/console" element={<ConsolePage />} />

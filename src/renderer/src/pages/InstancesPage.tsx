@@ -959,7 +959,7 @@ export default function InstancesPage() {
                 onDragLeave={() => setDragOverId(prev => prev === inst.id ? null : prev)}
                 onDrop={() => handleDrop(inst.id)}
                 onDragEnd={() => { dragIdRef.current = null; setDragOverId(null) }}
-                className={`transition-all duration-100 rounded-xl ${dragOverId === inst.id && dragIdRef.current !== inst.id ? 'ring-2 ring-accent/60 scale-[1.02]' : ''}`}
+                className={`h-full transition-all duration-100 rounded-2xl ${dragOverId === inst.id && dragIdRef.current !== inst.id ? 'ring-2 ring-accent/60 scale-[1.02]' : ''}`}
               >
                 <InstanceCard
                   instance={inst}

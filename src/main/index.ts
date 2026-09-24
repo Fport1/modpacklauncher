@@ -6,6 +6,7 @@ import { registerIpcHandlers, getSettings } from './ipc'
 import { installConsoleCapture, setLoggerWindow } from './logger'
 import { checkForUpdates } from './updater'
 import { closeAllPaneWindows } from './popout'
+import { nativeTitleBar } from './titleBar'
 
 /** Cada cuánto se mira si hay versión nueva, con la app abierta. */
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -34,6 +35,8 @@ app.on('open-file', (event, filePath) => {
 })
 
 let mainWindow: BrowserWindow | null = null
+/** true cuando ya se decidió cerrar (confirmado, o saliendo de la app para actualizar). */
+let allowClose = false
 let pendingFpackFile: string | null = null
 
 function handleFpackFile(filePath: string): void {
@@ -55,7 +58,7 @@ function createWindow(): void {
     height: 700,
     minWidth: 900,
     minHeight: 600,
-    frame: false,
+    ...nativeTitleBar(),
     backgroundColor: '#0f0f14',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
@@ -105,6 +108,15 @@ function createWindow(): void {
       event.preventDefault()
       mainWindow?.webContents.send('nav:forward')
     }
+  })
+
+  // El botón de cerrar es ahora el del sistema: se intercepta para seguir
+  // preguntando si hay algo en marcha. Al salir de la app de otra forma
+  // (actualizar, Cmd+Q) no se pregunta: ver before-quit.
+  mainWindow.on('close', (e) => {
+    if (allowClose) return
+    e.preventDefault()
+    mainWindow?.webContents.send('app:request-close')
   })
 
   // Los cuadros de Servidores sacados aparte dependen de la principal: se cierran con ella
@@ -213,4 +225,6 @@ ipcMain.on('window:close', (e) => {
   if (win && win !== mainWindow) win.close()
   else mainWindow?.webContents.send('app:request-close')
 })
-ipcMain.on('app:confirm-close', () => { mainWindow?.destroy() })
+ipcMain.on('app:confirm-close', () => { allowClose = true; mainWindow?.destroy() })
+// Salir de la app (instalar una actualización, Cmd+Q en Mac) no debe quedarse esperando la pregunta
+app.on('before-quit', () => { allowClose = true })

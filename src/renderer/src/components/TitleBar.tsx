@@ -1,67 +1,29 @@
-import { useEffect, useState } from 'react'
 import { APP_VERSION } from '../../../shared/types'
+
+// Barra de título del launcher. Los botones de minimizar, maximizar y cerrar
+// son los del sistema (ver main/titleBar.ts): aquí solo se deja su hueco.
+// - Windows/Linux: a la derecha, con el ancho exacto que dice el sistema
+//   (env(titlebar-area-*)); 140 px si por lo que sea no lo dice.
+// - macOS: a la izquierda, para los tres círculos.
+
+const isMac = navigator.userAgent.toLowerCase().includes('macintosh')
 
 /** `title` sustituye al nombre del launcher, p. ej. en la ventana de Servidores. */
 export default function TitleBar({ title }: { title?: string } = {}) {
-  const [maximized, setMaximized] = useState(false)
-
-  useEffect(() => {
-    window.api.window.onMaximized(setMaximized)
-  }, [])
-
   return (
     <div
-      className="flex items-center justify-between h-9 bg-bg-secondary border-b border-border px-4 flex-shrink-0 relative z-[200]"
-      style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+      className="flex items-center h-9 bg-bg-secondary border-b border-border flex-shrink-0 relative z-[200]"
+      style={{
+        WebkitAppRegion: 'drag',
+        paddingLeft: isMac ? 80 : 16,
+        paddingRight: isMac ? 16 : 'calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100% - 140px)) + 12px)'
+      } as React.CSSProperties}
     >
-      <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-2 min-w-0 ${isMac ? 'mx-auto' : ''}`}>
         {title
-          ? <span className="text-sm font-semibold text-text-primary select-none">{title}</span>
-          : <span className="text-sm font-semibold text-text-primary select-none">Modpack Launcher by <span className="text-red-500">Fport1</span></span>}
+          ? <span className="text-sm font-semibold text-text-primary select-none truncate">{title}</span>
+          : <span className="text-sm font-semibold text-text-primary select-none truncate">Modpack Launcher by <span className="text-red-500">Fport1</span></span>}
         <span className="text-xs text-text-muted select-none">v{APP_VERSION}</span>
-      </div>
-
-      <div
-        className="flex items-center gap-1"
-        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      >
-        <button
-          onClick={() => window.api.window.minimize()}
-          className="w-8 h-6 flex items-center justify-center rounded hover:bg-white/10 text-text-secondary hover:text-text-primary transition-colors"
-          title="Minimize"
-        >
-          <svg width="10" height="1" viewBox="0 0 10 1" fill="currentColor">
-            <rect width="10" height="1" />
-          </svg>
-        </button>
-
-        <button
-          onClick={() => window.api.window.maximize()}
-          className="w-8 h-6 flex items-center justify-center rounded hover:bg-white/10 text-text-secondary hover:text-text-primary transition-colors"
-          title={maximized ? 'Restore' : 'Maximize'}
-        >
-          {maximized ? (
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
-              <rect x="2" y="0" width="8" height="8" />
-              <rect x="0" y="2" width="8" height="8" />
-            </svg>
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1">
-              <rect x="0" y="0" width="10" height="10" />
-            </svg>
-          )}
-        </button>
-
-        <button
-          onClick={() => window.api.window.close()}
-          className="w-8 h-6 flex items-center justify-center rounded hover:bg-red-500 text-text-secondary hover:text-white transition-colors"
-          title="Close"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <line x1="0" y1="0" x2="10" y2="10" />
-            <line x1="10" y1="0" x2="0" y2="10" />
-          </svg>
-        </button>
       </div>
     </div>
   )

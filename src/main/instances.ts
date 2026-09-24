@@ -287,8 +287,37 @@ export async function openInstanceFolder(instanceId: string): Promise<void> {
   shell.openPath(gameDir)
 }
 
-// Cache keyed by "filename:size" so stale entries self-invalidate when file changes
+// Nombre, autor e icono de cada mod, por "archivo:tamaño:fecha": si el archivo
+// cambia, la clave cambia y se vuelve a leer. Se guarda en disco para que abrir
+// los detalles de una instancia no tenga que abrir cada .jar cada vez.
 const modMetaCache = new Map<string, ModMeta>()
+let modMetaLoaded = false
+let modMetaDirty = false
+let modMetaSaveTimer: ReturnType<typeof setTimeout> | null = null
+const modMetaFile = (): string => path.join(app.getPath('userData'), 'cache', 'mod-meta.json')
+
+async function loadModMetaCache(): Promise<void> {
+  if (modMetaLoaded) return
+  modMetaLoaded = true
+  try {
+    const data = await fs.readJson(modMetaFile()) as Record<string, ModMeta>
+    for (const [k, v] of Object.entries(data)) if (!modMetaCache.has(k)) modMetaCache.set(k, v)
+  } catch { /* primera vez */ }
+}
+
+function saveModMetaCacheSoon(): void {
+  modMetaDirty = true
+  if (modMetaSaveTimer) return
+  modMetaSaveTimer = setTimeout(async () => {
+    modMetaSaveTimer = null
+    if (!modMetaDirty) return
+    modMetaDirty = false
+    // Como mucho las últimas 6000 entradas, para que no crezca sin límite
+    const entries = [...modMetaCache.entries()].slice(-6000)
+    await fs.ensureDir(path.dirname(modMetaFile()))
+    await fs.writeJson(modMetaFile(), Object.fromEntries(entries)).catch(() => {})
+  }, 2000)
+}
 
 function readModMeta(jarPath: string, cacheKey: string): ModMeta {
   if (modMetaCache.has(cacheKey)) return modMetaCache.get(cacheKey)!
@@ -361,6 +390,7 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
   } catch { /* corrupted or unsigned jar — skip */ }
 
   modMetaCache.set(cacheKey, meta)
+  saveModMetaCacheSoon()
   return meta
 }
 
@@ -368,6 +398,7 @@ export async function listMods(instanceId: string): Promise<ModFile[]> {
   const gameDir = await getInstanceGameDir(instanceId)
   const modsDir = path.join(gameDir, 'mods')
   if (!(await fs.pathExists(modsDir))) return []
+  await loadModMetaCache()
   const entries = await fs.readdir(modsDir, { withFileTypes: true })
   const result: ModFile[] = []
   for (const entry of entries) {
@@ -376,7 +407,12 @@ export async function listMods(instanceId: string): Promise<ModFile[]> {
     if (!lower.endsWith('.jar') && !lower.endsWith('.zip') && !lower.endsWith('.disabled')) continue
     const filePath = path.join(modsDir, entry.name)
     const stat = await fs.stat(filePath)
-    const meta = readModMeta(filePath, `${entry.name}:${stat.size}`)
+    const key = `${entry.name}:${stat.size}:${Math.round(stat.mtimeMs)}`
+    if (!modMetaCache.has(key)) {
+      // Abrir un .jar bloquea un momento: entre uno y otro se deja respirar a la app
+      await new Promise((r) => setImmediate(r))
+    }
+    const meta = readModMeta(filePath, key)
     result.push({ filename: entry.name, size: stat.size, enabled: !entry.name.toLowerCase().endsWith('.disabled'), date: stat.mtimeMs, meta })
   }
   return result.sort((a, b) => a.filename.localeCompare(b.filename))

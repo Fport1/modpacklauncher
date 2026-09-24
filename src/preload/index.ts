@@ -14,7 +14,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -198,8 +198,8 @@ const api = {
       ipcRenderer.invoke('modrinth:get-installed-icons', instanceId, subFolder, extensions) as Promise<Record<string, string | null>>,
     getInstalledInfo: (instanceId: string, subFolder: string, extensions: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-info', instanceId, subFolder, extensions) as Promise<Record<string, { name: string | null; iconUrl: string | null }>>,
-    getInstalledModsMeta: (instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[]) =>
-      ipcRenderer.invoke('modrinth:get-installed-mods-meta', instanceId, mcVersion, loader, subFolder, extensions) as Promise<Record<string, { iconUrl?: string | null; clientSide?: string; serverSide?: string; projectId?: string; installedVersionId?: string; hasUpdate?: boolean }>>,
+    getInstalledModsMeta: (instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[], force?: boolean) =>
+      ipcRenderer.invoke('modrinth:get-installed-mods-meta', instanceId, mcVersion, loader, subFolder, extensions, force) as Promise<Record<string, { iconUrl?: string | null; clientSide?: string; serverSide?: string; projectId?: string; installedVersionId?: string; hasUpdate?: boolean }>>,
     getProject: (projectId: string) =>
       ipcRenderer.invoke('modrinth:get-project', projectId) as Promise<any>,
     getProjects: (projectIds: string[]) =>
@@ -463,6 +463,13 @@ const api = {
       ipcRenderer.on('ftp:identify-progress', handler)
       return () => { ipcRenderer.removeListener('ftp:identify-progress', handler) }
     }
+  },
+
+  bedrock: {
+    status: () => ipcRenderer.invoke('bedrock:status') as Promise<BedrockStatus>,
+    launch: (edition: BedrockEdition) => ipcRenderer.invoke('bedrock:launch', edition) as Promise<void>,
+    store: (edition: BedrockEdition, updates?: boolean) => ipcRenderer.invoke('bedrock:store', edition, updates) as Promise<void>,
+    owned: (accountId: string) => ipcRenderer.invoke('bedrock:owned', accountId) as Promise<boolean | null>
   },
 
   mc: {

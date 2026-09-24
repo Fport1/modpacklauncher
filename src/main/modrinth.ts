@@ -4,6 +4,51 @@ import fs from 'fs-extra'
 import crypto from 'crypto'
 import { getInstanceGameDir } from './instances'
 import { safeJoin } from './paths'
+import { app } from 'electron'
+
+// ── Huellas (sha1) de los archivos, guardadas ──────────────────────────────
+// Para saber qué es cada mod hay que calcular su sha1, y eso es leer el .jar
+// entero. Se guarda por ruta, tamaño y fecha: si el archivo no ha cambiado no
+// se vuelve a leer, tampoco entre sesiones del launcher.
+
+const hashCache = new Map<string, string>()
+let hashLoaded = false
+let hashSaveTimer: ReturnType<typeof setTimeout> | null = null
+const hashFile = (): string => path.join(app.getPath('userData'), 'cache', 'file-hashes.json')
+
+async function sha1Cached(file: string): Promise<string | null> {
+  if (!hashLoaded) {
+    hashLoaded = true
+    try { for (const [k, v] of Object.entries(await fs.readJson(hashFile()) as Record<string, string>)) hashCache.set(k, v) } catch { /* primera vez */ }
+  }
+  try {
+    const st = await fs.stat(file)
+    const key = `${file}|${st.size}|${Math.round(st.mtimeMs)}`
+    const hit = hashCache.get(key)
+    if (hit) return hit
+    const sha1 = crypto.createHash('sha1').update(await fs.readFile(file)).digest('hex')
+    hashCache.set(key, sha1)
+    if (!hashSaveTimer) {
+      hashSaveTimer = setTimeout(async () => {
+        hashSaveTimer = null
+        const entries = [...hashCache.entries()].slice(-20000)
+        await fs.ensureDir(path.dirname(hashFile()))
+        await fs.writeJson(hashFile(), Object.fromEntries(entries)).catch(() => {})
+      }, 2000)
+    }
+    return sha1
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Qué mods tienen versión nueva, por carpeta. Preguntarle a Modrinth por
+ * todos cada vez que se abren los detalles es lo que más tarda; la respuesta
+ * vale media hora, o hasta que se pulse "buscar actualizaciones".
+ */
+const UPDATE_TTL = 30 * 60 * 1000
+const updateCache = new Map<string, { at: number; data: Record<string, { id: string; project_id: string }> }>()
 
 const BASE = 'https://api.modrinth.com/v2'
 const HEADERS = { 'User-Agent': 'ModpackLauncher/1.0.1 (franciscomanuelportoperez@gmail.com)' }
@@ -128,24 +173,29 @@ export async function getInstalledProjectIds(instanceId: string, subFolder: stri
 
   const hashes: string[] = []
   for (const file of files) {
-    try {
-      const buf = await fs.readFile(path.join(dir, file))
-      hashes.push(crypto.createHash('sha1').update(buf).digest('hex'))
-    } catch { }
+    const h = await sha1Cached(path.join(dir, file))
+    if (h) hashes.push(h)
   }
   if (hashes.length === 0) return []
 
-  try {
-    const { data } = await axios.post<Record<string, { project_id: string }>>(
-      `${BASE}/version_files`,
-      { hashes, algorithm: 'sha1' },
-      { headers: HEADERS, timeout: 15_000 }
-    )
-    return [...new Set(Object.values(data).map(v => v.project_id))]
-  } catch {
-    return []
+  // Un mismo archivo siempre es el mismo proyecto: solo se pregunta por los nuevos
+  const unknown = hashes.filter((h) => !projectOfHash.has(h))
+  if (unknown.length > 0) {
+    try {
+      const { data } = await axios.post<Record<string, { project_id: string }>>(
+        `${BASE}/version_files`,
+        { hashes: unknown, algorithm: 'sha1' },
+        { headers: HEADERS, timeout: 15_000 }
+      )
+      // Los que no están en Modrinth también se apuntan, para no volver a preguntar
+      for (const h of unknown) projectOfHash.set(h, data[h]?.project_id ?? '')
+    } catch { /* sin red: se devuelve lo que ya se sabe */ }
   }
+  return [...new Set(hashes.map((h) => projectOfHash.get(h)).filter((id): id is string => !!id))]
 }
+
+/** sha1 → proyecto de Modrinth ('' si no está en Modrinth), mientras dure la sesión. */
+const projectOfHash = new Map<string, string>()
 
 export async function getProject(projectId: string): Promise<any> {
   const { data } = await axios.get(`${BASE}/project/${projectId}`, { headers: HEADERS, timeout: 10_000 })
@@ -234,10 +284,8 @@ export async function getInstalledProjectInfo(
 
   const fileHashMap: Record<string, string> = {}
   for (const file of files) {
-    try {
-      const buf = await fs.readFile(path.join(dir, file))
-      fileHashMap[file] = crypto.createHash('sha1').update(buf).digest('hex')
-    } catch { /* unreadable file */ }
+    const h = await sha1Cached(path.join(dir, file))
+    if (h) fileHashMap[file] = h
   }
 
   const cacheFile = path.join(gameDir, 'modrinth-project-info-cache.json')
@@ -303,7 +351,9 @@ export async function getInstalledModsMeta(
   mcVersion: string,
   loader: string,
   subFolder = 'mods',
-  extensions = ['.jar', '.jar.disabled']
+  extensions = ['.jar', '.jar.disabled'],
+  /** true = no usar la respuesta guardada de actualizaciones (botón de buscar). */
+  force = false
 ): Promise<Record<string, InstalledModMeta>> {
   const gameDir = await getInstanceGameDir(instanceId)
   const dir = path.join(gameDir, subFolder)
@@ -314,10 +364,8 @@ export async function getInstalledModsMeta(
 
   const fileHashMap: Record<string, string> = {}
   for (const file of files) {
-    try {
-      const buf = await fs.readFile(path.join(dir, file))
-      fileHashMap[file] = crypto.createHash('sha1').update(buf).digest('hex')
-    } catch { }
+    const h = await sha1Cached(path.join(dir, file))
+    if (h) fileHashMap[file] = h
   }
   if (Object.keys(fileHashMap).length === 0) return {}
 
@@ -348,10 +396,19 @@ export async function getInstalledModsMeta(
     if (mcVersion) updateBody.game_versions = [mcVersion]
     if (loader && loader !== 'vanilla') updateBody.loaders = [loader]
 
-    const latestRes = await axios.post<Record<string, { id: string; project_id: string }>>(
-      `${BASE}/version_files/update`, updateBody, { headers: HEADERS, timeout: 15_000 }
-    )
-    const latestData = latestRes.data
+    // Misma carpeta, mismos archivos, misma versión y loader: vale la respuesta guardada
+    const updKey = `${dir}|${mcVersion}|${normalizedLoader}|${[...allHashes].sort().join(',')}`
+    const cachedUpd = updateCache.get(updKey)
+    let latestData: Record<string, { id: string; project_id: string }>
+    if (!force && cachedUpd && Date.now() - cachedUpd.at < UPDATE_TTL) {
+      latestData = cachedUpd.data
+    } else {
+      const latestRes = await axios.post<Record<string, { id: string; project_id: string }>>(
+        `${BASE}/version_files/update`, updateBody, { headers: HEADERS, timeout: 15_000 }
+      )
+      latestData = latestRes.data
+      updateCache.set(updKey, { at: Date.now(), data: latestData })
+    }
 
     // Update hasUpdate for already-cached files using stored installedVersionId
     for (const [hash, file] of Object.entries(hashToFile)) {

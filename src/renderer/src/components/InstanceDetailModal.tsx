@@ -486,6 +486,13 @@ interface Props {
   onChangeIcon?: () => void
 }
 
+/**
+ * Lo último que se cargó de los mods de cada instancia (con lo que dijo
+ * Modrinth). Al volver a abrir los detalles se enseña al momento y se
+ * refresca por detrás, en vez de dejar la lista en blanco mientras carga.
+ */
+const modsSnapshot = new Map<string, ModFile[]>()
+
 export default function InstanceDetailModal({ instance, onClose, onPlay, fullPage, onEdit, onExport, onDuplicate, onDelete, onChangeIcon }: Props) {
   const { updateInstance: updateInstanceStore, settings } = useStore()
   const aiConfigs = settings?.aiConfigs ?? []
@@ -660,14 +667,22 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     }
   }, [gameLogs, tab, consoleView])
 
+  const modsReady = useRef(false)
+  useEffect(() => { if (modsReady.current) modsSnapshot.set(instance.id, mods) }, [mods])
+
   async function loadTab(t: Tab) {
     setLoading(true)
     try {
       if (t === 'config') {
         setConfigFiles(await window.api.instances.listConfig(instance.id, configPath.join('/')))
       } else if (t === 'mods') {
-        const mods = await window.api.instances.listMods(instance.id)
-        setMods(mods)
+        const snap = modsSnapshot.get(instance.id)
+        if (snap) { setMods(snap); setLoading(false) }
+        const fresh = await window.api.instances.listMods(instance.id)
+        // Lo que ya se sabía de Modrinth de cada archivo se mantiene hasta que llegue lo nuevo
+        const known = new Map((snap ?? []).map(m => [m.filename, m.meta]))
+        setMods(fresh.map(m => { const k = known.get(m.filename); return k ? { ...m, meta: { ...m.meta, ...k } } : m }))
+        modsReady.current = true
         window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, instance.modloader)
           .then(meta => setMods(prev => prev.map(m => {
             const info = meta[m.filename]
@@ -731,21 +746,21 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     setCheckingMeta(true)
     try {
       if (tab === 'mods') {
-        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, instance.modloader)
+        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, instance.modloader, 'mods', ['.jar', '.jar.disabled'], true)
         setMods(prev => prev.map(m => {
           const info = meta[m.filename]
           if (!info) return m
           return { ...m, meta: { ...m.meta, ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
         }))
       } else if (tab === 'resourcepacks') {
-        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'resourcepacks', ['.zip', '.zip.disabled'])
+        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'resourcepacks', ['.zip', '.zip.disabled'], true)
         setResourcepacks(prev => prev.map(m => {
           const info = meta[m.filename]
           if (!info) return m
           return { ...m, meta: { ...m.meta, ...(!m.meta?.iconBase64 && info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
         }))
       } else if (tab === 'shaderpacks') {
-        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'shaderpacks', ['.zip', '.zip.disabled'])
+        const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'shaderpacks', ['.zip', '.zip.disabled'], true)
         setShaderpacks(prev => prev.map(m => {
           const info = meta[m.filename]
           if (!info) return m

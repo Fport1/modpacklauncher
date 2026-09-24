@@ -338,6 +338,21 @@ export interface FtpConnectionState {
   reconnecting: boolean
 }
 
+/** Minecraft Bedrock (Minecraft for Windows) instalado desde la Store. */
+export type BedrockEdition = 'release' | 'preview'
+
+export interface BedrockStatus {
+  /** false fuera de Windows. */
+  supported: boolean
+  editions: Partial<Record<BedrockEdition, {
+    /** Versión del paquete de la Store (p. ej. 1.26.5101.0). */
+    version: string
+    packageFamilyName: string
+    appId: string
+    running: boolean
+  }>>
+}
+
 /** Lo que el amigo comparte de su instancia al pedir ayuda. */
 export interface AssistInstanceInfo {
   instanceName: string

@@ -98,109 +98,109 @@ export default function InstanceCard({
   return (
     <div
       onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }) }}
-      className={`relative group bg-bg-card border rounded-2xl p-4 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl ${
+      className={`relative group h-full flex flex-col bg-bg-card border rounded-2xl p-4 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl ${
         isRunning
           ? 'border-green-500/60 shadow-green-500/10 shadow-md'
           : menu ? 'border-accent/60 shadow-lg shadow-accent/10' : 'border-border hover:border-accent/40 hover:shadow-accent/5'
       }`}
     >
-      {/* Icono y nombre */}
-      <div className="flex items-start gap-3 mb-3">
+      {/* Icono, nombre y etiquetas: siempre una sola fila de etiquetas */}
+      <div className="flex items-start gap-3">
         <div className="w-14 h-14 rounded-xl bg-bg-hover flex items-center justify-center overflow-hidden shrink-0 ring-1 ring-white/5">
           {iconSrc
             ? <img src={iconSrc} alt="" className="w-full h-full object-cover" draggable={false} />
             : <div className="w-full h-full animate-pulse bg-bg-card" />}
         </div>
-        <div className="min-w-0 flex-1 pr-6">
-          <h3 className="font-semibold text-[15px] text-text-primary truncate">{instance.name}</h3>
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-bg-hover text-text-secondary border border-border">MC {instance.minecraft}</span>
-            <span className={`text-[11px] px-1.5 py-0.5 rounded-md border capitalize ${loaderStyle}`}>{instance.modloader}</span>
+        <div className="min-w-0 flex-1 pr-7">
+          <h3 className="font-semibold text-[15px] text-text-primary truncate" title={instance.name}>{instance.name}</h3>
+          <div className="flex items-center gap-1.5 mt-1 overflow-hidden whitespace-nowrap">
+            <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-md bg-bg-hover text-text-secondary border border-border">MC {instance.minecraft}</span>
+            <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded-md border capitalize ${loaderStyle}`}>{instance.modloader}</span>
+            {instance.modpackUrl && (
+              <span className="min-w-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-accent/10 text-accent border border-accent/20" title={`Modpack v${instance.modpackVersion ?? '?'}`}>
+                <IconPackage size={11} />
+                <span className="truncate">v{instance.modpackVersion ?? '?'}</span>
+              </span>
+            )}
           </div>
         </div>
       </div>
 
-      <p className="flex items-center gap-1.5 text-xs text-text-muted">
-        <IconClock size={12} />
-        {lastText}
-        {playtime && <><span className="text-border">·</span>{playtime} jugado</>}
-      </p>
+      {/* Estado: la misma línea sirve para "jugado hace…", "en juego" y el aviso de actualización */}
+      <div className="mt-3 h-6 flex items-center gap-2 text-xs">
+        {isRunning ? (
+          <span className="inline-flex items-center gap-1.5 bg-green-500/10 text-green-400 px-2 py-0.5 rounded-full font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            En juego
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 text-text-muted min-w-0 truncate">
+            <IconClock size={12} />
+            {lastText}
+            {playtime && <><span className="text-border">·</span>{playtime} jugado</>}
+          </span>
+        )}
+        {hasUpdate && (
+          <button onClick={onUpdate} title="Hay una versión nueva del modpack"
+            className="ml-auto shrink-0 inline-flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors">
+            <IconRefresh size={11} />
+            Actualizar
+          </button>
+        )}
+      </div>
 
-      {/* Distintivos */}
-      {(isRunning || instance.modpackUrl || hasUpdate) && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {isRunning && (
-            <span className="inline-flex items-center gap-1 text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded-full font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              En juego
-            </span>
-          )}
-          {instance.modpackUrl && (
-            <span className="inline-flex items-center gap-1 text-xs bg-accent/10 text-accent px-2 py-0.5 rounded-full">
-              <IconPackage size={11} />
-              Modpack v{instance.modpackVersion ?? '?'}
-            </span>
-          )}
-          {hasUpdate && (
-            <button onClick={onUpdate}
-              className="inline-flex items-center gap-1 text-xs bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors">
-              <IconRefresh size={11} />
-              Actualización disponible
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Jugar / cerrar */}
-      {isRunning ? (
-        <>
-          <div className="mt-3 flex gap-2">
+      {/* Botones: misma altura jugando o no, siempre abajo */}
+      <div className="mt-auto pt-3">
+        {isRunning ? (
+          <div className="flex gap-2">
             <button onClick={onKill}
-              className="flex-1 flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold py-2.5 rounded-xl transition-colors">
+              className="flex-1 h-11 flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-sm font-semibold rounded-xl transition-colors">
               <IconStop size={13} />
               Cerrar
             </button>
             <button onClick={() => setShowExtraConfirm((v) => !v)} title="Abrir segunda instancia"
-              className={`flex items-center justify-center px-3 py-2 rounded-xl border text-sm font-semibold transition-colors ${
+              className={`h-11 w-11 flex items-center justify-center rounded-xl border transition-colors ${
                 showExtraConfirm ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-bg-card border-border text-text-secondary hover:border-accent/40 hover:text-accent'
               }`}>
-              <IconRefresh size={14} />
+              <IconRefresh size={15} />
             </button>
           </div>
-          {showExtraConfirm && (
-            <div className="mt-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
-              <p className="text-xs text-amber-300 font-medium mb-0.5">¿Abrir una segunda copia?</p>
-              <p className="text-[11px] text-amber-300/70 mb-2.5">
-                Tendrás dos Minecrafts corriendo a la vez. Puede causar lag, alta RAM y CPU. ¿Continuar?
-              </p>
-              <div className="flex gap-2">
-                <button onClick={() => { onLaunchExtra?.(); setShowExtraConfirm(false) }}
-                  className="flex-1 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold hover:bg-amber-500/30 transition-colors">
-                  Abrir igual
-                </button>
-                <button onClick={() => setShowExtraConfirm(false)}
-                  className="flex-1 py-1.5 rounded-lg border border-border text-text-secondary text-xs hover:text-text-primary transition-colors">
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      ) : (
-        <button onClick={onPlay} disabled={isLaunching}
-          className="mt-3 w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors shadow-sm shadow-accent/20">
-          {isLaunching ? (
-            <>
-              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.3" />
-                <path d="M21 12a9 9 0 00-9-9" />
-              </svg>
-              Lanzando...
-            </>
-          ) : (
-            <><IconPlay size={14} />Jugar</>
-          )}
-        </button>
+        ) : (
+          <button onClick={onPlay} disabled={isLaunching}
+            className="w-full h-11 flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-accent/20">
+            {isLaunching ? (
+              <>
+                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.3" />
+                  <path d="M21 12a9 9 0 00-9-9" />
+                </svg>
+                Lanzando...
+              </>
+            ) : (
+              <><IconPlay size={14} />Jugar</>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Segunda copia: flota encima en vez de estirar la tarjeta */}
+      {isRunning && showExtraConfirm && (
+        <div className="absolute left-3 right-3 bottom-[4.25rem] z-10 p-3 rounded-xl bg-bg-secondary border border-amber-500/40 shadow-2xl">
+          <p className="text-xs text-amber-300 font-medium mb-0.5">¿Abrir una segunda copia?</p>
+          <p className="text-[11px] text-amber-300/70 mb-2.5">
+            Tendrás dos Minecrafts corriendo a la vez. Puede causar lag, alta RAM y CPU.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => { onLaunchExtra?.(); setShowExtraConfirm(false) }}
+              className="flex-1 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-semibold hover:bg-amber-500/30 transition-colors">
+              Abrir igual
+            </button>
+            <button onClick={() => setShowExtraConfirm(false)}
+              className="flex-1 py-1.5 rounded-lg border border-border text-text-secondary text-xs hover:text-text-primary transition-colors">
+              Cancelar
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Botón de opciones (lo mismo que el clic derecho) */}

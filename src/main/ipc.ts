@@ -91,11 +91,12 @@ import {
   localReveal, pickLocalDir, serverDownloadsDir, ftpReadImage, localReadImage, ftpReconnect, ftpWriteBytes
 } from './ftp'
 import { getTextures } from './mcTextures'
+import { bedrockStatus, bedrockLaunch, bedrockOpenStore } from './bedrock'
 import { assistHostStart, assistHostStop, assistHostOp, assistHelperStart, assistHelperClosed } from './assist'
 import { openPaneWindow, closePaneWindow, paneState, setPaneDir, getPaneDirs, setDrag, getDrag, notifyChanged, pushLog, type PaneSide } from './popout'
 import { nbtReadRemote, nbtWriteRemote, nbtReadLocal, nbtWriteLocal } from './nbt'
 import { serverDetect, serverSetOverride, serverListJars, serverIdentifyJars, serverInstallFromUrl } from './serverContent'
-import type { FtpSiteInput, RemoteEntry, ServerOverride, NbtDocument, AssistInstanceInfo } from '../shared/types'
+import type { FtpSiteInput, RemoteEntry, ServerOverride, NbtDocument, AssistInstanceInfo, BedrockEdition } from '../shared/types'
 import { scanStorage, listStorageChildren, deleteStoragePath, openStoragePath, revealStoragePath, getDiskInfo } from './storage'
 import { safeJoin } from './paths'
 import { listAssetSources, listAssetDir, readAssetFile } from './assets'
@@ -629,8 +630,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string, channel: 'all' | 'stable' = 'all') =>
     getProjectVersionForInstall(projectId, mcVersion, loader, channel)
   )
-  ipcMain.handle('modrinth:get-installed-mods-meta', (_e, instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[]) =>
-    getInstalledModsMeta(instanceId, mcVersion, loader, subFolder, extensions)
+  ipcMain.handle('modrinth:get-installed-mods-meta', (_e, instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[], force?: boolean) =>
+    getInstalledModsMeta(instanceId, mcVersion, loader, subFolder, extensions, force)
   )
 
   ipcMain.handle('modrinth:install-mrpack', async (_e, instanceId: string, mrpackUrl: string) => {
@@ -1442,6 +1443,35 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
   ipcMain.handle('ftp:local-read-image', (_e, file: string) => localReadImage(file))
+
+  // Minecraft Bedrock (solo Windows)
+  ipcMain.handle('bedrock:status', () => bedrockStatus())
+  ipcMain.handle('bedrock:launch', (_e, edition: BedrockEdition) => bedrockLaunch(edition))
+  ipcMain.handle('bedrock:store', (_e, edition: BedrockEdition, updates?: boolean) => bedrockOpenStore(edition, updates))
+  /**
+   * Si la cuenta de Microsoft tiene Bedrock comprado. Desde 2022 Java incluye
+   * Bedrock, y la API de compras de Minecraft lo lista junto a Java.
+   * null = no se pudo saber (sin red, cuenta sin conexión…).
+   */
+  ipcMain.handle('bedrock:owned', async (_e, accountId: string): Promise<boolean | null> => {
+    const { accounts } = accountsStore.getAll()
+    let account = accounts.find((a) => a.id === accountId)
+    if (!account || account.type !== 'microsoft') return null
+    try {
+      if (isTokenExpired(account)) {
+        const refreshed = await refreshMicrosoftToken(account)
+        refreshed.id = account.id
+        updateAccount(refreshed)
+        account = refreshed
+      }
+      const { data } = await axios.get<{ items?: { name: string }[] }>('https://api.minecraftservices.com/entitlements/mcstore', {
+        headers: { Authorization: `Bearer ${account.accessToken}` }, timeout: 15_000
+      })
+      return (data.items ?? []).some((i) => /bedrock/i.test(i.name))
+    } catch {
+      return null
+    }
+  })
 
   // Texturas de Minecraft para los editores sencillos
   ipcMain.handle('mc:textures', (_e, keys: string[]) => getTextures(keys))
