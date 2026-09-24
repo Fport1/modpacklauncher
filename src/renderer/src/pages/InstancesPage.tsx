@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { startHosting } from '../lib/assist/session'
 import { useStore, activeAccount } from '../store'
 import InstanceCard from '../components/InstanceCard'
+import ContextMenu from '../components/ui/ContextMenu'
+import { IconEdit, IconFolder } from '../components/ui/icons'
 import InstanceDetailModal from '../components/InstanceDetailModal'
 import RamSlider from '../components/RamSlider'
 import ExportModpackModal from '../components/ExportModpackModal'
@@ -13,6 +16,8 @@ type ModalStep = 'choose' | 'modpack' | 'manual'
 type EditMode = 'edit'
 
 const MODLOADERS: Modloader[] = ['vanilla', 'forge', 'fabric', 'quilt', 'neoforge']
+/** Color de cada loader, el mismo que en las tarjetas. */
+const LOADER_DOT: Record<string, string> = { vanilla: '#4ade80', forge: '#fb923c', fabric: '#38bdf8', quilt: '#c084fc', neoforge: '#fbbf24' }
 
 const RES_PRESETS = [
   { label: 'Por defecto', w: 0, h: 0 },
@@ -970,6 +975,7 @@ export default function InstancesPage() {
                   onChangeIcon={() => setIconPickInstance(inst)}
                   onSaveFpack={() => window.api.fpack.choosePath(inst.id).then(path => { if (path) setFpackSaveState({ instance: inst, path }) }).catch(e => addToast(e?.message ?? 'Error al guardar', 'error'))}
                   onRepair={() => window.api.launcher.repair(inst.id).catch(() => {})}
+                  onAssist={() => { startHosting(inst.id).catch(() => {}) }}
                   isLaunching={launching === inst.id}
                   isRunning={runningInstances.has(inst.id)}
                   hasUpdate={updateMap.get(inst.id) === true}
@@ -1207,7 +1213,7 @@ export default function InstancesPage() {
 
           {/* ── STEP: choose ─────────────────────────────────────── */}
           {modalStep === 'choose' && (
-            <div className="relative bg-bg-secondary border border-border rounded-2xl p-6 w-[480px] shadow-2xl">
+            <div className="relative bg-bg-secondary border border-border rounded-2xl p-7 w-[480px] shadow-2xl">
               <CloseBtn onClick={cancelModal} />
               <h2 className="text-lg font-bold text-text-primary mb-1">Nueva Instancia</h2>
               <p className="text-sm text-text-muted mb-6">¿Cómo quieres crear la instancia?</p>
@@ -1226,7 +1232,7 @@ export default function InstancesPage() {
                   </div>
                   <div>
                     <p className="font-semibold text-text-primary text-sm">Instalar Modpack</p>
-                    <p className="text-xs text-text-muted mt-0.5">Desde URL de manifiesto</p>
+                    <p className="text-[13px] text-text-muted mt-0.5">Desde URL de manifiesto</p>
                   </div>
                 </button>
 
@@ -1242,7 +1248,7 @@ export default function InstancesPage() {
                   </div>
                   <div>
                     <p className="font-semibold text-text-primary text-sm">Instalación Manual</p>
-                    <p className="text-xs text-text-muted mt-0.5">Configurar versiones tú mismo</p>
+                    <p className="text-[13px] text-text-muted mt-0.5">Configurar versiones tú mismo</p>
                   </div>
                 </button>
               </div>
@@ -1251,10 +1257,10 @@ export default function InstancesPage() {
 
           {/* ── STEP: modpack ────────────────────────────────────── */}
           {modalStep === 'modpack' && (
-            <div className="relative bg-bg-secondary border border-border rounded-2xl p-6 w-[500px] shadow-2xl">
+            <div className="relative bg-bg-secondary border border-border rounded-2xl p-7 w-[min(660px,94vw)] shadow-2xl">
               <CloseBtn onClick={cancelModal} />
-              <button onClick={() => setModalStep('choose')} className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary mb-4 transition-colors">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+              <button onClick={() => setModalStep('choose')} className="flex items-center gap-1 text-[13px] text-text-muted hover:text-text-primary mb-4 transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
                 Volver
               </button>
 
@@ -1268,7 +1274,7 @@ export default function InstancesPage() {
                     value={modpackUrl}
                     onChange={e => setModpackUrl(e.target.value)}
                     placeholder="https://ejemplo.com/modpack.json"
-                    className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                    className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                     onKeyDown={e => e.key === 'Enter' && fetchModpack()}
                   />
                   <button
@@ -1292,24 +1298,24 @@ export default function InstancesPage() {
                         </div>
                         <div className="flex-1 overflow-hidden">
                           <p className="font-semibold text-text-primary">{modpackManifest.name}</p>
-                          <p className="text-xs text-text-muted mt-0.5">
+                          <p className="text-[13px] text-text-muted mt-0.5">
                             v{modpackManifest.version} · MC {modpackManifest.minecraft} · {modpackManifest.modloader}
                             {modpackManifest.modloaderVersion && ` ${modpackManifest.modloaderVersion}`}
                           </p>
                           {modpackManifest.description && (
-                            <p className="text-xs text-text-secondary mt-1">{modpackManifest.description}</p>
+                            <p className="text-[13px] text-text-secondary mt-1">{modpackManifest.description}</p>
                           )}
                         </div>
                       </div>
                     </div>
 
                     <div>
-                      <label className="block text-xs text-text-muted mb-1.5">Nombre de la instancia</label>
+                      <label className="block text-[13px] text-text-muted mb-1.5">Nombre de la instancia</label>
                       <input
                         type="text"
                         value={modpackName}
                         onChange={e => setModpackName(e.target.value)}
-                        className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                        className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                       />
                     </div>
                   </>
@@ -1337,17 +1343,17 @@ export default function InstancesPage() {
 
           {/* ── STEP: manual / edit ──────────────────────────────── */}
           {(modalStep === 'manual' || modalStep === 'edit') && (
-            <div className="relative bg-bg-secondary border border-border rounded-2xl p-6 w-[500px] shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="relative bg-bg-secondary border border-border rounded-2xl p-7 w-[min(660px,94vw)] shadow-2xl max-h-[90vh] overflow-y-auto">
               <CloseBtn onClick={cancelModal} />
 
               {modalStep === 'manual' && (
-                <button onClick={() => setModalStep('choose')} className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary mb-4 transition-colors">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+                <button onClick={() => setModalStep('choose')} className="flex items-center gap-1 text-[13px] text-text-muted hover:text-text-primary mb-4 transition-colors">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
                   Volver
                 </button>
               )}
 
-              <h2 className="text-lg font-bold text-text-primary mb-5">
+              <h2 className="text-xl font-bold text-text-primary mb-6">
                 {modalStep === 'edit' ? 'Editar Instancia' : 'Instalación Manual'}
               </h2>
 
@@ -1358,7 +1364,7 @@ export default function InstancesPage() {
                     type="button"
                     title="Haz clic para cambiar el icono"
                     onClick={() => setShowFormIconPicker(true)}
-                    className="w-16 h-16 rounded-xl overflow-hidden border-2 border-border hover:border-accent/60 transition-colors relative group"
+                    className="w-20 h-20 rounded-2xl overflow-hidden border-2 shadow-lg border-border hover:border-accent/60 transition-colors relative group"
                   >
                     {(pendingIcon?.base64 || formIconBase64 || defaultIconBase64) && (
                       <img
@@ -1377,12 +1383,12 @@ export default function InstancesPage() {
 
                 {/* Name */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">Nombre *</label>
+                  <label className="block text-[13px] text-text-muted mb-1.5">Nombre *</label>
                   <input
                     type="text"
                     value={form.name}
                     onChange={e => setForm({ ...form, name: e.target.value })}
-                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                    className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                     placeholder="Mi Instancia"
                   />
                 </div>
@@ -1390,14 +1396,14 @@ export default function InstancesPage() {
                 {/* MC version */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs text-text-muted">Versión de Minecraft</label>
-                    <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
+                    <label className="text-[13px] text-text-muted">Versión de Minecraft</label>
+                    <label className="flex items-center gap-1.5 text-[13px] text-text-muted cursor-pointer">
                       <input type="checkbox" checked={showSnapshots} onChange={e => setShowSnapshots(e.target.checked)} className="w-3 h-3 accent-accent" />
                       Mostrar snapshots
                     </label>
                   </div>
                   {loadingMc ? (
-                    <div className="flex items-center gap-2 text-xs text-text-muted bg-bg-primary border border-border rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2 text-[13px] text-text-muted bg-bg-primary border border-border rounded-lg px-3 py-2">
                       <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>
                       Cargando versiones...
                     </div>
@@ -1405,7 +1411,7 @@ export default function InstancesPage() {
                     <select
                       value={form.minecraft}
                       onChange={e => setForm({ ...form, minecraft: e.target.value, modloaderVersion: '' })}
-                      className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                      className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                     >
                       {visibleMcVersions.map(v => (
                         <option key={v.id} value={v.id}>{v.id}{v.type !== 'release' ? ` (${v.type})` : ''}</option>
@@ -1416,16 +1422,17 @@ export default function InstancesPage() {
 
                 {/* Modloader */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">Modloader</label>
+                  <label className="block text-[13px] text-text-muted mb-1.5">Modloader</label>
                   <div className="flex gap-1.5 flex-wrap">
                     {MODLOADERS.map(ml => (
                       <button
                         key={ml}
                         onClick={() => setForm({ ...form, modloader: ml, modloaderVersion: '' })}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
-                          form.modloader === ml ? 'bg-accent text-white' : 'bg-bg-card border border-border text-text-secondary hover:text-text-primary'
+                        className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all capitalize border ${
+                          form.modloader === ml ? 'bg-accent/15 border-accent text-text-primary shadow-sm shadow-accent/20' : 'bg-bg-card border-border text-text-secondary hover:text-text-primary hover:border-accent/40'
                         }`}
                       >
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ background: LOADER_DOT[ml] }} />
                         {ml}
                       </button>
                     ))}
@@ -1435,19 +1442,19 @@ export default function InstancesPage() {
                 {/* Modloader version */}
                 {form.modloader !== 'vanilla' && (
                   <div>
-                    <label className="block text-xs text-text-muted mb-1.5 capitalize">Versión de {form.modloader}</label>
+                    <label className="block text-[13px] text-text-muted mb-1.5 capitalize">Versión de {form.modloader}</label>
                     {loadingLoader ? (
-                      <div className="flex items-center gap-2 text-xs text-text-muted bg-bg-primary border border-border rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2 text-[13px] text-text-muted bg-bg-primary border border-border rounded-lg px-3 py-2">
                         <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>
                         Cargando versiones...
                       </div>
                     ) : loaderVersions.length === 0 ? (
-                      <p className="text-xs text-amber-400 bg-amber-500/10 px-3 py-2 rounded-lg">No hay versiones disponibles para MC {form.minecraft}</p>
+                      <p className="text-[13px] text-amber-400 bg-amber-500/10 px-3 py-2 rounded-lg">No hay versiones disponibles para MC {form.minecraft}</p>
                     ) : (
                       <select
                         value={form.modloaderVersion}
                         onChange={e => setForm({ ...form, modloaderVersion: e.target.value })}
-                        className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                        className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                       >
                         {loaderVersions.map(v => <option key={v} value={v}>{v}</option>)}
                       </select>
@@ -1456,7 +1463,7 @@ export default function InstancesPage() {
                 )}
 
                 {/* Java status */}
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs ${
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] ${
                   !javaStatus ? 'bg-bg-hover text-text-muted'
                     : javaStatus.found ? 'bg-green-500/10 text-green-400'
                     : 'bg-amber-500/10 text-amber-400'
@@ -1464,39 +1471,39 @@ export default function InstancesPage() {
                   {!javaStatus ? (
                     <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>Verificando Java...</>
                   ) : javaStatus.found ? (
-                    <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>{javaLabel(form.minecraft)} detectado</>
+                    <><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>{javaLabel(form.minecraft)} detectado</>
                   ) : (
-                    <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{javaLabel(form.minecraft)} no instalado — se instalará solo al jugar</>
+                    <><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{javaLabel(form.minecraft)} no instalado — se instalará solo al jugar</>
                   )}
                 </div>
 
                 {/* Java path */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">Java personalizado <span className="text-text-muted/60">(opcional)</span></label>
+                  <label className="block text-[13px] text-text-muted mb-1.5">Java personalizado <span className="text-text-muted/60">(opcional)</span></label>
                   <input type="text" value={form.javaPath} onChange={e => setForm({ ...form, javaPath: e.target.value })}
                     placeholder="Dejar vacío para detectar automáticamente"
-                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                    className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
                 </div>
 
                 {/* RAM */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-3">RAM máxima</label>
+                  <label className="block text-[13px] text-text-muted mb-3">RAM máxima</label>
                   <RamSlider value={form.maxMemory} onChange={v => setForm({ ...form, maxMemory: v })} max={systemRam} />
                 </div>
                 <div>
-                  <label className="block text-xs text-text-muted mb-3">RAM mínima</label>
+                  <label className="block text-[13px] text-text-muted mb-3">RAM mínima</label>
                   <RamSlider value={form.minMemory} onChange={v => setForm({ ...form, minMemory: v })} max={Math.min(systemRam, form.maxMemory)} />
                 </div>
 
                 {/* Window resolution */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-2">Resolución de ventana</label>
+                  <label className="block text-[13px] text-text-muted mb-2">Resolución de ventana</label>
                   <div className="flex gap-1.5 flex-wrap mb-2">
                     {RES_PRESETS.map((p, i) => (
                       <button
                         key={i}
                         onClick={() => setForm({ ...form, resPreset: i, width: p.w > 0 ? p.w : form.width, height: p.h > 0 ? p.h : form.height })}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
                           form.resPreset === i ? 'bg-accent text-white' : 'bg-bg-card border border-border text-text-secondary hover:text-text-primary'
                         }`}
                       >
@@ -1508,26 +1515,26 @@ export default function InstancesPage() {
                     <div className="flex gap-2 items-center">
                       <input type="number" value={form.width || ''} onChange={e => setForm({ ...form, width: parseInt(e.target.value) || 0 })}
                         placeholder="Ancho" min={320} max={7680}
-                        className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent" />
-                      <span className="text-text-muted text-xs">×</span>
+                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                      <span className="text-text-muted text-[13px]">×</span>
                       <input type="number" value={form.height || ''} onChange={e => setForm({ ...form, height: parseInt(e.target.value) || 0 })}
                         placeholder="Alto" min={240} max={4320}
-                        className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
                     </div>
                   )}
                 </div>
 
                 {/* Description */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">Descripción <span className="text-text-muted">(opcional)</span></label>
+                  <label className="block text-[13px] text-text-muted mb-1.5">Descripción <span className="text-text-muted">(opcional)</span></label>
                   <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
                     rows={2}
-                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent resize-none" />
+                    className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent resize-none" />
                 </div>
 
                 {/* JVM Arguments */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">
+                  <label className="block text-[13px] text-text-muted mb-1.5">
                     Argumentos JVM <span className="text-text-muted/60">(opcional, uno por línea)</span>
                   </label>
                   <textarea
@@ -1536,18 +1543,18 @@ export default function InstancesPage() {
                     rows={3}
                     spellCheck={false}
                     placeholder={'-XX:+UseG1GC\n-XX:MaxGCPauseMillis=50\n-Dfml.readTimeout=90'}
-                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-xs font-mono text-text-primary focus:outline-none focus:border-accent resize-none placeholder:text-text-muted/40"
+                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-[13px] font-mono text-text-primary focus:outline-none focus:border-accent resize-none placeholder:text-text-muted/40"
                   />
                 </div>
 
                 {/* Display selector */}
                 {displays.length > 1 && (
                   <div>
-                    <label className="block text-xs text-text-muted mb-1.5">Pantalla <span className="text-text-muted/60">(opcional)</span></label>
+                    <label className="block text-[13px] text-text-muted mb-1.5">Pantalla <span className="text-text-muted/60">(opcional)</span></label>
                     <select
                       value={form.displayId}
                       onChange={e => setForm({ ...form, displayId: Number(e.target.value) })}
-                      className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                      className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                     >
                       <option value={0}>Por defecto</option>
                       {displays.map(d => (
@@ -1561,7 +1568,7 @@ export default function InstancesPage() {
 
                 {/* Group */}
                 <div>
-                  <label className="block text-xs text-text-muted mb-1.5">Grupo <span className="text-text-muted/60">(opcional)</span></label>
+                  <label className="block text-[13px] text-text-muted mb-1.5">Grupo <span className="text-text-muted/60">(opcional)</span></label>
                   {allKnownGroups.length > 0 ? (
                     <div className="flex items-center gap-2">
                       <select
@@ -1570,7 +1577,7 @@ export default function InstancesPage() {
                           const g = allKnownGroups.find(g => g.name === e.target.value)
                           setForm({ ...form, group: e.target.value, groupColor: g?.color || form.groupColor || '#6366f1' })
                         }}
-                        className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                       >
                         <option value="">{t('instances_group_ungrouped')}</option>
                         {allKnownGroups.map(g => (
@@ -1591,7 +1598,7 @@ export default function InstancesPage() {
                         value={form.group}
                         onChange={e => setForm({ ...form, group: e.target.value })}
                         placeholder="Ej: Survival, Modded, Testing…"
-                        className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                       />
                       <input
                         type="color"
@@ -1622,22 +1629,15 @@ export default function InstancesPage() {
 
       {/* ── Group context menu ── */}
       {groupCtxMenu && (
-        <>
-          <div className="fixed inset-0 z-[70]" onClick={() => setGroupCtxMenu(null)} />
-          <div className="fixed z-[71] bg-bg-secondary border border-border rounded-xl shadow-2xl py-1 w-40"
-            style={{ left: groupCtxMenu.x, top: groupCtxMenu.y }}>
-            <button
-              onClick={() => {
-                const g = allKnownGroups.find(g => g.name === groupCtxMenu.name)
-                setEditingGroup({ originalName: groupCtxMenu.name, name: groupCtxMenu.name, color: g?.color ?? '#6366f1' })
-                setGroupCtxMenu(null)
-              }}
-              className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left w-full">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              Editar grupo
-            </button>
-          </div>
-        </>
+        <ContextMenu x={groupCtxMenu.x} y={groupCtxMenu.y} onClose={() => setGroupCtxMenu(null)}
+          title={<p className="text-sm font-semibold text-text-primary truncate">Grupo «{groupCtxMenu.name}»</p>}
+          items={[
+            { label: 'Editar grupo', icon: <IconEdit />, onClick: () => {
+              const g = allKnownGroups.find(g => g.name === groupCtxMenu.name)
+              setEditingGroup({ originalName: groupCtxMenu.name, name: groupCtxMenu.name, color: g?.color ?? '#6366f1' })
+            } },
+            { label: collapsedGroups.includes(groupCtxMenu.name) ? 'Desplegar' : 'Plegar', icon: <IconFolder />, onClick: () => toggleGroup(groupCtxMenu.name) }
+          ]} />
       )}
 
       {/* ── Edit group modal ── */}

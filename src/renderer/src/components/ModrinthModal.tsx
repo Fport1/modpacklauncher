@@ -45,6 +45,7 @@ interface ModrinthHit {
   description: string
   icon_url: string | null
   downloads: number
+  follows?: number
   categories: string[]
   author?: string
   client_side?: 'required' | 'optional' | 'unsupported'
@@ -64,7 +65,27 @@ interface ModrinthVersion {
   dependencies: { project_id: string | null; version_id?: string; dependency_type: 'required' | 'optional' | 'incompatible' }[]
 }
 
-interface ModrinthCategory { name: string; header: string }
+interface ModrinthCategory { name: string; header: string; icon?: string }
+
+/**
+ * Los iconos de categoría vienen como SVG en texto desde la API de Modrinth.
+ * Antes de meterlos en la página se les quita cualquier cosa que no sea dibujo
+ * (scripts, eventos, enlaces), por si acaso.
+ */
+function safeSvg(svg: string | undefined): string | null {
+  if (!svg || !/^\s*<svg[\s>]/i.test(svg)) return null
+  if (/<script|<foreignObject|javascript:/i.test(svg)) return null
+  return svg.replace(/\s(on\w+|href|xlink:href)\s*=\s*("[^"]*"|'[^']*')/gi, '')
+}
+
+/** Icono de categoría: el oficial de Modrinth si lo hay; si no, el dibujado a mano. */
+function CatIcon({ svg, path, size = 14, className = '' }: { svg?: string | null; path?: string; size?: number; className?: string }) {
+  if (svg) {
+    return <span className={`inline-flex shrink-0 [&>svg]:w-full [&>svg]:h-full ${className}`} style={{ width: size, height: size }} dangerouslySetInnerHTML={{ __html: svg }} />
+  }
+  if (!path) return null
+  return <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" className={`shrink-0 ${className}`}><path d={path} /></svg>
+}
 
 interface Props {
   /** Una de las dos: la instancia, o un destino como un servidor. */
@@ -113,6 +134,10 @@ const CAT_ICONS: Record<string, string> = {
 const ENV_ICONS = {
   client: 'M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z',
   server: 'M20 2H4c-1.1 0-2 .9-2 2v4c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM4 14h16c1.1 0 2 .9 2 2v4c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2v-4c0-1.1.9-2 2-2z',
+}
+const ENV_SVG = {
+  client: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+  server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><path d="M6 6h.01M6 18h.01"/></svg>'
 }
 
 const SORT_OPTIONS = [
@@ -172,23 +197,20 @@ interface FilterRowProps {
   onExclude?: () => void
   label: string
   icon?: string
+  svg?: string | null
 }
 
-function FilterRow({ checked, excluded, onChange, onExclude, label, icon }: FilterRowProps) {
+function FilterRow({ checked, excluded, onChange, onExclude, label, icon, svg }: FilterRowProps) {
   return (
-    <div className={`flex items-center gap-1.5 px-1 py-1 rounded transition-colors group ${checked ? 'bg-accent/10' : excluded ? 'bg-red-500/10' : 'hover:bg-bg-hover'}`}>
-      <button onClick={onChange} className="flex items-center gap-1.5 flex-1 min-w-0">
+    <div className={`flex items-center gap-2 px-1.5 py-1.5 rounded-lg transition-colors group ${checked ? 'bg-accent/10' : excluded ? 'bg-red-500/10' : 'hover:bg-bg-hover'}`}>
+      <button onClick={onChange} className="flex items-center gap-2 flex-1 min-w-0">
         <div className={`w-4 h-4 flex items-center justify-center flex-shrink-0 rounded transition-colors ${checked ? 'text-accent' : excluded ? 'text-red-400/50' : 'text-transparent'}`}>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
-        {icon && (
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" className={`flex-shrink-0 ${checked ? 'text-accent' : excluded ? 'text-red-400/50' : 'text-text-muted'}`}>
-            <path d={icon}/>
-          </svg>
-        )}
-        <span className={`text-xs truncate ${checked ? 'text-accent font-medium' : excluded ? 'text-red-400/50 line-through' : 'text-text-secondary group-hover:text-text-primary'}`}>
+        <CatIcon svg={svg} path={icon} size={16} className={checked ? 'text-accent' : excluded ? 'text-red-400/50' : 'text-text-muted group-hover:text-text-primary'} />
+        <span className={`text-[13px] truncate ${checked ? 'text-accent font-medium' : excluded ? 'text-red-400/50 line-through' : 'text-text-secondary group-hover:text-text-primary'}`}>
           {label}
         </span>
       </button>
@@ -484,16 +506,20 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
   }
 
   const showSidebar = true
+  const catSvg = new Map(categories.map((c) => [c.name, safeSvg(c.icon)]))
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-bg-secondary border border-border rounded-2xl w-[900px] max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="bg-bg-secondary border border-border rounded-2xl w-[min(1180px,95vw)] h-[90vh] flex flex-col shadow-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2 flex-1">
-            <h2 className="text-base font-bold text-text-primary">Modrinth — {TYPE_LABELS[projectType]}</h2>
-            <span className="text-xs text-text-muted bg-bg-hover px-2 py-0.5 rounded-full">{targetLabel}</span>
+            <span className="w-8 h-8 rounded-lg bg-[#1bd96a]/15 text-[#1bd96a] flex items-center justify-center shrink-0">
+              <svg width="18" height="18" viewBox="0 0 512 514" fill="currentColor"><path d="M503.16 323.56c11.72-42.82 10.9-88.17-2.38-130.53C458.93 59.14 316.87-16.94 182.98 24.9 49.1 66.74-26.98 208.8 14.86 342.7c41.84 133.88 183.9 209.97 317.79 168.13 12.93-4.04 25.3-9.12 37.08-15.13l-20.26-38.97a216 216 0 0 1-29.9 12.2c-110.73 34.6-228.21-28.33-262.81-139.06S85.1 101.65 195.83 67.05c108.99-34.06 224.84 26.51 261.36 134.52l-51.02 15.95c-27.24-80.34-114.13-124.87-195.8-99.35-83.12 25.98-129.44 114.4-103.46 197.52 25.98 83.12 114.4 129.44 197.52 103.46 55.95-17.49 95.72-63.41 106.35-117.36l-43.53-11.55c-7.13 38.2-34.83 70.87-73.96 83.1-59.32 18.54-122.43-14.52-140.97-73.83-18.54-59.32 14.52-122.43 73.83-140.97 55.43-17.32 114.28 10.3 136.74 62.28l-120.08 37.52 13.61 43.55 161.99-50.62c.64-.16 1.26-.36 1.9-.58l62.87-19.64c1.84 5.73 3.43 11.55 4.76 17.47z"/></svg>
+            </span>
+            <h2 className="text-lg font-bold text-text-primary">Modrinth — {TYPE_LABELS[projectType]}</h2>
+            <span className="text-[13px] text-text-muted bg-bg-hover px-2.5 py-0.5 rounded-full">{targetLabel}</span>
           </div>
           {selectedMod && (
             <button onClick={() => { setSelectedMod(null); setProjectBody(null); setDepNames({}); setError('') }}
@@ -510,7 +536,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar */}
           {showSidebar && !selectedMod && (
-            <div className="w-52 flex-shrink-0 border-r border-border overflow-y-auto py-3 px-3 space-y-4">
+            <div className="w-60 flex-shrink-0 border-r border-border overflow-y-auto py-4 px-3 space-y-5">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <div onClick={() => setHideInstalled(v => !v)}
                   className={`w-4 h-4 flex items-center justify-center flex-shrink-0 rounded transition-colors cursor-pointer ${hideInstalled ? 'text-accent' : 'text-transparent'}`}>
@@ -523,7 +549,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
               {/* Categories */}
               <div>
                 <button onClick={() => setCatCollapsed(v => !v)}
-                  className="w-full flex items-center justify-between text-xs font-bold text-text-primary mb-2 hover:text-accent transition-colors">
+                  className="w-full flex items-center justify-between text-[13px] font-bold text-text-primary mb-2 hover:text-accent transition-colors">
                   Categoría
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
                     className={`transition-transform ${catCollapsed ? '-rotate-90' : ''}`}>
@@ -541,6 +567,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                         onExclude={() => toggleExclude(cat.name)}
                         label={CATEGORY_LABELS[cat.name] ?? cat.name}
                         icon={CAT_ICONS[cat.name]}
+                        svg={catSvg.get(cat.name)}
                       />
                     ))}
                   </div>
@@ -551,7 +578,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
               {projectType === 'mod' && (
                 <div>
                   <button onClick={() => setEnvCollapsed(v => !v)}
-                    className="w-full flex items-center justify-between text-xs font-bold text-text-primary mb-2 hover:text-accent transition-colors">
+                    className="w-full flex items-center justify-between text-[13px] font-bold text-text-primary mb-2 hover:text-accent transition-colors">
                     Entorno
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
                       className={`transition-transform ${envCollapsed ? '-rotate-90' : ''}`}>
@@ -567,6 +594,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                           onChange={() => changeEnv(e)}
                           label={e === 'any' ? 'Cualquiera' : e === 'client' ? 'Cliente' : 'Servidor'}
                           icon={e !== 'any' ? ENV_ICONS[e] : undefined}
+                          svg={e !== 'any' ? ENV_SVG[e] : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 000 20 14.5 14.5 0 000-20M2 12h20"/></svg>'}
                         />
                       ))}
                     </div>
@@ -606,7 +634,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                     </svg>
                     <input type="text" value={query} onChange={e => scheduleSearch(e.target.value)}
                       placeholder={`Buscar ${TYPE_LABELS[projectType].toLowerCase()}...`} autoFocus
-                      className="w-full bg-bg-primary border border-border rounded-lg pl-9 pr-8 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                      className="w-full bg-bg-primary border border-border rounded-xl pl-9 pr-8 py-2 text-sm text-text-primary focus:outline-none focus:border-accent" />
                     {query && (
                       <button onClick={() => scheduleSearch('')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
@@ -640,11 +668,11 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                         return (
                           <div key={mod.project_id} className="flex items-start hover:bg-bg-hover transition-colors group">
                             <button onClick={() => selectMod(mod)}
-                              className="flex-1 flex items-start gap-3 px-4 py-3 text-left min-w-0">
+                              className="flex-1 flex items-start gap-4 px-5 py-3.5 text-left min-w-0">
                               {mod.icon_url ? (
-                                <img src={mod.icon_url} alt="" className="w-11 h-11 rounded-lg flex-shrink-0 object-cover bg-bg-card" />
+                                <img src={mod.icon_url} alt="" className="w-16 h-16 rounded-xl flex-shrink-0 object-cover bg-bg-card ring-1 ring-white/5 shadow-sm" />
                               ) : (
-                                <div className="w-11 h-11 rounded-lg flex-shrink-0 bg-bg-card flex items-center justify-center">
+                                <div className="w-16 h-16 rounded-xl flex-shrink-0 bg-bg-card flex items-center justify-center">
                                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted">
                                     <rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>
                                   </svg>
@@ -652,25 +680,31 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                               )}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                  <p className="text-sm font-semibold text-text-primary truncate">{mod.title}</p>
+                                  <p className="text-[15px] font-semibold text-text-primary truncate">{mod.title}</p>
                                   {(isInstalled || isJustInstalled) && (
                                     <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full flex-shrink-0">Instalado</span>
                                   )}
                                 </div>
                                 {mod.author && (
-                                  <p className="text-[11px] text-text-muted truncate flex items-center gap-1 mt-0.5">
+                                  <p className="text-xs text-text-muted truncate flex items-center gap-1 mt-0.5">
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
                                       <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
                                     </svg>
                                     {mod.author}
                                   </p>
                                 )}
-                                <p className="text-xs text-text-muted mt-0.5 line-clamp-1">{mod.description}</p>
-                                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                                  <span className="flex items-center gap-1 text-[11px] text-text-muted">
-                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+                                <p className="text-[13px] text-text-muted mt-0.5 line-clamp-2">{mod.description}</p>
+                                <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
+                                  <span className="flex items-center gap-1 text-xs text-text-muted" title="Descargas">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
                                     {formatNum(mod.downloads)}
                                   </span>
+                                  {typeof mod.follows === 'number' && (
+                                    <span className="flex items-center gap-1 text-xs text-text-muted" title="Seguidores">
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0016.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 002 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></svg>
+                                      {formatNum(mod.follows)}
+                                    </span>
+                                  )}
                                   {projectType === 'mod' && (() => {
                                     const c = mod.client_side !== 'unsupported' && mod.client_side !== undefined
                                     const s = mod.server_side !== 'unsupported' && mod.server_side !== undefined
@@ -682,11 +716,9 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                                       </div>
                                     )
                                   })()}
-                                  {mod.categories.filter(c => !['fabric','forge','neoforge','quilt'].includes(c)).slice(0, 2).map(c => (
-                                    <span key={c} className="flex items-center gap-0.5 text-[10px] bg-bg-card text-text-muted px-1.5 py-0.5 rounded-full">
-                                      {CAT_ICONS[c] && (
-                                        <svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor"><path d={CAT_ICONS[c]}/></svg>
-                                      )}
+                                  {mod.categories.filter(c => !['fabric','forge','neoforge','quilt'].includes(c)).slice(0, 3).map(c => (
+                                    <span key={c} className="flex items-center gap-1 text-[11px] bg-bg-card border border-border/60 text-text-secondary px-2 py-0.5 rounded-full">
+                                      <CatIcon svg={catSvg.get(c)} path={CAT_ICONS[c]} size={12} />
                                       {CATEGORY_LABELS[c] ?? c}
                                     </span>
                                   ))}
@@ -694,7 +726,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                               </div>
                             </button>
                             {/* Quick install button */}
-                            <div className="flex items-center pr-3 self-center flex-shrink-0">
+                            <div className="flex items-center pr-4 self-center flex-shrink-0">
                               {isInstalled || isJustInstalled ? (
                                 <div className="w-8 h-8 flex items-center justify-center rounded-lg text-green-400">
                                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -704,7 +736,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                                   onClick={e => { e.stopPropagation(); quickInstall(mod) }}
                                   disabled={!!quickInstallingId || !!installingId}
                                   title="Instalar última versión compatible"
-                                  className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-bg-primary hover:border-accent/60 hover:bg-accent/10 hover:text-accent text-text-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="w-10 h-10 flex items-center justify-center rounded-xl border border-border bg-bg-primary hover:border-accent/60 hover:bg-accent/10 hover:text-accent text-text-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   {isQuickInstalling
                                     ? <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
@@ -758,7 +790,7 @@ export default function ModrinthModal({ instance, target, projectType = 'mod', o
                 {/* Mod header */}
                 <div className="flex items-start gap-3 px-5 pt-4 pb-3 border-b border-border/40 flex-shrink-0">
                   {selectedMod.icon_url ? (
-                    <img src={selectedMod.icon_url} alt="" className="w-12 h-12 rounded-xl flex-shrink-0 object-cover bg-bg-card" />
+                    <img src={selectedMod.icon_url} alt="" className="w-20 h-20 rounded-2xl flex-shrink-0 object-cover bg-bg-card ring-1 ring-white/5 shadow-md" />
                   ) : (
                     <div className="w-12 h-12 rounded-xl flex-shrink-0 bg-bg-card flex items-center justify-center">
                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>

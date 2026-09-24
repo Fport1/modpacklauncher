@@ -9,6 +9,7 @@ import { fileKindOf, localJoin, PLAYER_FILE } from './ftp/shared'
 import type { CloseRequest } from './ftp/EditorShell'
 import ZoomableImage from './ZoomableImage'
 import { nav } from '../nav'
+import { IconCube, IconSettings, IconGlobe, IconPalette, IconSun, IconCamera, IconTerminal, IconSliders } from './ui/icons'
 import { getMonacoLanguage } from '../lib/monacoLanguage'
 import { lazy, Suspense } from 'react'
 const ConfigFileEditor = lazy(() => import('./ConfigFileEditor'))
@@ -1265,23 +1266,23 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: 'mods', label: 'Mods' },
-    { key: 'config', label: 'Config' },
-    { key: 'worlds', label: 'Mundos' },
-    { key: 'resourcepacks', label: 'Resource Packs' },
-    { key: 'shaderpacks', label: 'Shaderpacks' },
-    { key: 'screenshots', label: 'Screenshots' },
-    { key: 'console', label: isRunning ? '● Consola' : 'Consola' },
-    { key: 'options', label: 'Options' },
+  const TABS: { key: Tab; label: string; icon: JSX.Element }[] = [
+    { key: 'mods', label: 'Mods', icon: <IconCube size={15} /> },
+    { key: 'config', label: 'Config', icon: <IconSettings size={15} /> },
+    { key: 'worlds', label: 'Mundos', icon: <IconGlobe size={15} /> },
+    { key: 'resourcepacks', label: 'Resource Packs', icon: <IconPalette size={15} /> },
+    { key: 'shaderpacks', label: 'Shaders', icon: <IconSun size={15} /> },
+    { key: 'screenshots', label: 'Capturas', icon: <IconCamera size={15} /> },
+    { key: 'console', label: isRunning ? '● Consola' : 'Consola', icon: <IconTerminal size={15} /> },
+    { key: 'options', label: 'Opciones', icon: <IconSliders size={15} /> },
   ]
 
   return (
     <div className={fullPage ? 'flex flex-col h-full' : 'fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4'}>
-    <div className={fullPage ? 'flex flex-col h-full w-full bg-bg-secondary overflow-hidden' : 'relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[720px] flex flex-col'} style={fullPage ? undefined : { height: '90vh', maxHeight: '780px', minHeight: '520px' }}>
+    <div className={fullPage ? 'flex flex-col h-full w-full bg-bg-secondary overflow-hidden' : 'relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[min(1100px,94vw)] flex flex-col overflow-hidden'} style={fullPage ? undefined : { height: '92vh', maxHeight: '940px', minHeight: '560px' }}>
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-border/50 flex-shrink-0">
+        <div className="flex items-center gap-4 px-6 py-4 border-b border-border/50 flex-shrink-0 bg-gradient-to-r from-accent/5 to-transparent">
           {fullPage && (
             <button onClick={onClose}
               className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors flex-shrink-0 mr-1">
@@ -1291,7 +1292,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               Instancias
             </button>
           )}
-          <div className="w-9 h-9 rounded-lg bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+          <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 shadow-md">
             {iconSrc
               ? <img src={iconSrc} alt="" className="w-full h-full object-cover" draggable={false} />
               : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
@@ -1301,32 +1302,37 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             }
           </div>
           <div className="flex-1 overflow-hidden">
-            <h2 className="font-semibold text-text-primary truncate">{instance.name}</h2>
-            <p className="text-xs text-text-muted capitalize">
+            <h2 className="text-lg font-bold text-text-primary truncate">{instance.name}</h2>
+            <p className="text-sm text-text-muted capitalize">
               MC {instance.minecraft}
               {instance.modloader !== 'vanilla' && ` · ${instance.modloader}${instance.modloaderVersion ? ` ${instance.modloaderVersion}` : ''}`}
               {instanceSize && ` · ${instanceSize}`}
             </p>
           </div>
+          <button onClick={() => { startHosting(instance.id).catch(() => {}) }}
+            title="Genera un código para que un amigo vea y arregle los archivos de esta instancia desde su launcher"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-sm rounded-lg transition-colors">
+            🤝 Pedir ayuda
+          </button>
           {!isRunning && (
             <button
               onClick={() => setConfirm({ title: 'Reparar instancia', message: 'Se reverificarán y redescargarán los archivos de Minecraft, el modloader y los mods del modpack. ¿Continuar?', onConfirm: () => window.api.launcher.repair(instance.id).catch(() => {}) })}
               title="Reparar instancia"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-hover hover:bg-bg-card border border-border text-text-secondary hover:text-text-primary text-xs rounded-lg transition-colors">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-bg-hover hover:bg-bg-card border border-border text-text-secondary hover:text-text-primary text-sm rounded-lg transition-colors">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
               Reparar
             </button>
           )}
           {isRunning ? (
             <button onClick={() => window.api.launcher.kill(instance.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-xs rounded-lg transition-colors">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-sm rounded-lg transition-colors">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>
               Cerrar juego
             </button>
           ) : onPlay && (
             <button onClick={onPlay}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
               Jugar
             </button>
           )}
@@ -1366,11 +1372,6 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                       Abrir carpeta
                     </button>
-                    <button onClick={() => { setGearOpen(false); startHosting(instance.id).catch(() => {}) }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left"
-                      title="Genera un código para que un amigo vea y arregle los archivos de esta instancia desde su launcher">
-                      <span className="w-[13px] text-center">🤝</span>
-                      Pedir ayuda a un amigo
-                    </button>
                     <div className="h-px bg-border/50 mx-2 my-1"/>
                     <button onClick={() => { setGearOpen(false); setConfirm({ title: 'Reparar instancia', message: 'Se reverificarán y redescargarán los archivos de Minecraft, el modloader y los mods del modpack. ¿Continuar?', onConfirm: () => window.api.launcher.repair(instance.id).catch(() => {}) }) }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
@@ -1396,7 +1397,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-0.5 px-4 pt-2 border-b border-border/30 flex-shrink-0 overflow-x-auto">
+        <div className="flex gap-1 px-5 pt-2 border-b border-border/40 flex-shrink-0 overflow-x-auto">
           {TABS.map(t => (
             <button key={t.key} onClick={() => {
               if (t.key !== tab) {
@@ -1408,9 +1409,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 }
               }
             }}
-              className={`px-3 py-1.5 text-xs whitespace-nowrap rounded-t-lg transition-colors ${
-                tab === t.key ? 'text-accent border-b-2 border-accent -mb-px font-medium' : 'text-text-muted hover:text-text-secondary'
+              className={`flex items-center gap-2 px-3.5 py-2.5 text-sm whitespace-nowrap rounded-t-lg border-b-2 -mb-px transition-colors ${
+                tab === t.key ? 'text-accent border-accent font-semibold bg-accent/5' : 'text-text-muted border-transparent hover:text-text-primary hover:bg-bg-hover/50'
               } ${t.key === 'console' && isRunning ? 'text-green-400' : ''}`}>
+              {t.icon}
               {t.label}
             </button>
           ))}
@@ -1429,21 +1431,21 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             >
               {isModpack && (
                 <div className="flex items-center gap-3 px-3 py-2 bg-accent/10 border border-accent/30 rounded-lg flex-shrink-0">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                  <span className="text-xs text-accent flex-1">Gestionado por modpack — solo lectura</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                  <span className="text-[13px] text-accent flex-1">Gestionado por modpack — solo lectura</span>
                   <button onClick={handleCheckUpdate} disabled={checkingUpdate}
-                    className="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary border border-border rounded px-2 py-1 transition-colors disabled:opacity-50 flex-shrink-0">
+                    className="flex items-center gap-1 text-[13px] text-text-secondary hover:text-text-primary border border-border rounded px-2 py-1 transition-colors disabled:opacity-50 flex-shrink-0">
                     {checkingUpdate ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-                      : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>}
+                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>}
                     {checkingUpdate ? 'Comprobando...' : 'Actualizar'}
                   </button>
                   <button onClick={() => setUnlinkConfirm(true)}
-                    className="flex items-center gap-1 text-xs text-text-muted hover:text-red-400 border border-border rounded px-2 py-1 transition-colors flex-shrink-0">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+                    className="flex items-center gap-1 text-[13px] text-text-muted hover:text-red-400 border border-border rounded px-2 py-1 transition-colors flex-shrink-0">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
                     Desvincular
                   </button>
                   {updateStatus && (
-                    <span className={`text-xs flex-shrink-0 ${updateStatus.hasUpdate ? 'text-accent' : 'text-green-400'}`}>
+                    <span className={`text-[13px] flex-shrink-0 ${updateStatus.hasUpdate ? 'text-accent' : 'text-green-400'}`}>
                       {updateStatus.hasUpdate ? `v${updateStatus.version} disponible` : '✓ Al día'}
                     </span>
                   )}
@@ -1458,10 +1460,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 {!isModpack && instance.modloader !== 'vanilla' && (
                   <button
                     onClick={() => { nav.push(() => setShowModrinth(false)); setShowModrinth(true) }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-medium transition-colors flex-shrink-0"
                     title="Buscar mods en Modrinth"
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     Modrinth
                   </button>
                 )}
@@ -1472,7 +1474,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   {([['all', 'Todos'], ['client', 'C'], ['server', 'S'], ['both', 'C+S']] as const).map(([key, label]) => (
                     <button key={key} onClick={() => setSideFilter(key)}
                       title={key === 'all' ? 'Todos' : key === 'client' ? 'Solo cliente' : key === 'server' ? 'Solo servidor' : 'Ambos lados'}
-                      className={`px-2 py-1.5 text-xs transition-colors ${sideFilter === key ? 'bg-accent text-white' : 'text-text-muted hover:text-text-secondary bg-bg-primary'}`}>
+                      className={`px-2 py-1.5 text-[13px] transition-colors ${sideFilter === key ? 'bg-accent text-white' : 'text-text-muted hover:text-text-secondary bg-bg-primary'}`}>
                       {label}
                     </button>
                   ))}
@@ -1480,20 +1482,20 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 {/* Updates filter */}
                 <button onClick={() => setUpdatesOnly(p => !p)}
                   title="Mostrar solo mods con actualización disponible"
-                  className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
+                  className={`flex items-center gap-1 px-2 py-1.5 text-[13px] rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
                   Actualizables
                 </button>
                 <button onClick={refreshMeta} disabled={checkingMeta}
                   title="Buscar actualizaciones"
                   className="w-7 h-7 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-text-primary hover:border-border/60 bg-bg-primary disabled:opacity-50 transition-colors flex-shrink-0">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={checkingMeta ? 'animate-spin' : ''}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={checkingMeta ? 'animate-spin' : ''}>
                     <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
                   </svg>
                 </button>
               </div>
               <div className="flex items-center justify-between flex-shrink-0">
-                <p className="text-xs text-text-muted">{sortedMods.length} mod{sortedMods.length !== 1 ? 's' : ''}</p>
+                <p className="text-[13px] text-text-muted">{sortedMods.length} mod{sortedMods.length !== 1 ? 's' : ''}</p>
               </div>
               {loading ? <LoadSpinner /> : sortedMods.length === 0 ? <EmptyMsg msg="No hay mods instalados" /> : (
                 <>
@@ -1523,8 +1525,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               )}
               {/* Drag & drop hint */}
               <div className={`flex items-center justify-center gap-2 py-3 rounded-lg border border-dashed transition-colors flex-shrink-0 ${dragOver ? 'border-accent text-accent' : 'border-border/40 text-text-muted/40'}`}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <span className="text-xs">{dragOver ? 'Suelta para instalar' : 'Arrastra archivos .jar aquí para instalarlos'}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span className="text-[13px]">{dragOver ? 'Suelta para instalar' : 'Arrastra archivos .jar aquí para instalarlos'}</span>
               </div>
             </div>
           )}
@@ -1545,8 +1547,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
                   </button>
                   {/* File tab */}
-                  <div className="flex items-center gap-1.5 pl-3 pr-1 h-full border-r border-[#1e1e1e] bg-[#1e1e1e] text-[#cccccc] text-xs flex-shrink-0 select-none" style={{ borderTop: '1px solid #007acc', paddingTop: '7px', paddingBottom: '6px' }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#519aba', flexShrink: 0 }}>
+                  <div className="flex items-center gap-1.5 pl-3 pr-1 h-full border-r border-[#1e1e1e] bg-[#1e1e1e] text-[#cccccc] text-[13px] flex-shrink-0 select-none" style={{ borderTop: '1px solid #007acc', paddingTop: '7px', paddingBottom: '6px' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#519aba', flexShrink: 0 }}>
                       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
                     </svg>
                     <span className="font-medium truncate" style={{ maxWidth: '200px' }}>{editingConfigFile.name}</span>
@@ -1572,10 +1574,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   <button
                     onClick={saveConfigFile}
                     disabled={configEditorSaving || editingConfigFile.content === editingConfigFile.savedContent}
-                    className="flex items-center gap-1 text-[11px] px-3 mr-2 py-1 rounded transition-colors flex-shrink-0"
+                    className="flex items-center gap-1 text-xs px-3 mr-2 py-1 rounded transition-colors flex-shrink-0"
                     style={{ background: '#007acc', color: 'white', opacity: (configEditorSaving || editingConfigFile.content === editingConfigFile.savedContent) ? 0.35 : 1, cursor: (configEditorSaving || editingConfigFile.content === editingConfigFile.savedContent) ? 'not-allowed' : 'pointer' }}
                   >
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                     {configEditorSaving ? 'Guardando…' : 'Guardar'}
                   </button>
                 </div>
@@ -1615,19 +1617,19 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   <div className="absolute inset-0 flex items-center justify-center z-10" style={{ background: 'rgba(0,0,0,0.55)' }}>
                     <div className="bg-bg-secondary border border-border rounded-xl p-5 flex flex-col gap-3 shadow-2xl" style={{ width: '280px' }}>
                       <p className="text-sm font-semibold text-text-primary">¿Descartar cambios?</p>
-                      <p className="text-xs text-text-muted">
+                      <p className="text-[13px] text-text-muted">
                         <span className="text-text-primary font-medium">{editingConfigFile.name}</span> tiene cambios sin guardar que se perderán.
                       </p>
                       <div className="flex gap-2 justify-end pt-1">
                         <button
                           onClick={() => setUnsavedConfirm(null)}
-                          className="text-xs px-3 py-1.5 rounded-lg border border-border text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+                          className="text-[13px] px-3 py-1.5 rounded-lg border border-border text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
                         >
                           Cancelar
                         </button>
                         <button
                           onClick={unsavedConfirm.onDiscard}
-                          className="text-xs px-3 py-1.5 rounded-lg text-white hover:opacity-90 transition-colors"
+                          className="text-[13px] px-3 py-1.5 rounded-lg text-white hover:opacity-90 transition-colors"
                           style={{ background: '#c72e0f' }}
                         >
                           Descartar
@@ -1644,16 +1646,16 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap">
                   <button
                     onClick={() => navigateConfig([])}
-                    className={`text-xs px-2 py-1 rounded-lg transition-colors ${configPath.length === 0 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
+                    className={`text-[13px] px-2 py-1 rounded-lg transition-colors ${configPath.length === 0 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
                   >
                     config
                   </button>
                   {configPath.map((seg, i) => (
                     <div key={i} className="flex items-center gap-1.5">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/40 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/40 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
                       <button
                         onClick={() => navigateConfig(configPath.slice(0, i + 1))}
-                        className={`text-xs px-2 py-1 rounded-lg transition-colors ${i === configPath.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
+                        className={`text-[13px] px-2 py-1 rounded-lg transition-colors ${i === configPath.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}
                       >
                         {seg}
                       </button>
@@ -1671,7 +1673,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                     onClick={() => navigateConfig(configPath.slice(0, -1))}
                     className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-primary hover:bg-bg-hover/50 rounded-xl transition-colors self-start"
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
                     Volver
                   </button>
                 )}
@@ -1679,7 +1681,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 {loading ? <LoadSpinner /> : configFiles.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-text-muted text-sm gap-2">
                     <p>{configPath.length === 0 ? 'La carpeta config está vacía.' : 'Esta carpeta está vacía.'}</p>
-                    {configPath.length === 0 && <p className="text-xs">Lanza el juego una vez para que los mods generen sus archivos de configuración.</p>}
+                    {configPath.length === 0 && <p className="text-[13px]">Lanza el juego una vez para que los mods generen sus archivos de configuración.</p>}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-0.5">
@@ -1704,15 +1706,15 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-text-primary truncate">{f.name}</p>
-                            <p className="text-[11px] text-text-muted">
+                            <p className="text-xs text-text-muted">
                               {f.isDir ? 'Carpeta' : formatSize(f.size)} · {new Date(f.date).toLocaleDateString()}
                             </p>
                           </div>
                           {f.isDir && (
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/30 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/30 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
                           )}
                           {canEdit && (
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted/30 flex-shrink-0">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted/30 flex-shrink-0">
                               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                             </svg>
                           )}
@@ -1740,8 +1742,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             <div className="flex-1 flex flex-col overflow-hidden relative" style={{ background: '#1e1e1e' }}>
               {/* Title bar */}
               <div className="flex items-center flex-shrink-0" style={{ height: '35px', background: '#2d2d2d', borderBottom: '1px solid #1e1e1e' }}>
-                <div className="flex items-center gap-1.5 pl-3 pr-1 h-full border-r border-[#1e1e1e] bg-[#1e1e1e] text-[#cccccc] text-xs flex-shrink-0 select-none" style={{ borderTop: '1px solid #007acc', paddingTop: '7px', paddingBottom: '6px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#519aba', flexShrink: 0 }}>
+                <div className="flex items-center gap-1.5 pl-3 pr-1 h-full border-r border-[#1e1e1e] bg-[#1e1e1e] text-[#cccccc] text-[13px] flex-shrink-0 select-none" style={{ borderTop: '1px solid #007acc', paddingTop: '7px', paddingBottom: '6px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: '#519aba', flexShrink: 0 }}>
                     <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
                   <span className="font-medium truncate" style={{ maxWidth: '200px' }}>{editingWorldFile.name}</span>
@@ -1759,9 +1761,9 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 {worldEditorMsg === 'success' && <span style={{ fontSize: '11px', color: '#4ec9b0', paddingRight: '8px' }}>✓ Guardado</span>}
                 {worldEditorMsg === 'error' && <span style={{ fontSize: '11px', color: '#f48771', paddingRight: '8px' }}>✗ Error al guardar</span>}
                 <button onClick={saveWorldFile} disabled={worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent}
-                  className="flex items-center gap-1 text-[11px] px-3 mr-2 py-1 rounded transition-colors flex-shrink-0"
+                  className="flex items-center gap-1 text-xs px-3 mr-2 py-1 rounded transition-colors flex-shrink-0"
                   style={{ background: '#007acc', color: 'white', opacity: (worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent) ? 0.35 : 1, cursor: (worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent) ? 'not-allowed' : 'pointer' }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
                   {worldEditorSaving ? 'Guardando…' : 'Guardar'}
                 </button>
               </div>
@@ -1800,17 +1802,17 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 pointer-events-none" style={{ background: 'rgba(var(--accent-rgb,99,102,241),0.12)', border: '2px dashed var(--accent,#6366f1)', borderRadius: '12px' }}>
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent opacity-70"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   <p className="text-sm text-accent font-medium">Soltar para copiar aquí</p>
-                  <p className="text-xs text-text-muted">{worldFilePath.join(' / ')}</p>
+                  <p className="text-[13px] text-text-muted">{worldFilePath.join(' / ')}</p>
                 </div>
               )}
               {/* Breadcrumb */}
               <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap px-4 pt-4 pb-2">
-                <button onClick={() => navigateWorld([])} className="text-xs px-2 py-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">saves</button>
+                <button onClick={() => navigateWorld([])} className="text-[13px] px-2 py-1 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">saves</button>
                 {worldFilePath.map((seg, i) => (
                   <div key={i} className="flex items-center gap-1.5">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/40 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/40 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>
                     <button onClick={() => navigateWorld(worldFilePath.slice(0, i + 1))}
-                      className={`text-xs px-2 py-1 rounded-lg transition-colors ${i === worldFilePath.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}>
+                      className={`text-[13px] px-2 py-1 rounded-lg transition-colors ${i === worldFilePath.length - 1 ? 'text-text-primary font-medium' : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'}`}>
                       {seg}
                     </button>
                   </div>
@@ -1824,7 +1826,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               <div className="px-4 pb-1">
                 <button onClick={() => navigateWorld(worldFilePath.slice(0, -1))}
                   className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-text-primary hover:bg-bg-hover/50 rounded-xl transition-colors">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
                   Volver
                 </button>
               </div>
@@ -1833,7 +1835,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 {loading ? <LoadSpinner /> : worldFiles.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-text-muted text-sm gap-2">
                     <p>Carpeta vacía</p>
-                    <p className="text-xs">Arrastra archivos aquí para copiarlos.</p>
+                    <p className="text-[13px]">Arrastra archivos aquí para copiarlos.</p>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-0.5">
@@ -1851,10 +1853,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-text-primary truncate">{f.name}</p>
-                            <p className="text-[11px] text-text-muted">{f.isDir ? 'Carpeta' : formatSize(f.size)} · {new Date(f.date).toLocaleDateString()}</p>
+                            <p className="text-xs text-text-muted">{f.isDir ? 'Carpeta' : formatSize(f.size)} · {new Date(f.date).toLocaleDateString()}</p>
                           </div>
-                          {f.isDir && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/30 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>}
-                          {canEdit && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted/30 flex-shrink-0"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
+                          {f.isDir && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-text-muted/30 flex-shrink-0"><polyline points="9 18 15 12 9 6"/></svg>}
+                          {canEdit && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted/30 flex-shrink-0"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>}
                         </div>
                       )
                     })}
@@ -1872,7 +1874,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <FolderBtn onClick={() => window.api.instances.openSavesFolder(instance.id)} />
               </div>
               <div className="flex items-center justify-between flex-shrink-0">
-                <p className="text-xs text-text-muted">{filteredWorlds.length} mundo{filteredWorlds.length !== 1 ? 's' : ''}</p>
+                <p className="text-[13px] text-text-muted">{filteredWorlds.length} mundo{filteredWorlds.length !== 1 ? 's' : ''}</p>
               </div>
               {loading ? <LoadSpinner /> : filteredWorlds.length === 0 ? <EmptyMsg msg="No hay mundos guardados" /> : (
                 <>
@@ -1901,31 +1903,31 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         }
                         <div className="flex-1 overflow-hidden">
                           <p className="text-sm text-text-primary truncate">{w.name}</p>
-                          <p className="text-xs text-text-muted">{formatDate(w.lastPlayed)}{w.size ? ` · ${formatSize(w.size)}` : ''}</p>
+                          <p className="text-[13px] text-text-muted">{formatDate(w.lastPlayed)}{w.size ? ` · ${formatSize(w.size)}` : ''}</p>
                         </div>
                         <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'level.dat']) }}
                           title="Hora, tiempo, reglas del juego y tu jugador"
-                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
                           🌍 Editar
                         </button>
                         <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'data', 'scoreboard.dat']) }}
                           title="Equipos, objetivos y puntos (scoreboard)"
-                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
                           ⚑ Equipos
                         </button>
                         <button onClick={e => { e.stopPropagation(); navigateWorld([w.name]) }}
                           title="Explorar archivos"
-                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                           Archivos
                         </button>
                         <button onClick={e => { e.stopPropagation(); handleBackupWorld(w.name) }}
                           title="Crear backup"
                           disabled={backingUp === w.name}
-                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent hover:bg-accent/10 border border-border hover:border-accent/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent hover:bg-accent/10 border border-border hover:border-accent/40 transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
                           {backingUp === w.name
                             ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-                            : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                           }
                           Backup
                         </button>
@@ -1944,16 +1946,16 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               <div className="flex-shrink-0 mt-1">
                 <button
                   onClick={() => { if (!backupsLoaded) loadBackups() }}
-                  className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary transition-colors"
+                  className="flex items-center gap-1.5 text-[13px] text-text-muted hover:text-text-secondary transition-colors"
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   Backups guardados {backupsLoaded ? `(${backups.length})` : '— click para cargar'}
                 </button>
                 {backupsLoaded && backups.length > 0 && (
                   <div className="mt-2 flex flex-col gap-1">
                     {backups.map(b => (
-                      <div key={b.filename} className="group flex items-center gap-2 px-3 py-2 bg-bg-card border border-border rounded-lg text-xs">
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      <div key={b.filename} className="group flex items-center gap-2 px-3 py-2 bg-bg-card border border-border rounded-lg text-[13px]">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                         <span className="flex-1 truncate text-text-secondary">{b.filename}</span>
                         <span className="text-text-muted flex-shrink-0">{formatSize(b.size)}</span>
                         <span className="text-text-muted flex-shrink-0">{formatDate(b.date)}</span>
@@ -1967,7 +1969,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   </div>
                 )}
                 {backupsLoaded && backups.length === 0 && (
-                  <p className="mt-2 text-xs text-text-muted/50">No hay backups todavía.</p>
+                  <p className="mt-2 text-[13px] text-text-muted/50">No hay backups todavía.</p>
                 )}
               </div>
             </div>
@@ -1978,8 +1980,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               {isModpack && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-accent/10 border border-accent/30 rounded-lg flex-shrink-0">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                  <span className="text-xs text-accent">Gestionado por modpack — solo lectura</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                  <span className="text-[13px] text-accent">Gestionado por modpack — solo lectura</span>
                 </div>
               )}
               {isRunning && <GameLockedBanner />}
@@ -1990,8 +1992,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <FolderBtn onClick={() => window.api.instances.openResourcepacksFolder(instance.id)} />
                 {!isModpack && (
                   <button onClick={() => { nav.push(() => setShowModrinthRp(false)); setShowModrinthRp(true) }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-medium transition-colors flex-shrink-0">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     Modrinth
                   </button>
                 )}
@@ -1999,12 +2001,12 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button onClick={() => setUpdatesOnly(p => !p)}
                   title="Mostrar solo resource packs con actualización disponible"
-                  className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
+                  className={`flex items-center gap-1 px-2 py-1.5 text-[13px] rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
                   Actualizables
                 </button>
               </div>
-              <p className="text-xs text-text-muted flex-shrink-0">{sortedRps.length} resource pack{sortedRps.length !== 1 ? 's' : ''}</p>
+              <p className="text-[13px] text-text-muted flex-shrink-0">{sortedRps.length} resource pack{sortedRps.length !== 1 ? 's' : ''}</p>
               {loading ? <LoadSpinner /> : sortedRps.length === 0 ? <EmptyMsg msg="No hay resource packs instalados" /> : (
                 <>
                   <SelectAllBar items={sortedRps.map(m => m.filename)} onDelete={deleteRpFiles} />
@@ -2039,8 +2041,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               {isModpack && (
                 <div className="flex items-center gap-2 px-3 py-2 bg-accent/10 border border-accent/30 rounded-lg flex-shrink-0">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                  <span className="text-xs text-accent">Gestionado por modpack — solo lectura</span>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                  <span className="text-[13px] text-accent">Gestionado por modpack — solo lectura</span>
                 </div>
               )}
               {isRunning && <GameLockedBanner />}
@@ -2051,8 +2053,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <FolderBtn onClick={() => window.api.instances.openShaderpacks(instance.id)} />
                 {!isModpack && instance.modloader !== 'vanilla' && (
                   <button onClick={() => { nav.push(() => setShowModrinthShader(false)); setShowModrinthShader(true) }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-xs font-medium transition-colors flex-shrink-0">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-medium transition-colors flex-shrink-0">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                     Modrinth
                   </button>
                 )}
@@ -2060,12 +2062,12 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button onClick={() => setUpdatesOnly(p => !p)}
                   title="Mostrar solo shaderpacks con actualización disponible"
-                  className={`flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
+                  className={`flex items-center gap-1 px-2 py-1.5 text-[13px] rounded-lg border transition-colors flex-shrink-0 ${updatesOnly ? 'bg-accent/20 text-accent border-accent/50' : 'text-text-muted border-border hover:text-text-secondary bg-bg-primary'}`}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="21" x2="12" y2="3"/></svg>
                   Actualizables
                 </button>
               </div>
-              <p className="text-xs text-text-muted flex-shrink-0">{sortedShaders.length} shaderpack{sortedShaders.length !== 1 ? 's' : ''}</p>
+              <p className="text-[13px] text-text-muted flex-shrink-0">{sortedShaders.length} shaderpack{sortedShaders.length !== 1 ? 's' : ''}</p>
               {loading ? <LoadSpinner /> : sortedShaders.length === 0 ? <EmptyMsg msg="No hay shaderpacks instalados" /> : (
                 <>
                   <SelectAllBar items={sortedShaders.map(m => m.filename)} onDelete={deleteShaderFiles} />
@@ -2103,7 +2105,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <SortSelect value={sort} onChange={setSort} withDate />
                 <FolderBtn onClick={() => window.api.instances.openScreenshots(instance.id)} />
               </div>
-              <p className="text-xs text-text-muted flex-shrink-0">{sortedScreenshots.length} screenshot{sortedScreenshots.length !== 1 ? 's' : ''}</p>
+              <p className="text-[13px] text-text-muted flex-shrink-0">{sortedScreenshots.length} screenshot{sortedScreenshots.length !== 1 ? 's' : ''}</p>
               {loading ? <LoadSpinner /> : sortedScreenshots.length === 0 ? <EmptyMsg msg="No hay screenshots" /> : (
                 <>
                   <SelectAllBar items={sortedScreenshots.map(s => s.filename)} onDelete={deleteScreenshotItems} />
@@ -2131,8 +2133,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                             className="w-full h-full object-cover" loading="lazy" />
                           {/* hover overlay */}
                           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-0.5 p-2">
-                            <p className="text-white text-xs text-center truncate w-full">{s.filename}</p>
-                            <p className="text-white/60 text-xs">{formatDate(s.date)}</p>
+                            <p className="text-white text-[13px] text-center truncate w-full">{s.filename}</p>
+                            <p className="text-white/60 text-[13px]">{formatDate(s.date)}</p>
                           </div>
                           {/* selection checkbox */}
                           <div
@@ -2157,18 +2159,18 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
                 {(['live', 'log', 'crash'] as const).map(v => (
                   <button key={v} onClick={() => setConsoleView(v)}
-                    className={`px-3 py-1 text-xs rounded-lg transition-colors ${consoleView === v ? 'bg-accent text-white' : 'text-text-muted hover:text-text-secondary border border-border'}`}>
+                    className={`px-3 py-1 text-[13px] rounded-lg transition-colors ${consoleView === v ? 'bg-accent text-white' : 'text-text-muted hover:text-text-secondary border border-border'}`}>
                     {v === 'live' ? (isRunning ? '● En vivo' : 'Logs en vivo') : v === 'log' ? 'latest.log' : 'Crash Reports'}
                   </button>
                 ))}
                 <div className="flex-1" />
                 {consoleView === 'live' && (
                   <button onClick={() => useStore.getState().clearGameLog(instance.id)}
-                    className="text-xs text-text-muted hover:text-text-secondary">Limpiar</button>
+                    className="text-[13px] text-text-muted hover:text-text-secondary">Limpiar</button>
                 )}
                 {consoleView === 'log' && latestLog && (
                   <div className="flex gap-2">
-                    <button onClick={() => window.api.clipboard.writeText(latestLog)} className="text-xs text-accent hover:text-accent/80">Copiar</button>
+                    <button onClick={() => window.api.clipboard.writeText(latestLog)} className="text-[13px] text-accent hover:text-accent/80">Copiar</button>
                     <FolderBtn onClick={() => window.api.instances.openLogsFolder(instance.id)} label="Abrir logs" />
                   </div>
                 )}
@@ -2178,7 +2180,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               </div>
 
               {consoleView === 'live' && (
-                <div ref={logRef} className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-xs text-text-secondary leading-5 min-h-0">
+                <div ref={logRef} className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-[13px] text-text-secondary leading-5 min-h-0">
                   {gameLogs.length === 0
                     ? <p className="text-text-muted">Los logs aparecerán aquí al lanzar el juego.</p>
                     : gameLogs.map((line, i) => (
@@ -2195,19 +2197,19 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         <button
                           onClick={() => handleAnalyzeClick(latestLog, 'log')}
                           disabled={aiLoading}
-                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-[13px] rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
                         >
-                          {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
+                          {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
                           {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && ' ▾'}
                         </button>
                         {showAIPicker === 'log' && (
                           <div className="absolute top-8 right-0 z-20 bg-bg-secondary border border-border rounded-xl shadow-xl min-w-48 py-1 text-sm">
-                            <p className="px-3 py-1 text-[10px] text-text-muted font-semibold uppercase tracking-wide">Elegir IA</p>
+                            <p className="px-3 py-1 text-[11px] text-text-muted font-semibold uppercase tracking-wide">Elegir IA</p>
                             {aiConfigs.map(c => (
                               <button key={c.id} onClick={() => runAIAnalysis(latestLog, 'log', c.id)}
                                 className="w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors">
-                                <p className="text-text-primary text-xs font-medium">{c.label}</p>
-                                <p className="text-text-muted text-[10px]">{c.provider} · {c.model}</p>
+                                <p className="text-text-primary text-[13px] font-medium">{c.label}</p>
+                                <p className="text-text-muted text-[11px]">{c.provider} · {c.model}</p>
                               </button>
                             ))}
                           </div>
@@ -2215,7 +2217,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       </>
                     )}
                   </div>
-                  <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-xs text-text-secondary leading-5 min-h-0">
+                  <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-[13px] text-text-secondary leading-5 min-h-0">
                     {loading ? <p className="text-text-muted">Cargando...</p>
                       : !latestLog ? <p className="text-text-muted">No hay logs disponibles.</p>
                       : latestLog.split('\n').map((line, i) => (
@@ -2223,7 +2225,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       ))}
                   </div>
                   {(aiAnalysis || aiError) && (
-                    <div className="flex-shrink-0 p-3 rounded-lg border border-purple-500/30 bg-purple-500/5 text-xs text-text-secondary whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    <div className="flex-shrink-0 p-3 rounded-lg border border-purple-500/30 bg-purple-500/5 text-[13px] text-text-secondary whitespace-pre-wrap max-h-48 overflow-y-auto">
                       {aiError ? <span className="text-red-400">{aiError}</span> : aiAnalysis}
                     </div>
                   )}
@@ -2234,7 +2236,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <div className="flex-1 flex gap-3 min-h-0">
                   <div className="w-48 flex-shrink-0 overflow-y-auto flex flex-col gap-1">
                     {crashes.length === 0
-                      ? <p className="text-xs text-text-muted px-1">No hay crash reports.</p>
+                      ? <p className="text-[13px] text-text-muted px-1">No hay crash reports.</p>
                       : crashes.map(c => (
                         <button key={c.filename}
                           onClick={async () => {
@@ -2242,9 +2244,9 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                             setAiAnalysis(null); setAiError('')
                             setCrashContent(await window.api.instances.readCrashReport(instance.id, c.filename))
                           }}
-                          className={`text-left px-2 py-1.5 rounded-lg text-xs transition-colors ${selectedCrash === c.filename ? 'bg-accent/20 text-accent' : 'text-text-secondary hover:bg-bg-hover'}`}>
+                          className={`text-left px-2 py-1.5 rounded-lg text-[13px] transition-colors ${selectedCrash === c.filename ? 'bg-accent/20 text-accent' : 'text-text-secondary hover:bg-bg-hover'}`}>
                           <p className="truncate">{c.filename}</p>
-                          <p className="text-text-muted text-xs">{formatDate(c.date)}</p>
+                          <p className="text-text-muted text-[13px]">{formatDate(c.date)}</p>
                         </button>
                       ))}
                   </div>
@@ -2254,33 +2256,33 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         <button
                           onClick={() => handleAnalyzeClick(crashContent, 'crash')}
                           disabled={aiLoading}
-                          className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
+                          className="flex items-center gap-1.5 px-2.5 py-1 text-[13px] rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
                         >
-                          {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
+                          {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
                           {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && ' ▾'}
                         </button>
                         {showAIPicker === 'crash' && (
                           <div className="absolute top-8 left-0 z-20 bg-bg-secondary border border-border rounded-xl shadow-xl min-w-48 py-1 text-sm">
-                            <p className="px-3 py-1 text-[10px] text-text-muted font-semibold uppercase tracking-wide">Elegir IA</p>
+                            <p className="px-3 py-1 text-[11px] text-text-muted font-semibold uppercase tracking-wide">Elegir IA</p>
                             {aiConfigs.map(c => (
                               <button key={c.id} onClick={() => runAIAnalysis(crashContent, 'crash', c.id)}
                                 className="w-full text-left px-3 py-2 hover:bg-bg-hover transition-colors">
-                                <p className="text-text-primary text-xs font-medium">{c.label}</p>
-                                <p className="text-text-muted text-[10px]">{c.provider} · {c.model}</p>
+                                <p className="text-text-primary text-[13px] font-medium">{c.label}</p>
+                                <p className="text-text-muted text-[11px]">{c.provider} · {c.model}</p>
                               </button>
                             ))}
                           </div>
                         )}
                         <button onClick={() => window.api.clipboard.writeText(crashContent)}
-                          className="ml-auto text-xs text-accent hover:text-accent/80">Copiar</button>
+                          className="ml-auto text-[13px] text-accent hover:text-accent/80">Copiar</button>
                       </div>
                     )}
                     {(aiAnalysis || aiError) && (
-                      <div className="flex-shrink-0 p-3 rounded-lg border border-purple-500/30 bg-purple-500/5 text-xs text-text-secondary whitespace-pre-wrap max-h-40 overflow-y-auto">
+                      <div className="flex-shrink-0 p-3 rounded-lg border border-purple-500/30 bg-purple-500/5 text-[13px] text-text-secondary whitespace-pre-wrap max-h-40 overflow-y-auto">
                         {aiError ? <span className="text-red-400">{aiError}</span> : aiAnalysis}
                       </div>
                     )}
-                    <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-xs text-red-300 leading-5 min-h-0">
+                    <div className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-[13px] text-red-300 leading-5 min-h-0">
                       {!selectedCrash
                         ? <p className="text-text-muted">Selecciona un crash report.</p>
                         : crashContent.split('\n').map((line, i) => <div key={i}>{line}</div>)}
@@ -2308,7 +2310,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                     setOptionsSaved(true); setTimeout(() => setOptionsSaved(false), 2000)
                   }}
                   disabled={isRunning || optionsContent === optionsSavedContent}
-                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white text-xs font-medium rounded-lg transition-colors">
+                  className="px-4 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white text-[13px] font-medium rounded-lg transition-colors">
                   {optionsSaved ? '¡Guardado!' : 'Guardar cambios'}
                 </button>
               </div>
@@ -2453,7 +2455,7 @@ function VersionPickerModal({ modName, projectId, installedVersionId, currentFil
       <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[540px] max-h-[72vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50 flex-shrink-0">
           <div className="min-w-0">
-            <p className="text-xs text-text-muted">Cambiar versión</p>
+            <p className="text-[13px] text-text-muted">Cambiar versión</p>
             <h3 className="font-semibold text-text-primary text-sm truncate">{modName}</h3>
           </div>
           <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover flex-shrink-0">
@@ -2481,33 +2483,33 @@ function VersionPickerModal({ modName, projectId, installedVersionId, currentFil
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-sm font-medium ${isInstalled ? 'text-accent' : 'text-text-primary'}`}>{ver.version_number}</span>
-                      {isInstalled && <span className="text-[10px] px-1.5 py-0.5 bg-accent text-white rounded-full font-medium">Instalada</span>}
+                      {isInstalled && <span className="text-[11px] px-1.5 py-0.5 bg-accent text-white rounded-full font-medium">Instalada</span>}
                       {ver.version_type && ver.version_type !== 'release' && (
-                        <span className="text-[10px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded-full border border-amber-500/30">{ver.version_type}</span>
+                        <span className="text-[11px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded-full border border-amber-500/30">{ver.version_type}</span>
                       )}
                     </div>
                     {ver.name && ver.name !== ver.version_number && (
-                      <p className="text-xs text-text-muted truncate mt-0.5">{ver.name}</p>
+                      <p className="text-[13px] text-text-muted truncate mt-0.5">{ver.name}</p>
                     )}
                     <div className="flex items-center gap-1 mt-1 flex-wrap">
                       {(ver.game_versions as string[]).slice(0, 4).map((gv: string) => (
-                        <span key={gv} className="text-[10px] px-1.5 py-0.5 bg-bg-hover text-text-muted rounded border border-border/50">{gv}</span>
+                        <span key={gv} className="text-[11px] px-1.5 py-0.5 bg-bg-hover text-text-muted rounded border border-border/50">{gv}</span>
                       ))}
-                      {ver.game_versions.length > 4 && <span className="text-[10px] text-text-muted">+{ver.game_versions.length - 4}</span>}
+                      {ver.game_versions.length > 4 && <span className="text-[11px] text-text-muted">+{ver.game_versions.length - 4}</span>}
                     </div>
                   </div>
                   <div className="flex-shrink-0 flex flex-col items-end gap-1 pt-0.5">
-                    <span className="text-[10px] text-text-muted">{new Date(ver.date_published).toLocaleDateString()}</span>
-                    {file && <span className="text-[10px] text-text-muted font-mono">{(file.size / 1024).toFixed(0)} KB</span>}
-                    {isInstalling && <span className="text-xs text-accent">Instalando...</span>}
-                    {!isInstalled && !installing && <span className="text-[10px] text-accent/70">Instalar →</span>}
+                    <span className="text-[11px] text-text-muted">{new Date(ver.date_published).toLocaleDateString()}</span>
+                    {file && <span className="text-[11px] text-text-muted font-mono">{(file.size / 1024).toFixed(0)} KB</span>}
+                    {isInstalling && <span className="text-[13px] text-accent">Instalando...</span>}
+                    {!isInstalled && !installing && <span className="text-[11px] text-accent/70">Instalar →</span>}
                   </div>
                 </div>
               </button>
             )
           })}
         </div>
-        {error && <p className="text-xs text-red-400 px-4 pb-3 flex-shrink-0">{error}</p>}
+        {error && <p className="text-[13px] text-red-400 px-4 pb-3 flex-shrink-0">{error}</p>}
       </div>
     </div>
   )
