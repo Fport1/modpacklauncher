@@ -154,7 +154,12 @@ jobs:
           WIN_EXE="ModpackLauncher Setup ${VERSION}.exe"
           WIN_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${WIN_EXE// /.}"
 
-          MAC_DMG=$(ls dist/ModpackLauncher*.dmg | head -1 | xargs basename)
+          # El actualizador de 1.8.x admite una sola URL por plataforma. El DMG
+          # de Intel arranca en todos los Mac (en Apple Silicon, con Rosetta), y
+          # desde 1.9 electron-updater detecta Rosetta y pasa esos equipos a la
+          # version arm64 en la siguiente actualizacion. El de arm64 en cambio no
+          # arranca en un Mac Intel, y es el que salia primero al listar.
+          MAC_DMG=$(ls dist/ModpackLauncher*.dmg | grep -v arm64 | head -1 | xargs basename)
           MAC_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${MAC_DMG// /.}"
 
           LINUX_APPIMAGE=$(ls dist/ModpackLauncher*.AppImage | head -1 | xargs basename)
