@@ -1,5 +1,14 @@
 import { loader } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor'
+// Slim Monaco build: full editor features but only the languages the config
+// editor actually uses (json, ini, yaml, xml, lua + custom toml below).
+// Importing 'monaco-editor' directly would bundle every language (~6 MB extra).
+import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
+import 'monaco-editor/esm/vs/editor/edcore.main.js'
+import 'monaco-editor/esm/vs/language/json/monaco.contribution.js'
+import 'monaco-editor/esm/vs/basic-languages/ini/ini.contribution.js'
+import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js'
+import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js'
+import 'monaco-editor/esm/vs/basic-languages/lua/lua.contribution.js'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 import Editor from '@monaco-editor/react'

@@ -11,7 +11,7 @@ import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
 import { checkJavaStatus, ensureJava } from './java'
 import { checkForUpdates, openDownloadPage, downloadAndInstall } from './updater'
-import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack, readFpackManifest, readFpackUrlFormat, fetchManifest, importFpack, installModpack, saveFpackLocally } from './modpacks'
+import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack, readFpackManifest, readFpackUrlFormat, fetchManifest, importFpack, installModpack, saveFpackLocally, updateModpack, compareVersions, installMrpackFiles } from './modpacks'
 import type { ExportParams } from './modpacks'
 import type { PublishedModpack } from '../shared/types'
 import type { UpdateManifest } from './updater'
@@ -66,7 +66,8 @@ import {
   deleteScreenshot,
   getInstanceSize,
   getInstanceGameDir,
-  getSharedDir
+  getSharedDir,
+  getInstancesDir
 } from './instances'
 import {
   launchInstance,
@@ -80,9 +81,24 @@ import {
   getQuiltVersions,
   getNeoForgeVersions
 } from './launcher'
-import { fetchManifest, installModpack, updateModpack, compareVersions, installMrpackFiles } from './modpacks'
-import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta } from './modrinth'
-import { requestCancel, resetCancel, CancelError } from './cancelToken'
+import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta, getInstalledProjectInfo } from './modrinth'
+import { requestCancel, runCancellable, CancelError } from './cancelToken'
+import { readModelOverrides, writeModelOverrides } from './modelOverrides'
+import {
+  ftpConnect, ftpDisconnect, ftpState, ftpList, ftpDownload, ftpUpload, ftpRemove, ftpRename, ftpMkdir,
+  listSites, saveSite, deleteSite, localList, localParent, localJoin,
+  ftpReadText, ftpWriteText, localReadText, localWriteText, localMkdir, localRename, localTrash,
+  localReveal, pickLocalDir, serverDownloadsDir, ftpReadImage, localReadImage, ftpReconnect, ftpWriteBytes
+} from './ftp'
+import { getTextures } from './mcTextures'
+import { assistHostStart, assistHostStop, assistHostOp, assistHelperStart, assistHelperClosed } from './assist'
+import { openPaneWindow, closePaneWindow, paneState, setPaneDir, getPaneDirs, setDrag, getDrag, notifyChanged, pushLog, type PaneSide } from './popout'
+import { nbtReadRemote, nbtWriteRemote, nbtReadLocal, nbtWriteLocal } from './nbt'
+import { serverDetect, serverSetOverride, serverListJars, serverIdentifyJars, serverInstallFromUrl } from './serverContent'
+import type { FtpSiteInput, RemoteEntry, ServerOverride, NbtDocument, AssistInstanceInfo } from '../shared/types'
+import { scanStorage, listStorageChildren, deleteStoragePath, openStoragePath, revealStoragePath, getDiskInfo } from './storage'
+import { safeJoin } from './paths'
+import { listAssetSources, listAssetDir, readAssetFile } from './assets'
 import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
 import { getLogBuffer } from './logger'
@@ -134,17 +150,22 @@ function describeError(err: unknown, fallback: string): string {
   return message || fallback
 }
 
+/** A todas las ventanas: el progreso de una subida se ve también en la de Servidores si está aparte. */
+function broadcast(channel: string, ...args: unknown[]): void {
+  for (const w of BrowserWindow.getAllWindows()) sendToWindow(w, channel, ...args)
+}
+
 function makeOpEmitter(name: string, type: string) {
   const id = uuidv4()
-  sendToWindow(currentMainWindow, 'ops:update', { id, name, type, status: 'running', startedAt: Date.now() })
+  broadcast('ops:update', { id, name, type, status: 'running', startedAt: Date.now() })
   return {
     id,
     progress: (message: string, current: number, total: number) =>
-      sendToWindow(currentMainWindow, 'ops:update', { id, message, current, total }),
+      broadcast('ops:update', { id, message, current, total }),
     done: (msg?: string) =>
-      sendToWindow(currentMainWindow, 'ops:update', { id, status: 'done', message: msg }),
+      broadcast('ops:update', { id, status: 'done', message: msg }),
     error: (err: string) =>
-      sendToWindow(currentMainWindow, 'ops:update', { id, status: 'error', error: err }),
+      broadcast('ops:update', { id, status: 'error', error: err }),
   }
 }
 
@@ -171,8 +192,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── Accounts ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('auth:login-microsoft', async () => {
-    const settings = settingsStore.getAll()
-    const account = await loginMicrosoft(getMainWindow(), settings.azureClientId)
+    const account = await loginMicrosoft(getMainWindow())
     addAccount(account)
     return account
   })
@@ -200,8 +220,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('auth:refresh', async (_e, account: MinecraftAccount) => {
-    const settings = settingsStore.getAll()
-    const refreshed = await refreshMicrosoftToken(account, settings.azureClientId)
+    const refreshed = await refreshMicrosoftToken(account)
     refreshed.id = account.id  // preserve original ID so updateAccount finds the record
     updateAccount(refreshed)
     return refreshed
@@ -311,8 +330,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── Launcher ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('launcher:launch', async (_e, instanceId: string) => {
-    resetCancel()
-
     const instances = await loadInstances()
     const instance = instances.find((i) => i.id === instanceId)
     if (!instance) throw new Error('Instance not found')
@@ -324,20 +341,20 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const settings = settingsStore.getAll()
 
     if (isTokenExpired(account) && account.type === 'microsoft') {
-      account = await refreshMicrosoftToken(account, settings.azureClientId)
+      account = await refreshMicrosoftToken(account)
       updateAccount(account)
     }
 
     const op = makeOpEmitter(`Iniciando ${instance.name}`, 'install-minecraft')
     try {
-      await launchInstance(
+      await runCancellable(() => launchInstance(
         instance, account, settings, getMainWindow(),
         (current, total, message) => op.progress(message, current, total),
         async (sessionMs) => {
           instance.playtime = (instance.playtime ?? 0) + sessionMs
           await updateInstance(instance)
         }
-      )
+      ))
       instance.lastPlayed = Date.now()
       await updateInstance(instance)
       op.done('Minecraft iniciado!')
@@ -359,17 +376,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle(
     'launcher:install-version',
     async (_e, version: string, modloader?: string, modloaderVersion?: string) => {
-      resetCancel()
       const label = modloader && modloader !== 'vanilla'
         ? `Instalando MC ${version} + ${modloader}`
         : `Instalando Minecraft ${version}`
       const op = makeOpEmitter(label, 'install-minecraft')
       try {
-        await installMinecraftVersion(version, (current, total, message) => op.progress(message, current, total))
-        if (modloader && modloader !== 'vanilla') {
-          const fake = { modloader: modloader as Instance['modloader'], modloaderVersion, minecraft: version } as Instance
-          await installModloader(fake, (current, total, message) => op.progress(message, current, total))
-        }
+        await runCancellable(async () => {
+          await installMinecraftVersion(version, (current, total, message) => op.progress(message, current, total))
+          if (modloader && modloader !== 'vanilla') {
+            const fake = { modloader: modloader as Instance['modloader'], modloaderVersion, minecraft: version } as Instance
+            await installModloader(fake, (current, total, message) => op.progress(message, current, total))
+          }
+        })
         op.done('¡Versión instalada!')
       } catch (e) {
         if (e instanceof CancelError) { op.done(); return }
@@ -390,7 +408,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     const settings = settingsStore.getAll()
     if (isTokenExpired(account) && account.type === 'microsoft') {
-      account = await refreshMicrosoftToken(account, settings.azureClientId)
+      account = await refreshMicrosoftToken(account)
       updateAccount(account)
     }
 
@@ -400,14 +418,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('launcher:kill', (_e, instanceId: string) => killInstance(instanceId))
 
   ipcMain.handle('launcher:repair', async (_e, instanceId: string) => {
-    resetCancel()
     const instances = await loadInstances()
     const instance = instances.find(i => i.id === instanceId)
     if (!instance) throw new Error('Instancia no encontrada')
     const settings = settingsStore.getAll()
     const op = makeOpEmitter(`Reparando ${instance.name}`, 'install-minecraft')
     try {
-      await repairInstance(instance, settings, (current, total, message) => op.progress(message, current, total))
+      await runCancellable(() => repairInstance(instance, settings, (current, total, message) => op.progress(message, current, total)))
       op.done('Instancia reparada correctamente')
     } catch (err) {
       op.error(describeError(err, 'Error al reparar la instancia'))
@@ -425,10 +442,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modpacks:fetch', (_e, url: string, key?: string) => fetchManifest(url, key))
 
   ipcMain.handle('modpacks:install', async (_e, instanceId: string, manifest: ModpackManifest) => {
-    resetCancel()
     const op = makeOpEmitter(`Instalando ${manifest.name}`, 'install-modpack')
     try {
-      await installModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total))
+      await runCancellable(() => installModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total)))
       op.done('¡Modpack instalado!')
     } catch (e) {
       if (e instanceof CancelError) { op.done(); return }
@@ -451,10 +467,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       return { upToDate: true, manifest }
     }
 
-    resetCancel()
     const op = makeOpEmitter(`Actualizando ${instance.name}`, 'update-modpack')
     try {
-      const result = await updateModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total))
+      const result = await runCancellable(() => updateModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total)))
       instance.modpackVersion = manifest.version
       await updateInstance(instance)
       op.done('¡Actualización completada!')
@@ -514,19 +529,20 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       ...(urlFormat ? { modpackUrl: urlFormat.manifestUrl, modpackKey: urlFormat.accessKey } : {}),
     })
     const op = makeOpEmitter(`Importando ${instance.name}`, 'import-fpack')
-    resetCancel()
     try {
-      if (urlFormat) {
-        await installModpack(instance.id, manifest, (current, total, message) => {
-          op.progress(message, current, total)
-          e.sender.send('fpack:progress', { current, total, message })
-        })
-      } else {
-        await importFpack(fpackPath, instance.id, (current, total, message) => {
-          op.progress(message, current, total)
-          e.sender.send('fpack:progress', { current, total, message })
-        })
-      }
+      await runCancellable(async () => {
+        if (urlFormat) {
+          await installModpack(instance.id, manifest, (current, total, message) => {
+            op.progress(message, current, total)
+            e.sender.send('fpack:progress', { current, total, message })
+          })
+        } else {
+          await importFpack(fpackPath, instance.id, (current, total, message) => {
+            op.progress(message, current, total)
+            e.sender.send('fpack:progress', { current, total, message })
+          })
+        }
+      })
       op.done()
     } catch (err) {
       if ((err as Error).name === 'CancelError') {
@@ -618,10 +634,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   )
 
   ipcMain.handle('modrinth:install-mrpack', async (_e, instanceId: string, mrpackUrl: string) => {
-    resetCancel()
     const op = makeOpEmitter('Instalando desde Modrinth', 'install-mrpack')
     try {
-      const meta = await installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => op.progress(message, current, total))
+      const meta = await runCancellable(() => installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => op.progress(message, current, total)))
       op.done('¡Modpack instalado!')
       return meta
     } catch (e) {
@@ -656,6 +671,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (typeof data.launchAtStartup === 'boolean') {
       app.setLoginItemSettings({ openAtLogin: data.launchAtStartup })
     }
+    if (typeof data.devTools === 'boolean') {
+      // Se aplica al momento en todas las ventanas
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (data.devTools) w.webContents.openDevTools({ mode: 'detach' })
+        else w.webContents.closeDevTools()
+      }
+    }
   })
 
   // ── AI analysis ─────────────────────────────────────────────────────────────
@@ -672,10 +694,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('java:check', (_e, mcVersion: string) => checkJavaStatus(mcVersion))
 
   ipcMain.handle('java:ensure', async (_e, mcVersion: string) => {
-    resetCancel()
     const op = makeOpEmitter(`Instalando Java para MC ${mcVersion}`, 'install-java')
     try {
-      const result = await ensureJava(mcVersion, (current, total, msg) => op.progress(msg, current, total))
+      const result = await runCancellable(() => ensureJava(mcVersion, (current, total, msg) => op.progress(msg, current, total)))
       op.done()
       return result
     } catch (e) {
@@ -857,8 +878,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (!account || account.type !== 'microsoft') throw new Error('Cuenta Microsoft no encontrada')
 
     if (isTokenExpired(account)) {
-      const settings = settingsStore.getAll()
-      account = await refreshMicrosoftToken(account, settings.azureClientId)
+      account = await refreshMicrosoftToken(account)
       updateAccount(account)
     }
 
@@ -1153,7 +1173,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:backup-world', async (_e, instanceId: string, worldName: string) => {
     const AdmZip = (await import('adm-zip')).default
     const gameDir = await getInstanceGameDir(instanceId)
-    const worldDir = path.join(gameDir, 'saves', worldName)
+    const worldDir = safeJoin(path.join(gameDir, 'saves'), worldName)
     const backupsDir = path.join(gameDir, 'backups')
     await fs.promises.mkdir(backupsDir, { recursive: true })
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
@@ -1259,7 +1279,6 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   )
 
   ipcMain.handle('curseforge:install-modpack', async (e, instanceId: string, modId: number, fileId: number) => {
-    resetCancel()
     const op = makeOpEmitter('Instalando desde CurseForge', 'install-curseforge')
     const tmpDir = path.join(os.tmpdir(), `cf-modpack-${Date.now()}`)
     try {
@@ -1293,9 +1312,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
           const urlRes = await cfFetch(`/v1/mods/${file.projectID}/files/${file.fileID}/download-url`)
           const modUrl: string = urlRes.data
           if (!modUrl) { done++; continue }
-          const filename = decodeURIComponent(modUrl.split('/').pop() ?? `${file.projectID}.jar`)
+          const filename = path.basename(decodeURIComponent(modUrl.split('/').pop() ?? `${file.projectID}.jar`))
           const modData = await axios.get(modUrl, { responseType: 'arraybuffer' })
-          await fs.promises.writeFile(path.join(modsDir, filename), Buffer.from(modData.data as ArrayBuffer))
+          await fs.promises.writeFile(safeJoin(modsDir, filename), Buffer.from(modData.data as ArrayBuffer))
         } catch { /* skip failed mods */ }
         done++
         op.progress(`Instalando mods... ${done}/${requiredFiles.length}`, done, requiredFiles.length)
@@ -1318,12 +1337,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('curseforge:install-mod', async (_e, instanceId: string, modId: number, fileId: number, subFolder?: string) => {
     const urlData = await cfFetch(`/v1/mods/${modId}/files/${fileId}/download-url`)
     const modUrl: string = urlData.data
-    const filename = decodeURIComponent(modUrl.split('/').pop() ?? `${modId}.jar`)
+    const filename = path.basename(decodeURIComponent(modUrl.split('/').pop() ?? `${modId}.jar`))
     const gameDir = await getInstanceGameDir(instanceId)
-    const destDir = path.join(gameDir, subFolder ?? 'mods')
+    const destDir = safeJoin(gameDir, subFolder ?? 'mods')
     await fs.promises.mkdir(destDir, { recursive: true })
     const data = await axios.get(modUrl, { responseType: 'arraybuffer' })
-    await fs.promises.writeFile(path.join(destDir, filename), Buffer.from(data.data as ArrayBuffer))
+    await fs.promises.writeFile(safeJoin(destDir, filename), Buffer.from(data.data as ArrayBuffer))
     await writeModSource(gameDir, filename, { source: 'curseforge', projectId: modId, fileId })
     return filename
   })
@@ -1332,6 +1351,161 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const gameDir = await getInstanceGameDir(instanceId)
     return readModSources(gameDir)
   })
+
+  // ── Almacenamiento ──────────────────────────────────────────────────────────
+
+  // ── Transferencia de archivos (FTP / SFTP) ───────────────────────────────
+
+  /**
+   * Progreso de transferencia a como mucho 10 avisos por segundo: basic-ftp y
+   * los streams avisan por cada trozo, y un fichero grande son miles de
+   * mensajes IPC que solo sirven para atascar la interfaz.
+   */
+  const throttledProgress = (op: ReturnType<typeof makeOpEmitter>, label: string) => {
+    let last = 0
+    return (done: number, total: number): void => {
+      const now = Date.now()
+      if (now - last < 100 && done < total) return
+      last = now
+      op.progress(label, done, total)
+    }
+  }
+
+  ipcMain.handle('ftp:sites', () => listSites())
+  ipcMain.handle('ftp:save-site', (_e, input: FtpSiteInput) => saveSite(input))
+  ipcMain.handle('ftp:delete-site', (_e, id: string) => deleteSite(id))
+  ipcMain.handle('ftp:connect', (_e, siteId: string, password?: string) => ftpConnect(siteId, password))
+  ipcMain.handle('ftp:disconnect', () => ftpDisconnect())
+  ipcMain.handle('ftp:status', () => ftpState())
+  ipcMain.handle('ftp:list', (_e, dir: string) => ftpList(dir))
+  ipcMain.handle('ftp:remove', (_e, target: string, isDir: boolean) => ftpRemove(target, isDir))
+  ipcMain.handle('ftp:rename', (_e, from: string, to: string) => ftpRename(from, to))
+  ipcMain.handle('ftp:mkdir', (_e, target: string) => ftpMkdir(target))
+  ipcMain.handle('ftp:download', async (_e, remote: string, localDir: string, entry: RemoteEntry) => {
+    const op = makeOpEmitter(`Descargando ${entry.name}`, 'ftp-download')
+    try {
+      const target = await ftpDownload(remote, localDir, entry, throttledProgress(op, entry.name))
+      op.done('Descarga completa')
+      return target
+    } catch (err) {
+      op.error(describeError(err, 'Error al descargar'))
+      throw err
+    }
+  })
+  ipcMain.handle('ftp:upload', async (_e, localPath: string, remoteDir: string) => {
+    const name = path.basename(localPath)
+    const op = makeOpEmitter(`Subiendo ${name}`, 'ftp-upload')
+    try {
+      const target = await ftpUpload(localPath, remoteDir, throttledProgress(op, name))
+      op.done('Subida completa')
+      return target
+    } catch (err) {
+      op.error(describeError(err, 'Error al subir'))
+      throw err
+    }
+  })
+  ipcMain.handle('ftp:local-list', (_e, dir: string) => localList(dir))
+  ipcMain.handle('ftp:local-parent', (_e, dir: string) => localParent(dir))
+  ipcMain.handle('ftp:local-join', (_e, dir: string, name: string) => localJoin(dir, name))
+  ipcMain.handle('ftp:local-start', () => getInstancesDir())
+  ipcMain.handle('ftp:local-home', () => os.homedir())
+  ipcMain.handle('ftp:read-text', (_e, remote: string) => ftpReadText(remote))
+  ipcMain.handle('ftp:write-text', (_e, remote: string, content: string) => ftpWriteText(remote, content))
+  ipcMain.handle('ftp:local-read-text', (_e, file: string) => localReadText(file))
+  ipcMain.handle('ftp:local-write-text', (_e, file: string, content: string) => localWriteText(file, content))
+  ipcMain.handle('ftp:local-mkdir', (_e, dir: string) => localMkdir(dir))
+  ipcMain.handle('ftp:local-rename', (_e, from: string, to: string) => localRename(from, to))
+  ipcMain.handle('ftp:local-trash', (_e, target: string) => localTrash(target))
+  ipcMain.handle('ftp:local-reveal', (_e, target: string) => localReveal(target))
+  ipcMain.handle('ftp:pick-local-dir', (e, defaultPath: string) => pickLocalDir(BrowserWindow.fromWebContents(e.sender) ?? currentMainWindow, defaultPath))
+  // Cuadros en ventanas aparte y lo que comparten entre ellas
+  ipcMain.handle('ftp:pane-open', (e, side: PaneSide) => openPaneWindow(side, BrowserWindow.fromWebContents(e.sender)))
+  ipcMain.handle('ftp:pane-close', (_e, side: PaneSide) => closePaneWindow(side))
+  ipcMain.handle('ftp:pane-state', () => paneState())
+  ipcMain.handle('ftp:pane-dir-set', (_e, side: PaneSide, dir: string) => setPaneDir(side, dir))
+  ipcMain.handle('ftp:pane-dirs', () => getPaneDirs())
+  ipcMain.handle('ftp:drag-set', (_e, payload: unknown) => setDrag(payload))
+  ipcMain.handle('ftp:drag-get', () => getDrag())
+  ipcMain.handle('ftp:notify-changed', (_e, change: { side: PaneSide; dir: string; names?: string[] }) => notifyChanged(change))
+  ipcMain.handle('ftp:log', (_e, line: { kind: 'info' | 'ok' | 'error'; text: string }) => pushLog(line))
+  ipcMain.handle('ftp:reconnect', () => ftpReconnect())
+  ipcMain.handle('ftp:downloads-dir', () => serverDownloadsDir())
+  ipcMain.handle('ftp:read-image', (_e, remote: string) => ftpReadImage(remote))
+  // Para archivos que pueden no estar (server-icon.png, usercache.json…): null
+  // en vez de error, que si no Electron llena la consola con cada intento fallido
+  ipcMain.handle('ftp:read-optional', async (_e, side: 'local' | 'remote', file: string, as: 'text' | 'image') => {
+    try {
+      if (side === 'remote') return as === 'text' ? await ftpReadText(file) : await ftpReadImage(file)
+      return as === 'text' ? await localReadText(file) : await localReadImage(file)
+    } catch {
+      return null
+    }
+  })
+  ipcMain.handle('ftp:local-read-image', (_e, file: string) => localReadImage(file))
+
+  // Texturas de Minecraft para los editores sencillos
+  ipcMain.handle('mc:textures', (_e, keys: string[]) => getTextures(keys))
+
+  // Escribir bytes (el icono del servidor ya convertido a 64×64, por ejemplo)
+  ipcMain.handle('ftp:write-bytes', async (_e, side: 'local' | 'remote', file: string, data: Uint8Array) => {
+    if (side === 'remote') await ftpWriteBytes(file, Buffer.from(data))
+    else await fs.promises.writeFile(file, Buffer.from(data))
+  })
+  ipcMain.handle('ftp:pick-image', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? currentMainWindow
+    const options: Electron.OpenDialogOptions = {
+      title: 'Elegir imagen',
+      properties: ['openFile'],
+      filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
+    }
+    const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+    return r.canceled ? null : r.filePaths[0] ?? null
+  })
+  ipcMain.handle('instances:saves-path', async (_e, instanceId: string) => path.join(await getInstanceGameDir(instanceId), 'saves'))
+
+  // Asistencia remota
+  ipcMain.handle('assist:host-start', (_e, instanceId: string) => assistHostStart(instanceId))
+  ipcMain.handle('assist:host-stop', () => assistHostStop())
+  ipcMain.handle('assist:host-op', (_e, op: string, args: Record<string, unknown>) => assistHostOp(op, args))
+  ipcMain.handle('assist:helper-start', (e, info: AssistInstanceInfo, hostName: string) => assistHelperStart(e.sender, info, hostName))
+  ipcMain.handle('assist:helper-closed', () => assistHelperClosed())
+
+  // NBT (playerdata, scoreboard, level.dat…)
+  ipcMain.handle('nbt:read-remote', (_e, remote: string) => nbtReadRemote(remote))
+  ipcMain.handle('nbt:write-remote', (_e, remote: string, doc: NbtDocument) => nbtWriteRemote(remote, doc))
+  ipcMain.handle('nbt:read-local', (_e, file: string) => nbtReadLocal(file))
+  ipcMain.handle('nbt:write-local', (_e, file: string, doc: NbtDocument) => nbtWriteLocal(file, doc))
+
+  // Mods y plugins del servidor
+  ipcMain.handle('ftp:server-detect', (_e, root: string, force?: boolean) => serverDetect(root, force))
+  ipcMain.handle('ftp:server-set-override', (_e, override: ServerOverride | null) => serverSetOverride(override))
+  ipcMain.handle('ftp:server-list-jars', (_e, folder: string) => serverListJars(folder))
+  ipcMain.handle('ftp:server-identify', (e, folder: string, minecraft: string, loaders: string) =>
+    serverIdentifyJars(folder, minecraft, loaders, (done, total) => {
+      if (!e.sender.isDestroyed()) e.sender.send('ftp:identify-progress', { folder, done, total })
+    })
+  )
+  ipcMain.handle('ftp:server-install', async (_e, url: string, filename: string, folder: string, sha1?: string) => {
+    const op = makeOpEmitter(`Instalando ${filename} en el servidor`, 'ftp-upload')
+    try {
+      const target = await serverInstallFromUrl(url, filename, folder, sha1, throttledProgress(op, filename))
+      op.done('Instalado en el servidor')
+      return target
+    } catch (err) {
+      op.error(describeError(err, 'Error al instalar en el servidor'))
+      throw err
+    }
+  })
+
+  ipcMain.handle('models:overrides-get', () => readModelOverrides())
+  ipcMain.handle('models:overrides-set', (_e, data: Record<string, unknown>) => writeModelOverrides(data))
+
+  ipcMain.handle('storage:scan', () => scanStorage(currentMainWindow))
+  ipcMain.handle('storage:children', (_e, rel: string) => listStorageChildren(rel ?? ''))
+  ipcMain.handle('storage:disk', () => getDiskInfo())
+  ipcMain.handle('storage:open', (_e, rel?: string) => openStoragePath(rel))
+  ipcMain.handle('storage:reveal', (_e, rel: string) => revealStoragePath(rel))
+  ipcMain.handle('storage:delete', (_e, rel: string) => deleteStoragePath(rel))
 
   // ── App updates ─────────────────────────────────────────────────────────────
 
@@ -1454,7 +1628,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       // 1 — download
       op.progress('Descargando VLC...', 0, 100)
       const response = await axios.get(url, { responseType: 'stream', timeout: 600_000 })
-      const total = parseInt(response.headers['content-length'] || '0', 10)
+      const total = parseInt(String(response.headers['content-length'] ?? '0'), 10)
       let downloaded = 0
 
       await new Promise<void>((resolve, reject) => {
@@ -1484,7 +1658,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       op.progress('Instalando VLC en /Applications...', total, total)
       const vlcSrc = path.join(mountPoint, 'VLC.app')
       const vlcDst = '/Applications/VLC.app'
-      await fs.remove(vlcDst).catch(() => {})
+      await fs.promises.rm(vlcDst, { recursive: true, force: true }).catch(() => {})
       await exec('ditto', [vlcSrc, vlcDst])
 
       op.done('VLC instalado correctamente')
@@ -1497,9 +1671,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         const { promisify } = await import('util')
         promisify(execFile)('hdiutil', ['detach', mountPoint, '-force']).catch(() => {})
       }
-      await fs.remove(tmpPath).catch(() => {})
+      await fs.promises.rm(tmpPath, { force: true }).catch(() => {})
     }
   })
+
+  // ── Asset browsing (models page) ────────────────────────────────────────────
+
+  ipcMain.handle('assets:sources', () => listAssetSources())
+  ipcMain.handle('modrinth:get-installed-info', (_e, instanceId: string, subFolder: string, extensions: string[]) =>
+    getInstalledProjectInfo(instanceId, subFolder, extensions)
+  )
+  ipcMain.handle('assets:list', (_e, sourceId: string, dir: string) => listAssetDir(sourceId, dir))
+  ipcMain.handle('assets:read', (_e, sourceId: string, filePath: string) => readAssetFile(sourceId, filePath))
 
   // ── Console / Dev logs ────────────────────────────────────────────────────
 

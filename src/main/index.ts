@@ -5,6 +5,7 @@ import fs from 'fs-extra'
 import { registerIpcHandlers, getSettings } from './ipc'
 import { installConsoleCapture, setLoggerWindow } from './logger'
 import { checkForUpdates } from './updater'
+import { closeAllPaneWindows } from './popout'
 
 /** Cada cuánto se mira si hay versión nueva, con la app abierta. */
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -72,12 +73,12 @@ function createWindow(): void {
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
 
   registerIpcHandlers(mainWindow)
+  if (getSettings().devTools) mainWindow.webContents.openDevTools({ mode: 'detach' })
   setLoggerWindow(mainWindow)
 
   // Send any pending .fpack file once the renderer is ready
@@ -92,16 +93,22 @@ function createWindow(): void {
     event.preventDefault()
   })
 
-  let isUndoingNav = false
-  mainWindow.webContents.on('did-navigate-in-page', (_event, _url, isMainFrame) => {
-    if (!isMainFrame) return
-    if (isUndoingNav) { isUndoingNav = false; return }
-    if (mainWindow!.webContents.canGoForward()) {
-      isUndoingNav = true
-      mainWindow!.webContents.goForward()
-      mainWindow!.webContents.send('nav:back')
+  // Botones laterales del ratón. En Windows llegan como app-command del
+  // sistema y no como evento de ratón en el DOM, segun el ratón y su driver,
+  // asi que se reenvian al renderer, que decide si toca cerrar un modal o
+  // moverse por el historial de paginas.
+  mainWindow.on('app-command', (event, command) => {
+    if (command === 'browser-backward') {
+      event.preventDefault()
+      mainWindow?.webContents.send('nav:back')
+    } else if (command === 'browser-forward') {
+      event.preventDefault()
+      mainWindow?.webContents.send('nav:forward')
     }
   })
+
+  // Los cuadros de Servidores sacados aparte dependen de la principal: se cierran con ella
+  mainWindow.on('closed', () => closeAllPaneWindows())
 
   // Titlebar window controls
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
@@ -192,12 +199,18 @@ app.on('window-all-closed', () => {
 // Window control IPC (for custom titlebar)
 import { ipcMain } from 'electron'
 
-ipcMain.on('window:minimize', () => mainWindow?.minimize())
-ipcMain.on('window:maximize', () => {
-  if (mainWindow?.isMaximized()) mainWindow.unmaximize()
-  else mainWindow?.maximize()
+// Cada ventana controla la suya: también la de Servidores cuando está aparte
+const senderWindow = (e: Electron.IpcMainEvent): BrowserWindow | null => BrowserWindow.fromWebContents(e.sender)
+ipcMain.on('window:minimize', (e) => senderWindow(e)?.minimize())
+ipcMain.on('window:maximize', (e) => {
+  const win = senderWindow(e)
+  if (win?.isMaximized()) win.unmaximize()
+  else win?.maximize()
 })
-ipcMain.on('window:close', () => {
-  mainWindow?.webContents.send('app:request-close')
+ipcMain.on('window:close', (e) => {
+  const win = senderWindow(e)
+  // La principal pregunta antes si hay algo en marcha; las demás se cierran sin más
+  if (win && win !== mainWindow) win.close()
+  else mainWindow?.webContents.send('app:request-close')
 })
 ipcMain.on('app:confirm-close', () => { mainWindow?.destroy() })

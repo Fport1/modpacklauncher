@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import StorageModal from '../components/StorageModal'
 import { useStore } from '../store'
 import RamSlider from '../components/RamSlider'
 import type { MinecraftAccount, AIConfig } from '../../../shared/types'
@@ -168,6 +169,7 @@ const isMac = navigator.userAgent.toLowerCase().includes('macintosh')
 export default function SettingsPage() {
   const { accounts, activeAccountId, settings, addAccount, removeAccount, setActiveAccountId, setSettings, sidebarCompact, setSidebarCompact } = useStore()
 
+  const [storageOpen, setStorageOpen] = useState(false)
   const [loginMode, setLoginMode] = useState<'microsoft' | 'offline'>('microsoft')
   const [offlineName, setOfflineName] = useState('')
   const [offlineError, setOfflineError] = useState('')
@@ -618,7 +620,28 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      {/* Sistema */}
+      {/* Almacenamiento */}
+      <section>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
+          Almacenamiento
+        </h2>
+        <div className="bg-bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-sm text-text-secondary">Administrar almacenamiento</span>
+              <p className="text-xs text-text-muted mt-0.5">Mira qué ocupa cada cosa y libera lo que no necesites.</p>
+            </div>
+            <button
+              onClick={() => setStorageOpen(true)}
+              className="px-3 py-2 border border-border rounded-lg text-sm text-text-secondary hover:text-text-primary transition-colors flex-shrink-0 ml-4"
+            >
+              Administrar
+            </button>
+          </div>
+        </div>
+      </section>
+
+        {/* Sistema */}
       <section>
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Sistema
@@ -646,6 +669,18 @@ export default function SettingsPage() {
               className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.showConsole ? 'bg-accent' : 'bg-border'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.showConsole ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </label>
+          <label className="flex items-center justify-between cursor-pointer">
+            <div>
+              <span className="text-sm text-text-secondary">Herramientas de desarrollo</span>
+              <p className="text-xs text-text-muted mt-0.5">Abre las DevTools de Chromium en una ventana aparte. Muestran el tamaño de la ventana al cambiarlo y ayudan a diagnosticar errores.</p>
+            </div>
+            <button
+              onClick={() => setLocalSettings({ ...localSettings, devTools: !localSettings.devTools })}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.devTools ? 'bg-accent' : 'bg-border'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.devTools ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </label>
           <div className="flex items-center justify-between">
@@ -883,6 +918,8 @@ export default function SettingsPage() {
         <p className="text-xs text-text-muted">ModpackLauncher v{APP_VERSION}</p>
         <UpdateCheckBtn />
       </div>
+
+      {storageOpen && <StorageModal onClose={() => setStorageOpen(false)} />}
     </div>
   )
 }

@@ -14,10 +14,12 @@ import SkinEditorPage from './pages/SkinEditorPage'
 import StatusPage from './pages/StatusPage'
 import DiscoverPage from './pages/DiscoverPage'
 import AdminPage from './pages/AdminPage'
-import BlockPreviewPage from './pages/BlockPreviewPage'
+import ModelsPage from './pages/ModelsPage'
 import FriendsPage from './pages/FriendsPage'
 import ConsolePage from './pages/ConsolePage'
 import MacToolsPage from './pages/MacToolsPage'
+import FtpPage from './pages/FtpPage'
+import AssistHostPanel from './components/assist/AssistHostPanel'
 import { useStore } from './store'
 
 function FpackOpenHandler() {
@@ -29,6 +31,68 @@ function FpackOpenHandler() {
       navigate('/modpacks')
     })
   }, [])
+  return null
+}
+
+export function MouseNavHandler() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    // Atrás cierra primero lo que haya encima — un modal, una pestaña — porque
+    // es lo que el usuario espera deshacer. Después va lo que la página quiera
+    // recorrer por su cuenta (las carpetas del panel activo en Servidores), y
+    // solo si no, el historial del router, que incluye también las pestañas de
+    // cada página (ver lib/urlState).
+    const goBack = (): void => {
+      if (nav.size() > 0) nav.pop()
+      else if (!nav.intercept('back')) navigate(-1)
+    }
+    const goForward = (): void => {
+      if (!nav.intercept('forward')) navigate(1)
+    }
+
+    // En Windows el mismo clic llega por dos vías: como evento de ratón al DOM
+    // y, cuando se suelta el botón, como app-command derivado de él. Si se
+    // cuentan las dos se retrocede dos pasos de golpe, que es lo que mandaba
+    // al inicio. Se actúa solo con el evento del DOM y se descarta cualquier
+    // app-command que llegue poco después de SOLTAR, no de pulsar: con una
+    // pulsación algo larga, medir desde que se pulsa dejaba colarse el doble.
+    let lastDomNav = 0
+    const isSideButton = (e: MouseEvent): boolean => e.button === 3 || e.button === 4
+
+    const onDown = (e: MouseEvent): void => {
+      if (!isSideButton(e)) return
+      e.preventDefault()
+      lastDomNav = Date.now()
+      if (e.button === 3) goBack()
+      else goForward()
+    }
+    // Sin cancelar también el mouseup y el auxclick, Chromium puede hacer su
+    // propia navegación de historial encima de la nuestra.
+    const onUp = (e: MouseEvent): void => {
+      if (!isSideButton(e)) return
+      e.preventDefault()
+      lastDomNav = Date.now()
+    }
+
+    document.addEventListener('mousedown', onDown, { capture: true })
+    document.addEventListener('mouseup', onUp, { capture: true })
+    document.addEventListener('auxclick', onUp, { capture: true })
+
+    // Para ratones cuyo driver solo manda el app-command, sin evento de ratón.
+    const recent = (): boolean => Date.now() - lastDomNav < 500
+    const unsubBack = window.api.onNavBack(() => { if (!recent()) goBack() })
+    const unsubForward = window.api.onNavForward(() => { if (!recent()) goForward() })
+
+    return () => {
+      document.removeEventListener('mousedown', onDown, { capture: true })
+      document.removeEventListener('mouseup', onUp, { capture: true })
+      document.removeEventListener('auxclick', onUp, { capture: true })
+      unsubBack()
+      unsubForward()
+    }
+  }, [navigate])
+
   return null
 }
 
@@ -153,24 +217,6 @@ export default function App() {
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
 
-    // Handle mouse back/forward navigation buttons
-    let lastDomNavTime = 0
-    const handleMouseNav = (e: MouseEvent) => {
-      if (e.button === 3 || e.button === 4) {
-        e.preventDefault()
-        if (e.button === 3) {
-          lastDomNavTime = Date.now()
-          nav.pop()
-        }
-      }
-    }
-    document.addEventListener('mousedown', handleMouseNav, { capture: true })
-
-    // IPC fallback: Electron main process detected backwards in-page navigation
-    const unsubNavBack = window.api.onNavBack(() => {
-      if (Date.now() - lastDomNavTime > 200) nav.pop()
-    })
-
     // Handle close request from main process
     const unsubClose = window.api.window.onRequestClose(() => {
       const { operations } = useStore.getState()
@@ -210,8 +256,6 @@ export default function App() {
       clearInterval(afkTimer)
       clearInterval(hourlyTimer)
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      document.removeEventListener('mousedown', handleMouseNav, { capture: true })
-      unsubNavBack()
       unsubClose()
       unsubDeepLink()
     }
@@ -235,6 +279,7 @@ export default function App() {
   return (
     <HashRouter>
       <FpackOpenHandler />
+      <MouseNavHandler />
       <div className="flex flex-col h-screen overflow-hidden">
         <TitleBar />
         <div className="flex flex-1 overflow-hidden">
@@ -250,7 +295,9 @@ export default function App() {
               <Route path="/skin-editor" element={<SkinEditorPage />} />
               <Route path="/status" element={<StatusPage />} />
               <Route path="/discover" element={<DiscoverPage />} />
-              <Route path="/block-preview" element={<BlockPreviewPage />} />
+              <Route path="/models" element={<ModelsPage />} />
+              <Route path="/ftp" element={<FtpPage />} />
+              <Route path="/block-preview" element={<Navigate to="/models" replace />} />
               <Route path="/friends" element={<FriendsPage />} />
               <Route path="/console" element={<ConsolePage />} />
               <Route path="/mac-tools" element={<MacToolsPage />} />
@@ -260,6 +307,7 @@ export default function App() {
         </div>
         <OperationsPanel />
         <UpdateModal />
+        <AssistHostPanel />
       </div>
       {closeConfirm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[500]">

@@ -1,4 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
+
+/** Suscribirse a un canal y devolver la función para dejar de escuchar. */
+function listen<T>(channel: string, cb: (payload: T) => void): () => void {
+  const handler = (_e: Electron.IpcRendererEvent, payload: T): void => cb(payload)
+  ipcRenderer.on(channel, handler)
+  return () => { ipcRenderer.removeListener(channel, handler) }
+}
 import type {
   Instance,
   MinecraftAccount,
@@ -7,7 +14,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile } from '../main/instances'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -22,7 +29,7 @@ const api = {
     onRequestClose: (cb: () => void) => {
       const handler = () => cb()
       ipcRenderer.on('app:request-close', handler)
-      return () => ipcRenderer.removeListener('app:request-close', handler)
+      return () => { ipcRenderer.removeListener('app:request-close', handler) }
     },
     confirmClose: () => ipcRenderer.send('app:confirm-close'),
   },
@@ -53,6 +60,7 @@ const api = {
     openFolder: (instanceId: string) => ipcRenderer.invoke('instances:open-folder', instanceId),
     getModSources: (instanceId: string) => ipcRenderer.invoke('instances:get-mod-sources', instanceId) as Promise<Record<string, { source: 'curseforge' | 'modrinth'; projectId?: number | string; fileId?: number | string }>>,
     listMods: (instanceId: string) => ipcRenderer.invoke('instances:list-mods', instanceId) as Promise<ModFile[]>,
+    savesPath: (instanceId: string) => ipcRenderer.invoke('instances:saves-path', instanceId) as Promise<string>,
     listWorlds: (instanceId: string) => ipcRenderer.invoke('instances:list-worlds', instanceId) as Promise<WorldFolder[]>,
     listResourcepacks: (instanceId: string) => ipcRenderer.invoke('instances:list-resourcepacks', instanceId) as Promise<ModFile[]>,
     openModsFolder: (instanceId: string) => ipcRenderer.invoke('instances:open-mods-folder', instanceId),
@@ -89,7 +97,7 @@ const api = {
     onDuplicateProgress: (cb: (step: number) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, step: number) => cb(step)
       ipcRenderer.on('instances:duplicate-progress', handler)
-      return () => ipcRenderer.removeListener('instances:duplicate-progress', handler)
+      return () => { ipcRenderer.removeListener('instances:duplicate-progress', handler) }
     },
     pickIcon: (instanceId: string) => ipcRenderer.invoke('instances:pick-icon', instanceId) as Promise<Instance | null>,
     getIcon: (instanceId: string) => ipcRenderer.invoke('instances:get-icon', instanceId) as Promise<string | null>,
@@ -168,7 +176,7 @@ const api = {
     onExportProgress: (cb: (p: { message: string; current: number; total: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, p: { message: string; current: number; total: number }) => cb(p)
       ipcRenderer.on('modpacks:export-progress', handler)
-      return () => ipcRenderer.removeListener('modpacks:export-progress', handler)
+      return () => { ipcRenderer.removeListener('modpacks:export-progress', handler) }
     },
     getPublished: () => ipcRenderer.invoke('modpacks:get-published'),
     deletePublished: (id: string) => ipcRenderer.invoke('modpacks:delete-published', id)
@@ -188,6 +196,8 @@ const api = {
       ipcRenderer.invoke('modrinth:get-installed-ids', instanceId, subFolder, extensions) as Promise<string[]>,
     getInstalledIcons: (instanceId: string, subFolder?: string, extensions?: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-icons', instanceId, subFolder, extensions) as Promise<Record<string, string | null>>,
+    getInstalledInfo: (instanceId: string, subFolder: string, extensions: string[]) =>
+      ipcRenderer.invoke('modrinth:get-installed-info', instanceId, subFolder, extensions) as Promise<Record<string, { name: string | null; iconUrl: string | null }>>,
     getInstalledModsMeta: (instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-mods-meta', instanceId, mcVersion, loader, subFolder, extensions) as Promise<Record<string, { iconUrl?: string | null; clientSide?: string; serverSide?: string; projectId?: string; installedVersionId?: string; hasUpdate?: boolean }>>,
     getProject: (projectId: string) =>
@@ -197,7 +207,7 @@ const api = {
     getProjectVersion: (projectId: string, mcVersion: string, loader: string, channel?: 'all' | 'stable') =>
       ipcRenderer.invoke('modrinth:get-project-version', projectId, mcVersion, loader, channel ?? 'all') as Promise<any | null>,
     installMrpack: (instanceId: string, mrpackUrl: string) =>
-      ipcRenderer.invoke('modrinth:install-mrpack', instanceId, mrpackUrl) as Promise<{ modloader?: string; modloaderVersion?: string } | undefined>,
+      ipcRenderer.invoke('modrinth:install-mrpack', instanceId, mrpackUrl) as Promise<{ minecraft?: string; modloader?: string; modloaderVersion?: string } | undefined>,
   },
 
   // CurseForge
@@ -228,7 +238,7 @@ const api = {
   onProgress: (cb: (progress: DownloadProgress) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, data: DownloadProgress) => cb(data)
     ipcRenderer.on('progress', handler)
-    return () => ipcRenderer.removeListener('progress', handler)
+    return () => { ipcRenderer.removeListener('progress', handler) }
   },
 
   // Java
@@ -275,7 +285,7 @@ const api = {
     onDownloadProgress: (cb: (pct: number) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, pct: number) => cb(pct)
       ipcRenderer.on('updater:download-progress', handler)
-      return () => ipcRenderer.removeListener('updater:download-progress', handler)
+      return () => { ipcRenderer.removeListener('updater:download-progress', handler) }
     }
   },
 
@@ -356,7 +366,7 @@ const api = {
     onOpen: (cb: (filePath: string) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, p: string) => cb(p)
       ipcRenderer.on('fpack:open', handler)
-      return () => ipcRenderer.removeListener('fpack:open', handler)
+      return () => { ipcRenderer.removeListener('fpack:open', handler) }
     },
     readManifest: (filePath: string) =>
       ipcRenderer.invoke('fpack:read-manifest', filePath) as Promise<ModpackManifest>,
@@ -365,7 +375,7 @@ const api = {
     onProgress: (cb: (data: { current: number; total: number; message: string }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, d: { current: number; total: number; message: string }) => cb(d)
       ipcRenderer.on('fpack:progress', handler)
-      return () => ipcRenderer.removeListener('fpack:progress', handler)
+      return () => { ipcRenderer.removeListener('fpack:progress', handler) }
     },
     choosePath: (instanceId: string) =>
       ipcRenderer.invoke('fpack:choose-path', instanceId) as Promise<string | null>,
@@ -374,7 +384,7 @@ const api = {
     onSaveProgress: (cb: (data: { message: string; current: number; total: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, d: { message: string; current: number; total: number }) => cb(d)
       ipcRenderer.on('fpack:save-progress', handler)
-      return () => ipcRenderer.removeListener('fpack:save-progress', handler)
+      return () => { ipcRenderer.removeListener('fpack:save-progress', handler) }
     },
     browse: () => ipcRenderer.invoke('fpack:browse') as Promise<string | null>,
   },
@@ -389,14 +399,125 @@ const api = {
   onDeepLink: (cb: (action: string, params: Record<string, string>) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, action: string, params: Record<string, string>) => cb(action, params)
     ipcRenderer.on('deep-link', handler)
-    return () => ipcRenderer.removeListener('deep-link', handler)
+    return () => { ipcRenderer.removeListener('deep-link', handler) }
   },
 
-  // Mouse back navigation signal from main process
+  ftp: {
+    sites: () => ipcRenderer.invoke('ftp:sites') as Promise<FtpSiteSummary[]>,
+    saveSite: (input: FtpSiteInput) => ipcRenderer.invoke('ftp:save-site', input) as Promise<string>,
+    deleteSite: (id: string) => ipcRenderer.invoke('ftp:delete-site', id) as Promise<void>,
+    connect: (siteId: string, password?: string) => ipcRenderer.invoke('ftp:connect', siteId, password) as Promise<{ cwd: string }>,
+    disconnect: () => ipcRenderer.invoke('ftp:disconnect') as Promise<void>,
+    status: () => ipcRenderer.invoke('ftp:status') as Promise<FtpConnectionState>,
+    reconnect: () => ipcRenderer.invoke('ftp:reconnect') as Promise<boolean>,
+    onConnection: (cb: (s: FtpConnectionState) => void) => listen('ftp:connection', cb),
+    paneOpen: (side: 'local' | 'remote') => ipcRenderer.invoke('ftp:pane-open', side) as Promise<void>,
+    paneClose: (side: 'local' | 'remote') => ipcRenderer.invoke('ftp:pane-close', side) as Promise<void>,
+    paneState: () => ipcRenderer.invoke('ftp:pane-state') as Promise<{ local: boolean; remote: boolean }>,
+    onPaneState: (cb: (s: { local: boolean; remote: boolean }) => void) => listen('ftp:pane-state', cb),
+    paneDirSet: (side: 'local' | 'remote', dir: string) => ipcRenderer.invoke('ftp:pane-dir-set', side, dir) as Promise<void>,
+    paneDirs: () => ipcRenderer.invoke('ftp:pane-dirs') as Promise<{ local: string; remote: string }>,
+    onPaneDirs: (cb: (d: { local: string; remote: string }) => void) => listen('ftp:pane-dirs', cb),
+    dragSet: (payload: unknown) => ipcRenderer.invoke('ftp:drag-set', payload) as Promise<void>,
+    dragGet: () => ipcRenderer.invoke('ftp:drag-get') as Promise<unknown>,
+    onDrag: (cb: (payload: unknown) => void) => listen('ftp:drag', cb),
+    notifyChanged: (change: { side: 'local' | 'remote'; dir: string; names?: string[] }) => ipcRenderer.invoke('ftp:notify-changed', change) as Promise<void>,
+    onChanged: (cb: (c: { side: 'local' | 'remote'; dir: string; names?: string[] }) => void) => listen('ftp:changed', cb),
+    log: (kind: 'info' | 'ok' | 'error', text: string) => ipcRenderer.invoke('ftp:log', { kind, text }) as Promise<void>,
+    onLog: (cb: (l: { kind: 'info' | 'ok' | 'error'; text: string; t: number }) => void) => listen('ftp:log', cb),
+    list: (dir: string) => ipcRenderer.invoke('ftp:list', dir) as Promise<RemoteEntry[]>,
+    download: (remote: string, localDir: string, entry: RemoteEntry) => ipcRenderer.invoke('ftp:download', remote, localDir, entry) as Promise<string>,
+    upload: (localPath: string, remoteDir: string) => ipcRenderer.invoke('ftp:upload', localPath, remoteDir) as Promise<string>,
+    remove: (target: string, isDir: boolean) => ipcRenderer.invoke('ftp:remove', target, isDir) as Promise<void>,
+    rename: (from: string, to: string) => ipcRenderer.invoke('ftp:rename', from, to) as Promise<void>,
+    mkdir: (target: string) => ipcRenderer.invoke('ftp:mkdir', target) as Promise<void>,
+    localList: (dir: string) => ipcRenderer.invoke('ftp:local-list', dir) as Promise<LocalEntry[]>,
+    localParent: (dir: string) => ipcRenderer.invoke('ftp:local-parent', dir) as Promise<string>,
+    localJoin: (dir: string, name: string) => ipcRenderer.invoke('ftp:local-join', dir, name) as Promise<string>,
+    localStart: () => ipcRenderer.invoke('ftp:local-start') as Promise<string>,
+    localHome: () => ipcRenderer.invoke('ftp:local-home') as Promise<string>,
+    readText: (remote: string) => ipcRenderer.invoke('ftp:read-text', remote) as Promise<string>,
+    writeText: (remote: string, content: string) => ipcRenderer.invoke('ftp:write-text', remote, content) as Promise<void>,
+    localReadText: (file: string) => ipcRenderer.invoke('ftp:local-read-text', file) as Promise<string>,
+    localWriteText: (file: string, content: string) => ipcRenderer.invoke('ftp:local-write-text', file, content) as Promise<void>,
+    localMkdir: (dir: string) => ipcRenderer.invoke('ftp:local-mkdir', dir) as Promise<void>,
+    localRename: (from: string, to: string) => ipcRenderer.invoke('ftp:local-rename', from, to) as Promise<void>,
+    localTrash: (target: string) => ipcRenderer.invoke('ftp:local-trash', target) as Promise<void>,
+    localReveal: (target: string) => ipcRenderer.invoke('ftp:local-reveal', target) as Promise<void>,
+    pickLocalDir: (defaultPath: string) => ipcRenderer.invoke('ftp:pick-local-dir', defaultPath) as Promise<string | null>,
+    downloadsDir: () => ipcRenderer.invoke('ftp:downloads-dir') as Promise<string>,
+    readImage: (remote: string) => ipcRenderer.invoke('ftp:read-image', remote) as Promise<string>,
+    writeBytes: (side: 'local' | 'remote', file: string, data: Uint8Array) => ipcRenderer.invoke('ftp:write-bytes', side, file, data) as Promise<void>,
+    pickImage: () => ipcRenderer.invoke('ftp:pick-image') as Promise<string | null>,
+    readOptional: (side: 'local' | 'remote', file: string, as: 'text' | 'image') => ipcRenderer.invoke('ftp:read-optional', side, file, as) as Promise<string | null>,
+    localReadImage: (file: string) => ipcRenderer.invoke('ftp:local-read-image', file) as Promise<string>,
+    serverDetect: (root: string, force?: boolean) => ipcRenderer.invoke('ftp:server-detect', root, force) as Promise<ServerInfo>,
+    serverSetOverride: (override: ServerOverride | null) => ipcRenderer.invoke('ftp:server-set-override', override) as Promise<void>,
+    serverListJars: (folder: string) => ipcRenderer.invoke('ftp:server-list-jars', folder) as Promise<RemoteEntry[]>,
+    serverIdentify: (folder: string, minecraft: string, loaders: string) =>
+      ipcRenderer.invoke('ftp:server-identify', folder, minecraft, loaders) as Promise<Record<string, ServerJarMeta>>,
+    serverInstall: (url: string, filename: string, folder: string, sha1?: string) =>
+      ipcRenderer.invoke('ftp:server-install', url, filename, folder, sha1) as Promise<string>,
+    onIdentifyProgress: (cb: (p: { folder: string; done: number; total: number }) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, p: { folder: string; done: number; total: number }) => cb(p)
+      ipcRenderer.on('ftp:identify-progress', handler)
+      return () => { ipcRenderer.removeListener('ftp:identify-progress', handler) }
+    }
+  },
+
+  mc: {
+    textures: (keys: string[]) => ipcRenderer.invoke('mc:textures', keys) as Promise<Record<string, string | null>>
+  },
+
+  assist: {
+    hostStart: (instanceId: string) => ipcRenderer.invoke('assist:host-start', instanceId) as Promise<AssistInstanceInfo>,
+    hostStop: () => ipcRenderer.invoke('assist:host-stop') as Promise<void>,
+    hostOp: (op: string, args: Record<string, unknown>) => ipcRenderer.invoke('assist:host-op', op, args) as Promise<unknown>,
+    helperStart: (info: AssistInstanceInfo, hostName: string) => ipcRenderer.invoke('assist:helper-start', info, hostName) as Promise<void>,
+    helperClosed: () => ipcRenderer.invoke('assist:helper-closed') as Promise<void>,
+    onCall: (cb: (c: { id: string; op: string; args: Record<string, unknown> }) => void) => listen('assist:call', cb),
+    reply: (reply: { id: string; ok: boolean; result?: unknown; error?: string }) => ipcRenderer.send('assist:reply', reply),
+    onHangup: (cb: () => void) => listen('assist:hangup', cb)
+  },
+
+  nbt: {
+    readRemote: (remote: string) => ipcRenderer.invoke('nbt:read-remote', remote) as Promise<NbtDocument>,
+    writeRemote: (remote: string, doc: NbtDocument) => ipcRenderer.invoke('nbt:write-remote', remote, doc) as Promise<void>,
+    readLocal: (file: string) => ipcRenderer.invoke('nbt:read-local', file) as Promise<NbtDocument>,
+    writeLocal: (file: string, doc: NbtDocument) => ipcRenderer.invoke('nbt:write-local', file, doc) as Promise<void>
+  },
+
+  modelOverrides: {
+    get: () => ipcRenderer.invoke('models:overrides-get') as Promise<Record<string, unknown>>,
+    set: (data: Record<string, unknown>) => ipcRenderer.invoke('models:overrides-set', data) as Promise<void>
+  },
+
+  storage: {
+    scan: () => ipcRenderer.invoke('storage:scan') as Promise<StorageScanProgress>,
+    children: (rel: string) => ipcRenderer.invoke('storage:children', rel) as Promise<StorageChild[]>,
+    disk: () => ipcRenderer.invoke('storage:disk') as Promise<DiskInfo>,
+    open: (rel?: string) => ipcRenderer.invoke('storage:open', rel) as Promise<void>,
+    reveal: (rel: string) => ipcRenderer.invoke('storage:reveal', rel) as Promise<void>,
+    delete: (rel: string) => ipcRenderer.invoke('storage:delete', rel) as Promise<void>,
+    onScanProgress: (cb: (p: StorageScanProgress) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, p: StorageScanProgress) => cb(p)
+      ipcRenderer.on('storage:scan-progress', handler)
+      return () => { ipcRenderer.removeListener('storage:scan-progress', handler) }
+    }
+  },
+
+  // Botones laterales del ratón. En Windows muchos ratones no los mandan como
+  // evento de ratón al DOM, sino como app-command del sistema, así que el
+  // proceso principal los reenvía por aquí.
   onNavBack: (cb: () => void) => {
     const handler = () => cb()
     ipcRenderer.on('nav:back', handler)
-    return () => ipcRenderer.removeListener('nav:back', handler)
+    return () => { ipcRenderer.removeListener('nav:back', handler) }
+  },
+  onNavForward: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('nav:forward', handler)
+    return () => { ipcRenderer.removeListener('nav:forward', handler) }
   },
 
   // Cancel current operation
@@ -407,8 +528,18 @@ const api = {
     onUpdate: (cb: (update: Record<string, unknown>) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, data: Record<string, unknown>) => cb(data)
       ipcRenderer.on('ops:update', handler)
-      return () => ipcRenderer.removeListener('ops:update', handler)
+      return () => { ipcRenderer.removeListener('ops:update', handler) }
     }
+  },
+
+  // Asset browsing (models page)
+  assets: {
+    sources: () =>
+      ipcRenderer.invoke('assets:sources') as Promise<{ versions: AssetSource[]; packs: AssetSource[]; mods: AssetSource[] }>,
+    list: (sourceId: string, dir: string) =>
+      ipcRenderer.invoke('assets:list', sourceId, dir) as Promise<AssetEntry[]>,
+    read: (sourceId: string, filePath: string) =>
+      ipcRenderer.invoke('assets:read', sourceId, filePath) as Promise<string | null>,
   },
 
   // macOS tools
@@ -424,12 +555,12 @@ const api = {
     onLog: (cb: (entry: { level: string; message: string; at: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, entry: { level: string; message: string; at: number }) => cb(entry)
       ipcRenderer.on('console:log', handler)
-      return () => ipcRenderer.removeListener('console:log', handler)
+      return () => { ipcRenderer.removeListener('console:log', handler) }
     },
     onHistory: (cb: (entries: { level: string; message: string; at: number }[]) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, entries: { level: string; message: string; at: number }[]) => cb(entries)
       ipcRenderer.on('console:history', handler)
-      return () => ipcRenderer.removeListener('console:history', handler)
+      return () => { ipcRenderer.removeListener('console:history', handler) }
     },
   },
 
@@ -437,17 +568,17 @@ const api = {
   onGameStarted: (cb: (instanceId: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, id: string) => cb(id)
     ipcRenderer.on('game:started', handler)
-    return () => ipcRenderer.removeListener('game:started', handler)
+    return () => { ipcRenderer.removeListener('game:started', handler) }
   },
   onGameLog: (cb: (instanceId: string, line: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, id: string, line: string) => cb(id, line)
     ipcRenderer.on('game:log', handler)
-    return () => ipcRenderer.removeListener('game:log', handler)
+    return () => { ipcRenderer.removeListener('game:log', handler) }
   },
   onGameExit: (cb: (instanceId: string, code: number | null) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, id: string, code: number | null) => cb(id, code)
     ipcRenderer.on('game:exit', handler)
-    return () => ipcRenderer.removeListener('game:exit', handler)
+    return () => { ipcRenderer.removeListener('game:exit', handler) }
   }
 }
 

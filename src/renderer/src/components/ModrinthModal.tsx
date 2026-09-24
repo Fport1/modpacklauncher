@@ -6,7 +6,38 @@ import ZoomableImage from './ZoomableImage'
 
 marked.use({ breaks: true, gfm: true } as Parameters<typeof marked.use>[0])
 
-type ProjectType = 'mod' | 'resourcepack' | 'shader'
+type ProjectType = 'mod' | 'resourcepack' | 'shader' | 'plugin'
+
+/**
+ * Destino alternativo a una instancia: un servidor, por ejemplo.
+ *
+ * El modal solo necesita de una instancia su versión, su loader, saber qué
+ * hay instalado e instalar o quitar archivos. Con esto el mismo buscador sirve
+ * para cualquier sitio donde se pongan mods o plugins, y se ve igual en todos.
+ */
+export interface ModrinthTarget {
+  /** Texto del chip de la cabecera, p. ej. "Servidor Fabric · MC 1.21.1". */
+  label: string
+  minecraft: string
+  /** Uno o varios loaders separados por comas: un servidor Paper acepta "paper,spigot,bukkit". */
+  loader: string
+  installedIds: () => Promise<string[]>
+  /**
+   * Se pregunta antes de tocar nada; false = el usuario se echa atrás.
+   * En un servidor es donde se avisa de los mods que solo son de cliente.
+   */
+  confirm?: (projectId: string) => Promise<boolean>
+  install: (file: ModrinthFile, projectId: string) => Promise<void>
+  remove?: (filename: string) => Promise<void>
+  /** Filtro de entorno con el que se abre el buscador. */
+  environment?: 'any' | 'client' | 'server'
+}
+
+export interface ModrinthFile {
+  url: string
+  filename: string
+  hashes?: { sha1?: string }
+}
 
 interface ModrinthHit {
   project_id: string
@@ -22,10 +53,11 @@ interface ModrinthHit {
 
 interface ModrinthVersion {
   id: string
+  project_id: string
   version_number: string
   name: string
   version_type?: string
-  files: { url: string; filename: string; primary: boolean; size: number }[]
+  files: { url: string; filename: string; primary: boolean; size: number; hashes?: { sha1?: string } }[]
   date_published: string
   downloads: number
   changelog?: string
@@ -35,7 +67,9 @@ interface ModrinthVersion {
 interface ModrinthCategory { name: string; header: string }
 
 interface Props {
-  instance: Instance
+  /** Una de las dos: la instancia, o un destino como un servidor. */
+  instance?: Instance
+  target?: ModrinthTarget
   projectType?: ProjectType
   onClose: () => void
   onInstalled: () => void
@@ -90,7 +124,7 @@ const SORT_OPTIONS = [
 ]
 
 const TYPE_LABELS: Record<string, string> = {
-  mod: 'Mods', resourcepack: 'Resource Packs', shader: 'Shaders'
+  mod: 'Mods', resourcepack: 'Resource Packs', shader: 'Shaders', plugin: 'Plugins'
 }
 
 const YT_IFRAME_RE = /<iframe[^>]+src=["'](?:https?:)?\/\/(?:www\.)?youtube(?:-nocookie)?\.com\/embed\/([a-zA-Z0-9_-]+)[^"']*["'][^>]*>(?:<\/iframe>)?/gi
@@ -113,10 +147,11 @@ const TYPE_FOLDER: Record<string, { folder: string; exts: string[] }> = {
   mod: { folder: 'mods', exts: ['.jar', '.jar.disabled'] },
   resourcepack: { folder: 'resourcepacks', exts: ['.zip', '.zip.disabled'] },
   shader: { folder: 'shaderpacks', exts: ['.zip', '.zip.disabled'] },
+  plugin: { folder: 'plugins', exts: ['.jar', '.jar.disabled'] },
 }
 
 const TYPE_INSTALL_FOLDER: Record<string, string> = {
-  mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks'
+  mod: 'mods', resourcepack: 'resourcepacks', shader: 'shaderpacks', plugin: 'plugins'
 }
 
 function formatNum(n: number): string {
@@ -167,12 +202,29 @@ function FilterRow({ checked, excluded, onChange, onExclude, label, icon }: Filt
   )
 }
 
-export default function ModrinthModal({ instance, projectType = 'mod', onClose, onInstalled, projectVersionMap = {}, projectFilenameMap = {}, initialProjectId }: Props) {
+export default function ModrinthModal({ instance, target, projectType = 'mod', onClose, onInstalled, projectVersionMap = {}, projectFilenameMap = {}, initialProjectId }: Props) {
+  const mcVersion = target?.minecraft ?? instance?.minecraft ?? ''
+  const loader = target?.loader ?? instance?.modloader ?? ''
+  // Mods y plugins dependen del loader; resource packs y shaders no
+  const loaderForType = projectType === 'mod' || projectType === 'plugin' ? loader : ''
+  const targetLabel = target?.label ?? `MC ${mcVersion}${projectType === 'mod' ? ` · ${loader}` : ''}`
+
+  /** Instala en la instancia o en el destino. false = el usuario lo canceló. */
+  async function installFile(file: ModrinthFile, projectId: string, confirmed = false): Promise<boolean> {
+    if (target) {
+      if (!confirmed && target.confirm && !(await target.confirm(projectId))) return false
+      await target.install(file, projectId)
+      return true
+    }
+    await window.api.modrinth.installMod(instance!.id, file.url, file.filename, installFolder)
+    return true
+  }
+
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState('relevance')
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set())
   const [excludedCats, setExcludedCats] = useState<Set<string>>(new Set())
-  const [environment, setEnvironment] = useState<'any' | 'client' | 'server'>('any')
+  const [environment, setEnvironment] = useState<'any' | 'client' | 'server'>(target?.environment ?? 'any')
   const [hideInstalled, setHideInstalled] = useState(false)
   const [catCollapsed, setCatCollapsed] = useState(false)
   const [envCollapsed, setEnvCollapsed] = useState(false)
@@ -212,14 +264,16 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     const baseSize = nav.size()
     nav.push(() => onClose())
     const modrinthType = projectType === 'shader' ? 'shader' : projectType === 'resourcepack' ? 'resourcepack' : 'mod'
+    const LOADER_TAGS = ['fabric','forge','neoforge','quilt','liteloader','modloader','rift','bukkit','spigot','paper','purpur','folia','sponge','velocity','bungeecord','waterfall']
     window.api.modrinth.getCategories(modrinthType).then(cats => {
-      setCategories((cats as ModrinthCategory[]).filter(c => !['fabric','forge','neoforge','quilt','liteloader','modloader','rift'].includes(c.name)))
+      setCategories((cats as ModrinthCategory[]).filter(c => !LOADER_TAGS.includes(c.name)))
     }).catch(() => {})
-    window.api.modrinth.getInstalledIds(instance.id, folder, exts).then(ids => {
+    ;(target ? target.installedIds() : window.api.modrinth.getInstalledIds(instance!.id, folder, exts)).then(ids => {
       setInstalledIds(new Set(ids))
     }).catch(() => {}).finally(() => setLoadingInstalled(false))
     window.api.settings.get().then(s => setInstallChannel(s.modInstallChannel ?? 'all')).catch(() => {})
-    doSearch('', 'relevance', new Set(), new Set(), 'any', 0, 0)
+    // Con el mismo filtro de entorno que se ve marcado (en un servidor, «Servidor»)
+    doSearch('', 'relevance', new Set(), new Set(), target?.environment ?? 'any', 0, 0)
     if (initialProjectId) {
       window.api.modrinth.getProject(initialProjectId).then((proj: any) => {
         selectMod({ project_id: proj.id, title: proj.title, description: proj.description ?? '', icon_url: proj.icon_url ?? null, downloads: proj.downloads ?? 0, categories: proj.categories ?? [] })
@@ -239,7 +293,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     setError('')
     try {
       const fetchLimit = hideInstalled ? LIMIT * 3 : LIMIT
-      const res = await window.api.modrinth.search(q, instance.minecraft, instance.modloader, [...cats], env, projectType, fetchLimit, rawOffset, s)
+      const res = await window.api.modrinth.search(q, mcVersion, loader, [...cats], env, projectType, fetchLimit, rawOffset, s)
       let hits = res.hits as ModrinthHit[]
       if (excCats.size > 0) {
         hits = hits.filter(h => !h.categories.some(c => excCats.has(c)))
@@ -302,10 +356,9 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     setAllVersions([])
     setLoadingVersions(true)
     try {
-      const loaderForType = projectType === 'mod' ? instance.modloader : ''
       const [proj, vers, allVers] = await Promise.all([
         window.api.modrinth.getProject(mod.project_id).catch(() => null),
-        window.api.modrinth.getVersions(mod.project_id, instance.minecraft, loaderForType, installChannel).catch(() => [] as ModrinthVersion[]),
+        window.api.modrinth.getVersions(mod.project_id, mcVersion, loaderForType, installChannel).catch(() => [] as ModrinthVersion[]),
         window.api.modrinth.getVersions(mod.project_id, '', '', installChannel).catch(() => [] as ModrinthVersion[])
       ])
       if (proj) {
@@ -347,6 +400,8 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
       if (!ok) return
     }
 
+    if (target?.confirm && !(await target.confirm(version.project_id))) return
+
     setInstallingId(version.id)
     setError('')
     try {
@@ -354,23 +409,23 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
         const oldFilename = projectFilenameMap[selectedMod.project_id]
         if (oldFilename) {
           try {
-            if (projectType === 'mod') await window.api.instances.deleteMod(instance.id, oldFilename)
-            else if (projectType === 'resourcepack') await window.api.instances.deleteResourcepack(instance.id, oldFilename)
-            else if (projectType === 'shader') await window.api.instances.deleteShaderpack(instance.id, oldFilename)
+            if (target) await target.remove?.(oldFilename)
+            else if (projectType === 'mod') await window.api.instances.deleteMod(instance!.id, oldFilename)
+            else if (projectType === 'resourcepack') await window.api.instances.deleteResourcepack(instance!.id, oldFilename)
+            else if (projectType === 'shader') await window.api.instances.deleteShaderpack(instance!.id, oldFilename)
           } catch { /* ignore, still install new */ }
         }
       }
 
-      if (projectType === 'mod' && !isVersionChange) {
+      if ((projectType === 'mod' || projectType === 'plugin') && !isVersionChange) {
         const requiredDeps = version.dependencies?.filter(d => d.dependency_type === 'required' && d.project_id) ?? []
         for (const dep of requiredDeps) {
           if (dep.project_id && !installedIds.has(dep.project_id)) {
             try {
-              const depVer = await window.api.modrinth.getProjectVersion(dep.project_id, instance.minecraft, instance.modloader)
+              const depVer = await window.api.modrinth.getProjectVersion(dep.project_id, mcVersion, loaderForType)
               if (depVer) {
-                const depFile = (depVer.files as { url: string; filename: string; primary: boolean }[]).find(f => f.primary) ?? depVer.files[0]
-                if (depFile) {
-                  await window.api.modrinth.installMod(instance.id, depFile.url, depFile.filename, installFolder)
+                const depFile = (depVer.files as (ModrinthFile & { primary: boolean })[]).find(f => f.primary) ?? depVer.files[0]
+                if (depFile && await installFile(depFile, dep.project_id)) {
                   setInstalledIds(prev => new Set(prev).add(dep.project_id!))
                 }
               }
@@ -378,7 +433,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
           }
         }
       }
-      await window.api.modrinth.installMod(instance.id, file.url, file.filename, installFolder)
+      if (!(await installFile(file, version.project_id, true))) return
       setJustInstalled(prev => new Set(prev).add(version.id))
       if (selectedMod) setInstalledIds(prev => new Set(prev).add(selectedMod.project_id))
       onInstalled()
@@ -394,8 +449,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
     setQuickInstallingId(hit.project_id)
     setError('')
     try {
-      const loaderForType = projectType === 'mod' ? instance.modloader : ''
-      const version = await window.api.modrinth.getProjectVersion(hit.project_id, instance.minecraft, loaderForType, installChannel)
+      const version = await window.api.modrinth.getProjectVersion(hit.project_id, mcVersion, loaderForType, installChannel)
       if (!version) {
         await selectMod(hit)
         setDetailTab('versions')
@@ -439,7 +493,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2 flex-1">
             <h2 className="text-base font-bold text-text-primary">Modrinth — {TYPE_LABELS[projectType]}</h2>
-            <span className="text-xs text-text-muted bg-bg-hover px-2 py-0.5 rounded-full">MC {instance.minecraft}{projectType === 'mod' ? ` · ${instance.modloader}` : ''}</span>
+            <span className="text-xs text-text-muted bg-bg-hover px-2 py-0.5 rounded-full">{targetLabel}</span>
           </div>
           {selectedMod && (
             <button onClick={() => { setSelectedMod(null); setProjectBody(null); setDepNames({}); setError('') }}
@@ -779,7 +833,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                   ) : (
                     <>
                       <p className="text-xs font-semibold text-text-secondary mb-3">
-                        Versiones compatibles con MC {instance.minecraft}{projectType === 'mod' ? ` · ${instance.modloader}` : ''}
+                        Versiones compatibles con {targetLabel}
                       </p>
                       {loadingVersions ? (
                         <div className="flex items-center gap-2 py-8 justify-center text-text-muted text-sm">
@@ -797,7 +851,7 @@ export default function ModrinthModal({ instance, projectType = 'mod', onClose, 
                                 <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                                 <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                               </svg>
-                              <p className="text-xs text-amber-400">No hay versión compatible con MC {instance.minecraft}. Puedes forzar la instalación de otra versión bajo tu propio riesgo.</p>
+                              <p className="text-xs text-amber-400">No hay versión compatible con MC {mcVersion}. Puedes forzar la instalación de otra versión bajo tu propio riesgo.</p>
                             </div>
                           )}
                           {(versions.length > 0 || allVersions.length > 0) && (

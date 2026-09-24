@@ -9,6 +9,7 @@ import { getInstanceGameDir, resolveInstanceDir, updateInstance, loadInstances }
 import { downloadFile, fileMatchesHash, fileExists } from './downloader'
 import type { ProgressCallback } from './downloader'
 import { checkCancel } from './cancelToken'
+import { safeJoin, trySafeJoin } from './paths'
 
 // ── URL normalizer ──────────────────────────────────────────────────────────
 
@@ -161,7 +162,11 @@ export async function installModpack(
       onProgress?.(0, entries.length, 'Extrayendo archivos...')
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i]
-        const destPath = path.join(gameDir, entry.entryName)
+        const destPath = trySafeJoin(gameDir, entry.entryName)
+        if (!destPath) {
+          console.warn(`[modpack] Entrada de ZIP insegura ignorada: ${entry.entryName}`)
+          continue
+        }
         await fs.ensureDir(path.dirname(destPath))
         await fs.writeFile(destPath, entry.getData())
         if (i % 100 === 0 || i === entries.length - 1) {
@@ -176,7 +181,7 @@ export async function installModpack(
     for (let i = 0; i < files.length; i++) {
       checkCancel()
       const file = files[i]
-      const destPath = path.join(gameDir, file.path)
+      const destPath = safeJoin(gameDir, file.path)
       onProgress?.(i, files.length, `Descargando ${path.basename(file.path)}...`)
       await fs.ensureDir(path.dirname(destPath))
       const exists = await fileExists(destPath)
@@ -224,8 +229,11 @@ export async function updateModpack(
     const removed: string[] = []
     for (const old of oldFiles) {
       if (!newPaths.has(old.path)) {
-        await fs.remove(path.join(gameDir, old.path)).catch(() => {})
-        removed.push(old.path)
+        const target = trySafeJoin(gameDir, old.path)
+        if (target) {
+          await fs.remove(target).catch(() => {})
+          removed.push(old.path)
+        }
       }
     }
 
@@ -239,7 +247,11 @@ export async function updateModpack(
       const zip = new AdmZip(tmpZip)
       for (const entry of zip.getEntries()) {
         if (entry.isDirectory) continue
-        const destPath = path.join(gameDir, entry.entryName)
+        const destPath = trySafeJoin(gameDir, entry.entryName)
+        if (!destPath) {
+          console.warn(`[modpack] Entrada de ZIP insegura ignorada: ${entry.entryName}`)
+          continue
+        }
         await fs.ensureDir(path.dirname(destPath))
         await fs.writeFile(destPath, entry.getData())
       }
@@ -270,7 +282,7 @@ export async function updateModpack(
   for (let i = 0; i < newFiles.length; i++) {
     checkCancel()
     const file = newFiles[i]
-    const destPath = path.join(gameDir, file.path)
+    const destPath = safeJoin(gameDir, file.path)
     onProgress?.(i, newFiles.length, `Verificando ${path.basename(file.path)}...`)
     await fs.ensureDir(path.dirname(destPath))
 
@@ -292,14 +304,25 @@ export async function updateModpack(
 // ── Version compare ────────────────────────────────────────────────────────
 
 export function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(Number)
-  const pb = b.split('.').map(Number)
-  const len = Math.max(pa.length, pb.length)
+  const parse = (v: string) => {
+    const [core, ...rest] = v.trim().split('-')
+    const nums = core.split('.').map(p => {
+      const n = parseInt(p, 10)
+      return Number.isFinite(n) ? n : 0
+    })
+    return { nums, pre: rest.join('-') }
+  }
+  const va = parse(a)
+  const vb = parse(b)
+  const len = Math.max(va.nums.length, vb.nums.length)
   for (let i = 0; i < len; i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+    const diff = (va.nums[i] ?? 0) - (vb.nums[i] ?? 0)
     if (diff !== 0) return diff
   }
-  return 0
+  // Same numeric core: a release outranks a prerelease (1.2.0 > 1.2.0-beta)
+  if (!va.pre && vb.pre) return 1
+  if (va.pre && !vb.pre) return -1
+  return va.pre.localeCompare(vb.pre)
 }
 
 // ── Export to GitHub ───────────────────────────────────────────────────────
@@ -609,7 +632,11 @@ export async function installMrpackFiles(
       if (name.startsWith('overrides/')) rel = name.slice('overrides/'.length)
       else if (name.startsWith('client-overrides/')) rel = name.slice('client-overrides/'.length)
       if (!rel || !rel.trim()) continue
-      const dest = path.join(gameDir, rel)
+      const dest = trySafeJoin(gameDir, rel)
+      if (!dest) {
+        console.warn(`[mrpack] Entrada de ZIP insegura ignorada: ${name}`)
+        continue
+      }
       await fs.ensureDir(path.dirname(dest))
       await fs.writeFile(dest, entry.getData())
     }
@@ -638,7 +665,7 @@ export async function installMrpackFiles(
       checkCancel()
       const file = files[i]
       onProgress(2 + i, 2 + files.length, `Descargando ${path.basename(file.path)}...`)
-      const dest = path.join(gameDir, file.path)
+      const dest = safeJoin(gameDir, file.path)
       await fs.ensureDir(path.dirname(dest))
       let ok = false
       for (const url of file.downloads) {
@@ -701,7 +728,11 @@ export async function importFpack(
   for (const entry of overrideEntries) {
     const relPath = entry.entryName.slice('overrides/'.length)
     if (!relPath) continue
-    const destPath = path.join(gameDir, relPath)
+    const destPath = trySafeJoin(gameDir, relPath)
+    if (!destPath) {
+      console.warn(`[fpack] Entrada de ZIP insegura ignorada: ${entry.entryName}`)
+      continue
+    }
     await fs.ensureDir(path.dirname(destPath))
     await fs.writeFile(destPath, entry.getData())
   }
@@ -734,7 +765,7 @@ export async function importFpack(
     async function downloadOne(file: typeof files[number]): Promise<void> {
       checkCancel()
       try {
-        const destPath = path.join(gameDir, file.path)
+        const destPath = safeJoin(gameDir, file.path)
         await fs.ensureDir(path.dirname(destPath))
         const stat = await fs.stat(destPath).catch(() => null)
         if (stat && stat.size > 0) {

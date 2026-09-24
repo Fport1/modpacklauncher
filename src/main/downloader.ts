@@ -20,7 +20,7 @@ async function downloadFileOnce(
     signal: getAbortSignal()
   })
 
-  const total = parseInt(response.headers['content-length'] || '0', 10)
+  const total = parseInt(String(response.headers['content-length'] ?? '0'), 10)
   let current = 0
 
   const writer = fs.createWriteStream(destPath)

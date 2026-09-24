@@ -80,12 +80,14 @@ export async function checkForUpdates(_manifestUrl?: string): Promise<UpdateChec
   }
 
   const result = await autoUpdater.checkForUpdates()
-  const info = result?.updateInfo
-  if (!info || info.version === APP_VERSION) {
+  // isUpdateAvailable aplica la comparación semántica (1.10 > 1.9) y descarta
+  // versiones anteriores. Comparar con !== anunciaría como novedad una versión
+  // más vieja, que luego electron-updater se negaría a descargar.
+  if (!result?.isUpdateAvailable) {
     return { hasUpdate: false, currentVersion: APP_VERSION }
   }
 
-  return { hasUpdate: true, currentVersion: APP_VERSION, manifest: toManifest(info) }
+  return { hasUpdate: true, currentVersion: APP_VERSION, manifest: toManifest(result.updateInfo) }
 }
 
 export function openDownloadPage(_manifest: UpdateManifest): void {

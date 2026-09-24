@@ -11,6 +11,7 @@
     "noEmit": false,
     "outDir": "out/main",
     "types": ["node", "electron-vite/node"],
+    "baseUrl": ".",
     "paths": {
       "@shared/*": ["src/shared/*"]
     }

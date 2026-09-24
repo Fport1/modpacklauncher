@@ -4,7 +4,19 @@ import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import AdmZip from 'adm-zip'
 import axios from 'axios'
-import type { Instance } from '../shared/types'
+import type {
+  Instance,
+  ModMeta,
+  ModFile,
+  WorldFolder,
+  ScreenshotFile,
+  ConfigFile,
+  CrashReport,
+  GameDirEntry
+} from '../shared/types'
+import { safeJoin, trySafeJoin } from './paths'
+
+export type { ModMeta, ModFile, WorldFolder, ScreenshotFile, ConfigFile, CrashReport, GameDirEntry }
 
 export function getLauncherDir(): string {
   return app.getPath('userData')
@@ -275,20 +287,6 @@ export async function openInstanceFolder(instanceId: string): Promise<void> {
   shell.openPath(gameDir)
 }
 
-export interface ModMeta {
-  name?: string
-  author?: string
-  iconBase64?: string
-}
-
-export interface ModFile {
-  filename: string
-  size: number
-  enabled: boolean
-  date: number
-  meta?: ModMeta
-}
-
 // Cache keyed by "filename:size" so stale entries self-invalidate when file changes
 const modMetaCache = new Map<string, ModMeta>()
 
@@ -364,27 +362,6 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
 
   modMetaCache.set(cacheKey, meta)
   return meta
-}
-
-export interface WorldFolder {
-  name: string
-  lastPlayed?: number
-  iconBase64?: string
-  size?: number
-}
-
-export interface ScreenshotFile {
-  filename: string
-  filePath: string
-  date: number
-  size: number
-}
-
-export interface ConfigFile {
-  name: string
-  size: number
-  date: number
-  isDir: boolean
 }
 
 export async function listMods(instanceId: string): Promise<ModFile[]> {
@@ -571,11 +548,6 @@ export async function openScreenshotsFolder(instanceId: string): Promise<void> {
   shell.openPath(dir)
 }
 
-export interface CrashReport {
-  filename: string
-  date: number
-}
-
 export async function listCrashReports(instanceId: string): Promise<CrashReport[]> {
   const gameDir = await getInstanceGameDir(instanceId)
   const dir = path.join(gameDir, 'crash-reports')
@@ -592,7 +564,7 @@ export async function listCrashReports(instanceId: string): Promise<CrashReport[
 
 export async function readCrashReport(instanceId: string, filename: string): Promise<string> {
   const gameDir = await getInstanceGameDir(instanceId)
-  const filePath = path.join(gameDir, 'crash-reports', filename)
+  const filePath = safeJoin(path.join(gameDir, 'crash-reports'), filename)
   return fs.readFile(filePath, 'utf-8')
 }
 
@@ -623,9 +595,9 @@ export async function openCrashReportsFolder(instanceId: string): Promise<void> 
 export async function listConfigFiles(instanceId: string, subPath = ''): Promise<ConfigFile[]> {
   const gameDir = await getInstanceGameDir(instanceId)
   const configRoot = path.join(gameDir, 'config')
-  const targetDir = subPath ? path.join(configRoot, subPath) : configRoot
   // prevent path traversal
-  if (!targetDir.startsWith(configRoot)) return []
+  const targetDir = subPath ? trySafeJoin(configRoot, subPath) : configRoot
+  if (!targetDir) return []
   if (!(await fs.pathExists(targetDir))) return []
   const entries = await fs.readdir(targetDir, { withFileTypes: true })
   const result: ConfigFile[] = []
@@ -643,16 +615,14 @@ export async function listConfigFiles(instanceId: string, subPath = ''): Promise
 export async function readConfigFile(instanceId: string, filePath: string): Promise<string> {
   const gameDir = await getInstanceGameDir(instanceId)
   const configRoot = path.join(gameDir, 'config')
-  const fullPath = path.join(configRoot, filePath)
-  if (!fullPath.startsWith(configRoot)) throw new Error('Acceso denegado')
+  const fullPath = safeJoin(configRoot, filePath)
   return fs.readFile(fullPath, 'utf-8')
 }
 
 export async function writeConfigFile(instanceId: string, filePath: string, content: string): Promise<void> {
   const gameDir = await getInstanceGameDir(instanceId)
   const configRoot = path.join(gameDir, 'config')
-  const fullPath = path.join(configRoot, filePath)
-  if (!fullPath.startsWith(configRoot)) throw new Error('Acceso denegado')
+  const fullPath = safeJoin(configRoot, filePath)
   await fs.writeFile(fullPath, content, 'utf-8')
 }
 
@@ -680,8 +650,8 @@ export async function writeOptionsFile(instanceId: string, content: string): Pro
 export async function listWorldFiles(instanceId: string, relativePath = ''): Promise<ConfigFile[]> {
   const gameDir = await getInstanceGameDir(instanceId)
   const savesRoot = path.join(gameDir, 'saves')
-  const targetDir = relativePath ? path.join(savesRoot, relativePath) : savesRoot
-  if (!targetDir.startsWith(savesRoot)) return []
+  const targetDir = relativePath ? trySafeJoin(savesRoot, relativePath) : savesRoot
+  if (!targetDir) return []
   if (!(await fs.pathExists(targetDir))) return []
   const entries = await fs.readdir(targetDir, { withFileTypes: true })
   const result: ConfigFile[] = []
@@ -699,24 +669,21 @@ export async function listWorldFiles(instanceId: string, relativePath = ''): Pro
 export async function readWorldFile(instanceId: string, relativePath: string): Promise<string> {
   const gameDir = await getInstanceGameDir(instanceId)
   const savesRoot = path.join(gameDir, 'saves')
-  const fullPath = path.join(savesRoot, relativePath)
-  if (!fullPath.startsWith(savesRoot)) throw new Error('Acceso denegado')
+  const fullPath = safeJoin(savesRoot, relativePath)
   return fs.readFile(fullPath, 'utf-8')
 }
 
 export async function writeWorldFile(instanceId: string, relativePath: string, content: string): Promise<void> {
   const gameDir = await getInstanceGameDir(instanceId)
   const savesRoot = path.join(gameDir, 'saves')
-  const fullPath = path.join(savesRoot, relativePath)
-  if (!fullPath.startsWith(savesRoot)) throw new Error('Acceso denegado')
+  const fullPath = safeJoin(savesRoot, relativePath)
   await fs.writeFile(fullPath, content, 'utf-8')
 }
 
 export async function copyFilesToWorld(instanceId: string, relativePath: string, filePaths: string[]): Promise<void> {
   const gameDir = await getInstanceGameDir(instanceId)
   const savesRoot = path.join(gameDir, 'saves')
-  const targetDir = relativePath ? path.join(savesRoot, relativePath) : savesRoot
-  if (!targetDir.startsWith(savesRoot)) throw new Error('Acceso denegado')
+  const targetDir = relativePath ? safeJoin(savesRoot, relativePath) : savesRoot
   await fs.ensureDir(targetDir)
   await Promise.all(filePaths.map(src => fs.copy(src, path.join(targetDir, path.basename(src)), { overwrite: true })))
 }
@@ -730,49 +697,42 @@ function toggledFilename(filename: string): string {
 export async function toggleMod(instanceId: string, filename: string): Promise<string> {
   const dir = path.join(await getInstanceGameDir(instanceId), 'mods')
   const next = toggledFilename(filename)
-  await fs.rename(path.join(dir, filename), path.join(dir, next))
+  await fs.rename(safeJoin(dir, filename), safeJoin(dir, next))
   return next
 }
 
 export async function deleteMod(instanceId: string, filename: string): Promise<void> {
-  await fs.remove(path.join(await getInstanceGameDir(instanceId), 'mods', filename))
+  await fs.remove(safeJoin(path.join(await getInstanceGameDir(instanceId), 'mods'), filename))
 }
 
 export async function toggleResourcepack(instanceId: string, filename: string): Promise<string> {
   const dir = path.join(await getInstanceGameDir(instanceId), 'resourcepacks')
   const next = toggledFilename(filename)
-  await fs.rename(path.join(dir, filename), path.join(dir, next))
+  await fs.rename(safeJoin(dir, filename), safeJoin(dir, next))
   return next
 }
 
 export async function deleteResourcepack(instanceId: string, filename: string): Promise<void> {
-  await fs.remove(path.join(await getInstanceGameDir(instanceId), 'resourcepacks', filename))
+  await fs.remove(safeJoin(path.join(await getInstanceGameDir(instanceId), 'resourcepacks'), filename))
 }
 
 export async function toggleShaderpack(instanceId: string, filename: string): Promise<string> {
   const dir = path.join(await getInstanceGameDir(instanceId), 'shaderpacks')
   const next = toggledFilename(filename)
-  await fs.rename(path.join(dir, filename), path.join(dir, next))
+  await fs.rename(safeJoin(dir, filename), safeJoin(dir, next))
   return next
 }
 
 export async function deleteShaderpack(instanceId: string, filename: string): Promise<void> {
-  await fs.remove(path.join(await getInstanceGameDir(instanceId), 'shaderpacks', filename))
+  await fs.remove(safeJoin(path.join(await getInstanceGameDir(instanceId), 'shaderpacks'), filename))
 }
 
 export async function deleteWorld(instanceId: string, worldName: string): Promise<void> {
-  await fs.remove(path.join(await getInstanceGameDir(instanceId), 'saves', worldName))
+  await fs.remove(safeJoin(path.join(await getInstanceGameDir(instanceId), 'saves'), worldName))
 }
 
 export async function deleteScreenshot(instanceId: string, filename: string): Promise<void> {
-  await fs.remove(path.join(await getInstanceGameDir(instanceId), 'screenshots', filename))
-}
-
-export interface GameDirEntry {
-  name: string
-  relativePath: string
-  isDir: boolean
-  size?: number
+  await fs.remove(safeJoin(path.join(await getInstanceGameDir(instanceId), 'screenshots'), filename))
 }
 
 export async function listGameDirEntries(instanceId: string, subPath?: string): Promise<GameDirEntry[]> {

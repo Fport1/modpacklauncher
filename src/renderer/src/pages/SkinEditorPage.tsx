@@ -882,7 +882,7 @@ export default function SkinEditorPage() {
     const rect = canvas.getBoundingClientRect()
     const ndx = ((e.clientX - rect.left) / rect.width) * 2 - 1
     const ndy = -((e.clientY - rect.top) / rect.height) * 2 + 1
-    raycaster.current.setFromCamera({ x: ndx, y: ndy }, v.camera)
+    raycaster.current.setFromCamera(new THREE.Vector2(ndx, ndy), v.camera)
     const hits = raycaster.current.intersectObjects(getMeshes(), false)
     if (!hits.length || !hits[0].uv) return null
     return { ...uvToPixel(hits[0].uv), objectId: hits[0].object.uuid }

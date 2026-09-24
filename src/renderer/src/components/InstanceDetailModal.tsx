@@ -3,8 +3,13 @@ import { createPortal } from 'react-dom'
 import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
 import ModrinthModal from './ModrinthModal'
+import { startHosting } from '../lib/assist/session'
+import NbtFileView, { type NbtKind } from './ftp/NbtFileView'
+import { fileKindOf, localJoin, PLAYER_FILE } from './ftp/shared'
+import type { CloseRequest } from './ftp/EditorShell'
 import ZoomableImage from './ZoomableImage'
 import { nav } from '../nav'
+import { getMonacoLanguage } from '../lib/monacoLanguage'
 import { lazy, Suspense } from 'react'
 const ConfigFileEditor = lazy(() => import('./ConfigFileEditor'))
 
@@ -35,17 +40,6 @@ function mediaUrl(filePath: string): string {
 }
 function displayName(filename: string): string {
   return filename.endsWith('.disabled') ? filename.slice(0, -'.disabled'.length) : filename
-}
-
-function getMonacoLanguage(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
-  if (['json', 'json5'].includes(ext)) return 'json'
-  if (['yaml', 'yml'].includes(ext)) return 'yaml'
-  if (ext === 'toml') return 'toml'
-  if (['ini', 'cfg', 'conf', 'properties'].includes(ext)) return 'ini'
-  if (ext === 'xml') return 'xml'
-  if (ext === 'lua') return 'lua'
-  return 'plaintext'
 }
 
 // ─── sub-components ─────────────────────────────────────────────────────────
@@ -514,6 +508,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [worldFilePath, setWorldFilePath] = useState<string[]>([])
   const [worldFiles, setWorldFiles] = useState<ConfigFile[]>([])
   const [editingWorldFile, setEditingWorldFile] = useState<{ path: string; name: string; content: string; savedContent: string } | null>(null)
+  // Archivos NBT del mundo (level.dat, scoreboard.dat, playerdata) en modo sencillo o avanzado
+  const [worldNbt, setWorldNbt] = useState<{ path: string; name: string; kind: NbtKind; playerName?: string } | null>(null)
+  const worldNbtClose = useRef<CloseRequest | null>(null)
+  const worldNbtNav = useRef<number | null>(null)
   const [worldEditorSaving, setWorldEditorSaving] = useState(false)
   const [worldEditorMsg, setWorldEditorMsg] = useState<'success' | 'error' | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
@@ -652,7 +650,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   useEffect(() => { loadTab(tab) }, [tab, instance.id])
   useEffect(() => {
     setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSideFilter('all'); setUpdatesOnly(false); setSelected(new Set()); setConfigPath([]); setEditingConfigFile(null)
-    setWorldFilePath([]); setWorldFiles([]); setEditingWorldFile(null)
+    setWorldFilePath([]); setWorldFiles([]); setEditingWorldFile(null); closeWorldNbt()
     if (tab === 'worlds') { setBackupsLoaded(false); setBackups([]) }
   }, [tab])
   useEffect(() => {
@@ -857,6 +855,36 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     setLoading(true)
     try { setWorldFiles(await window.api.instances.listWorldFiles(instance.id, newPath.join('/'))) }
     finally { setLoading(false) }
+  }
+
+  /** Abre un .dat del mundo con el editor sencillo que le toque (o el árbol NBT). */
+  async function openWorldNbt(relPath: string[]) {
+    const name = relPath[relPath.length - 1]
+    const saves = await window.api.instances.savesPath(instance.id)
+    const full = relPath.reduce((acc, part) => localJoin(acc, part), saves)
+    const k = fileKindOf(name, () => false)
+    const kind: NbtKind = k === 'level' || k === 'scoreboard' || k === 'playerdata' ? k : 'nbt'
+    let playerName: string | undefined
+    if (kind === 'level') {
+      // En un mundo de un jugador, el jugador de level.dat es el dueño: la cuenta activa
+      const st = useStore.getState()
+      playerName = st.accounts.find((a) => a.id === st.activeAccountId)?.username
+    } else if (kind === 'playerdata') {
+      const uuid = PLAYER_FILE.exec(name)?.[1]?.toLowerCase()
+      const cache = await window.api.ftp.readOptional('local', localJoin(await window.api.ftp.localParent(saves), 'usercache.json'), 'text')
+      try { playerName = (JSON.parse(cache ?? '[]') as { name: string; uuid: string }[]).find((u) => u.uuid.toLowerCase() === uuid)?.name } catch { /* sin nombre */ }
+    }
+    // Atrás en el ratón vuelve a la lista, preguntando si hay cambios
+    if (worldNbtNav.current === null) {
+      worldNbtNav.current = nav.size()
+      nav.push(() => { worldNbtClose.current ? worldNbtClose.current(closeWorldNbt) : closeWorldNbt() })
+    }
+    setWorldNbt({ path: full, name, kind, playerName })
+  }
+
+  function closeWorldNbt() {
+    if (worldNbtNav.current !== null) { nav.clearFrom(worldNbtNav.current); worldNbtNav.current = null }
+    setWorldNbt(null)
   }
 
   async function openWorldFile(file: ConfigFile) {
@@ -1338,6 +1366,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                       Abrir carpeta
                     </button>
+                    <button onClick={() => { setGearOpen(false); startHosting(instance.id).catch(() => {}) }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left"
+                      title="Genera un código para que un amigo vea y arregle los archivos de esta instancia desde su launcher">
+                      <span className="w-[13px] text-center">🤝</span>
+                      Pedir ayuda a un amigo
+                    </button>
                     <div className="h-px bg-border/50 mx-2 my-1"/>
                     <button onClick={() => { setGearOpen(false); setConfirm({ title: 'Reparar instancia', message: 'Se reverificarán y redescargarán los archivos de Minecraft, el modloader y los mods del modpack. ¿Continuar?', onConfirm: () => window.api.launcher.repair(instance.id).catch(() => {}) }) }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
@@ -1693,7 +1726,17 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           )}
 
           {/* ── WORLDS — Monaco editor ── */}
-          {tab === 'worlds' && editingWorldFile && (
+          {tab === 'worlds' && worldNbt && (
+            <div className="flex-1 flex flex-col min-h-0 relative">
+              <NbtFileView name={worldNbt.name} location={worldNbt.path} kind={worldNbt.kind} playerName={worldNbt.playerName}
+                warning={isRunning ? 'El juego está abierto: ciérralo antes de guardar, o Minecraft sobrescribirá estos cambios al guardar el mundo.' : 'Guarda con el juego cerrado: si el mundo está abierto, Minecraft sobrescribe los cambios.'}
+                closeRef={worldNbtClose} onClose={closeWorldNbt}
+                load={() => window.api.nbt.readLocal(worldNbt.path)}
+                save={(doc) => window.api.nbt.writeLocal(worldNbt.path, doc)} />
+            </div>
+          )}
+
+          {tab === 'worlds' && !worldNbt && editingWorldFile && (
             <div className="flex-1 flex flex-col overflow-hidden relative" style={{ background: '#1e1e1e' }}>
               {/* Title bar */}
               <div className="flex items-center flex-shrink-0" style={{ height: '35px', background: '#2d2d2d', borderBottom: '1px solid #1e1e1e' }}>
@@ -1747,7 +1790,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           )}
 
           {/* ── WORLDS — file browser ── */}
-          {tab === 'worlds' && !editingWorldFile && worldFilePath.length > 0 && (
+          {tab === 'worlds' && !worldNbt && !editingWorldFile && worldFilePath.length > 0 && (
             <div className="flex-1 flex flex-col overflow-hidden"
               onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
               onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false) }}
@@ -1795,10 +1838,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 ) : (
                   <div className="flex flex-col gap-0.5">
                     {worldFiles.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).map(f => {
-                      const canEdit = !f.isDir && isEditableFile(f.name)
+                      const isNbt = !f.isDir && /\.(dat|dat_old|nbt)$/i.test(f.name)
+                      const canEdit = !f.isDir && (isEditableFile(f.name) || isNbt)
                       return (
                         <div key={f.name}
-                          onClick={f.isDir ? () => navigateWorld([...worldFilePath, f.name]) : canEdit ? () => openWorldFile(f) : undefined}
+                          onClick={f.isDir ? () => navigateWorld([...worldFilePath, f.name]) : isNbt ? () => openWorldNbt([...worldFilePath, f.name]) : canEdit ? () => openWorldFile(f) : undefined}
                           className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${f.isDir || canEdit ? 'cursor-pointer hover:bg-bg-hover/60 active:bg-bg-hover' : 'hover:bg-bg-hover/30'}`}>
                           <div className="w-8 h-8 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
                             {f.isDir
@@ -1821,7 +1865,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           )}
 
           {/* ── WORLDS — world list ── */}
-          {tab === 'worlds' && !editingWorldFile && worldFilePath.length === 0 && (
+          {tab === 'worlds' && !worldNbt && !editingWorldFile && worldFilePath.length === 0 && (
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <SearchBar value={search} onChange={setSearch} />
@@ -1859,6 +1903,16 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           <p className="text-sm text-text-primary truncate">{w.name}</p>
                           <p className="text-xs text-text-muted">{formatDate(w.lastPlayed)}{w.size ? ` · ${formatSize(w.size)}` : ''}</p>
                         </div>
+                        <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'level.dat']) }}
+                          title="Hora, tiempo, reglas del juego y tu jugador"
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          🌍 Editar
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'data', 'scoreboard.dat']) }}
+                          title="Equipos, objetivos y puntos (scoreboard)"
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          ⚑ Equipos
+                        </button>
                         <button onClick={e => { e.stopPropagation(); navigateWorld([w.name]) }}
                           title="Explorar archivos"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-xs rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
@@ -2307,18 +2361,18 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           onClose={() => { setShowModrinth(false); setModrinthProjectId(null) }}
           onInstalled={() => loadTab('mods')}
           projectVersionMap={Object.fromEntries(mods.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
-          projectFilenameMap={Object.fromEntries(mods.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.name]))}
+          projectFilenameMap={Object.fromEntries(mods.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.filename]))}
         />
       )}
       {showModrinthRp && (
         <ModrinthModal instance={instance} projectType="resourcepack" onClose={() => setShowModrinthRp(false)} onInstalled={() => loadTab('resourcepacks')}
           projectVersionMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
-          projectFilenameMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.name]))} />
+          projectFilenameMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.filename]))} />
       )}
       {showModrinthShader && (
         <ModrinthModal instance={instance} projectType="shader" onClose={() => setShowModrinthShader(false)} onInstalled={() => loadTab('shaderpacks')}
           projectVersionMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
-          projectFilenameMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.name]))} />
+          projectFilenameMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.filename]))} />
       )}
       {unlinkConfirm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60]">

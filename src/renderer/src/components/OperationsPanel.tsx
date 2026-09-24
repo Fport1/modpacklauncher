@@ -17,6 +17,8 @@ const OP_META: Record<OperationType, { label: string; icon: React.ReactNode }> =
   'duplicate-instance': { label: 'Duplicando',   icon: <CopyIcon /> },
   'download-update':    { label: 'Descargando',  icon: <DownloadIcon /> },
   'delete-instance':    { label: 'Eliminando',   icon: <TrashIcon /> },
+  'ftp-upload':         { label: 'Subiendo',     icon: <UploadIcon /> },
+  'ftp-download':       { label: 'Descargando',  icon: <DownloadIcon /> },
 }
 
 function InstallIcon() {

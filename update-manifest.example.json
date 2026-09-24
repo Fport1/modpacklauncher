@@ -6,5 +6,10 @@
     "win32": "https://drive.google.com/uc?export=download&id=TU_FILE_ID_WINDOWS",
     "darwin": "https://drive.google.com/uc?export=download&id=TU_FILE_ID_MACOS",
     "linux": "https://drive.google.com/uc?export=download&id=TU_FILE_ID_LINUX"
+  },
+  "sha256": {
+    "win32": "HASH_SHA256_DEL_EXE_WINDOWS (PowerShell: Get-FileHash instalador.exe)",
+    "darwin": "HASH_SHA256_DEL_DMG_MACOS (shasum -a 256 instalador.dmg)",
+    "linux": "HASH_SHA256_DEL_APPIMAGE_LINUX (sha256sum instalador.AppImage)"
   }
 }

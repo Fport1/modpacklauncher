@@ -477,7 +477,6 @@ function InstallModal({ project, contentType, instances, onClose, preselectedVer
           name: instanceName.trim() || project.title,
           minecraft: mc,
           modloader: loader as Instance['modloader'],
-          createdAt: Date.now(),
         })
         setCreatedInstanceId(inst.id)
         // Install mrpack first — it returns the exact modloader+MC version from the mrpack manifest
@@ -1407,7 +1406,6 @@ function CurseInstall({ hit, file, contentType, instances, onClose }: {
           name: instanceName.trim() || hit.name,
           minecraft: gameVersion,
           modloader: loaderName.toLowerCase() as Instance['modloader'],
-          createdAt: Date.now(),
         })
         setCreatedInstanceId(inst.id)
         await window.api.curseforge.installModpack(inst.id, hit.id, (latestFile as any).fileId ?? (latestFile as any).id)

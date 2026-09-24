@@ -25,6 +25,11 @@ afterPack: scripts/mac-adhoc-sign.js
 # Notarizacion propia: la de electron-builder no permite poner timeout.
 afterSign: scripts/mac-notarize.js
 
+# ssh2 (SFTP) trae dos modulos nativos opcionales con alternativa en JS puro.
+# Recompilarlos para Electron no aporta nada y puede romper el build en CI si
+# falta una herramienta; si el binario no carga, ssh2 usa la version JS.
+npmRebuild: false
+
 files:
   - out/**/*
 

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { APP_VERSION } from '../../../shared/types'
 
-export default function TitleBar() {
+/** `title` sustituye al nombre del launcher, p. ej. en la ventana de Servidores. */
+export default function TitleBar({ title }: { title?: string } = {}) {
   const [maximized, setMaximized] = useState(false)
 
   useEffect(() => {
@@ -14,7 +15,9 @@ export default function TitleBar() {
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div className="flex items-center gap-2">
-        <span className="text-sm font-semibold text-text-primary select-none">Modpack Launcher by <span className="text-red-500">Fport1</span></span>
+        {title
+          ? <span className="text-sm font-semibold text-text-primary select-none">{title}</span>
+          : <span className="text-sm font-semibold text-text-primary select-none">Modpack Launcher by <span className="text-red-500">Fport1</span></span>}
         <span className="text-xs text-text-muted select-none">v{APP_VERSION}</span>
       </div>
 

@@ -155,7 +155,7 @@ async function installJava(
     timeout: 120_000
   })
 
-  const total = parseInt(response.headers['content-length'] || '0', 10)
+  const total = parseInt(String(response.headers['content-length'] ?? '0'), 10)
   let current = 0
   const writer = fs.createWriteStream(archivePath)
 
