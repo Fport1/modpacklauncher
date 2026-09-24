@@ -151,7 +151,7 @@ jobs:
           TOKEN: ${{ secrets.UPDATES_REPO_TOKEN }}
           VERSION: ${{ needs.build-windows.outputs.version }}
         run: |
-          WIN_EXE="ModpackLauncher Setup ${VERSION}.exe"
+          WIN_EXE="ModpackLauncher-Setup-${VERSION}.exe"
           WIN_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${WIN_EXE// /.}"
 
           # El actualizador de 1.8.x admite una sola URL por plataforma. El DMG

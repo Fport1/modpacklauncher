@@ -48,6 +48,10 @@ win:
   icon: build/icon.ico
 
 nsis:
+  # Sin espacios: electron-builder escribe en latest.yml el nombre con guiones
+  # (ModpackLauncher-Setup-x.exe), pero GitHub cambia los espacios del fichero
+  # subido por puntos (ModpackLauncher.Setup.x.exe) y el autoupdater daba 404.
+  artifactName: ${productName}-Setup-${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
