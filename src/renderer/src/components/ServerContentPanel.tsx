@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RemoteEntry, ServerInfo, ServerJarMeta } from '../../../shared/types'
-import ModrinthModal, { type ModrinthTarget } from './ModrinthModal'
+import ContentBrowser, { type BrowseTarget, type InstalledIndex } from './content/ContentBrowser'
+import { resolveDownloadUrl, sourcesFor, SOURCE_INFO, type ProjectRef } from '../lib/contentSources'
+import type { DetailTab } from './explore/ExploreDetail'
 import FileIcon from './FileIcon'
 
 // Mods y plugins de un servidor, con el mismo aspecto que en las instancias y
@@ -58,7 +60,7 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
   const [meta, setMeta] = useState<Record<string, ServerJarMeta>>({})
   const [identify, setIdentify] = useState<{ done: number; total: number } | null>(null)
   const [search, setSearch] = useState('')
-  const [modrinth, setModrinth] = useState<{ projectId?: string } | null>(null)
+  const [browser, setBrowser] = useState<{ detail?: ProjectRef; tab?: DetailTab } | null>(null)
   const [override, setOverride] = useState<{ loader: string; minecraft: string } | null>(null)
   const [warn, setWarn] = useState<{ title: string; resolve: (ok: boolean) => void } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string[] | null>(null)
@@ -126,29 +128,45 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
     await loadJars()
   }
 
-  // ── Destino para el buscador de Modrinth ──
-  const target = useMemo((): ModrinthTarget | null => {
+  // ── Destino para el explorador (todas las fuentes que sirven a este servidor) ──
+  const refOf = (m: ServerJarMeta, name: string): ProjectRef | null => {
+    const base = { title: m.title || baseName(name), icon: m.iconUrl, summary: '' }
+    if (m.source === 'curseforge' && m.cfModId) return { source: 'curseforge', id: String(m.cfModId), ...base }
+    if (m.source === 'fport1' && m.f1ProjectId) return { source: 'fport1', id: m.f1ProjectId, ...base }
+    if (m.projectId) return { source: 'modrinth', id: m.projectId, ...base }
+    return null
+  }
+  const target = useMemo((): BrowseTarget | null => {
     if (!info || !current) return null
+    const installed: InstalledIndex = {}
+    for (const [name, m] of Object.entries(meta)) {
+      const ref = refOf(m, name)
+      if (!ref) continue
+      installed[`${ref.source}:${ref.id}`] = { filename: name, versionId: ref.source === 'modrinth' ? m.versionId : ref.source === 'curseforge' ? (m.cfFileId ? String(m.cfFileId) : undefined) : m.f1VersionId }
+    }
     return {
-      label: `${info.label} · ${slot === 'mods' ? 'mods' : 'plugins'}`,
+      title: slot === 'mods' ? 'Añadir mods al servidor' : 'Añadir plugins',
+      subtitle: `${info.label} · Minecraft ${info.minecraft || '?'} · se instalan en ${current.folder}`,
+      kind: slot === 'mods' ? 'mod' : 'plugin',
       minecraft: info.minecraft,
-      loader: current.loaders,
-      // En un servidor interesa lo que funciona en el servidor
-      environment: slot === 'mods' ? 'server' : 'any',
-      installedIds: async () => Object.values(meta).map((m) => m.projectId),
-      confirm: async (projectId) => {
-        if (slot !== 'mods') return true
-        const project = await window.api.modrinth.getProject(projectId).catch(() => null)
+      loader: slot === 'mods' ? info.loader : info.loader,
+      serverSide: true,
+      installed,
+      // En un servidor se avisa de los mods que solo son de cliente (Modrinth lo indica)
+      confirmInstall: async (ref) => {
+        if (slot !== 'mods' || ref.source !== 'modrinth') return true
+        const project = await window.api.modrinth.getProject(ref.id).catch(() => null)
         if (!project || project.server_side !== 'unsupported') return true
         return new Promise<boolean>((resolve) => setWarn({ title: project.title ?? 'Este mod', resolve }))
       },
-      install: async (file) => {
-        await window.api.ftp.serverInstall(file.url, file.filename, current.folder, file.hashes?.sha1)
-        onLog('ok', `Instalado ${file.filename} en ${current.folder}`)
+      install: async (v) => {
+        const url = await resolveDownloadUrl(v)
+        if (!url) throw new Error('El autor no permite descargarlo fuera de su web')
+        await window.api.ftp.serverInstall(url, v.filename, current.folder, v.sha1)
+        onLog('ok', `Instalado ${v.filename} en ${current.folder}`)
       },
-      remove: async (filename) => {
-        await window.api.ftp.remove(join(current.folder, filename), false)
-      }
+      remove: async (filename) => { await window.api.ftp.remove(join(current.folder, filename), false) },
+      onChanged: () => { loadJars() },
     }
   }, [info, current, slot, meta])
 
@@ -198,17 +216,18 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
             <button type="button" onClick={loadJars} title="Recargar"
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-text-primary bg-bg-primary">⟳</button>
             <span className="text-xs text-text-muted font-mono truncate" title={folder}>{host}:{folder}</span>
-            <button type="button" onClick={() => setModrinth({})}
-              className="ml-auto flex items-center gap-2 px-4 py-2 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-sm font-semibold">
+            <button type="button" onClick={() => setBrowser({})} disabled={!target}
+              title={info ? `Busca en ${sourcesFor({ kind: slot === 'mods' ? 'mod' : 'plugin', minecraft: info.minecraft, loader: info.loader }).map(x => SOURCE_INFO[x].label).join(', ')}` : undefined}
+              className="ml-auto flex items-center gap-2 px-4 py-2 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-sm font-semibold disabled:opacity-40">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-              Añadir {slot === 'mods' ? 'mods' : 'plugins'} desde Modrinth
+              Añadir {slot === 'mods' ? 'mods' : 'plugins'}
             </button>
           </div>
 
           {identify && (
             <div className="flex items-center gap-3 text-xs text-text-muted">
               <Spinner small />
-              Identificando con Modrinth {identify.done}/{identify.total} (solo la primera vez: hay que leer cada archivo del servidor)
+              Identificando {identify.done}/{identify.total} (solo la primera vez: hay que leer cada archivo del servidor)
               <div className="flex-1 h-1.5 bg-bg-hover rounded-full overflow-hidden max-w-xs">
                 <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${(identify.done / identify.total) * 100}%` }} />
               </div>
@@ -254,29 +273,29 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
                     else next.add(entry.name)
                     setSelected(next)
                   }}
-                  className={`group flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors cursor-default ${
+                  className={`group flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-colors cursor-default ${
                     isSel ? 'border-accent/60 bg-accent/10' : 'border-border bg-bg-card hover:border-border/80'
                   } ${enabled ? '' : 'opacity-50'}`}>
-                  <div className="w-9 h-9 rounded-lg bg-bg-hover flex items-center justify-center overflow-hidden shrink-0">
+                  <div className="w-10 h-10 rounded-lg bg-bg-hover flex items-center justify-center overflow-hidden shrink-0">
                     {m?.iconUrl ? <img src={m.iconUrl} alt="" className="w-full h-full object-cover" /> : <FileIcon name={entry.name} isDir={false} size={20} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-text-primary truncate">{m?.title || baseName(entry.name).replace(/\.jar$/i, '')}</span>
+                      <span className="text-[14.5px] font-medium text-text-primary truncate">{m?.title || baseName(entry.name).replace(/\.jar$/i, '')}</span>
                       {m?.versionNumber && <span className="text-[11px] text-text-muted truncate">{m.versionNumber}</span>}
                       {m && <SideBadges client={m.clientSide} server={m.serverSide} />}
                       {m?.hasUpdate && (
-                        <button type="button" onClick={(e) => { e.stopPropagation(); setModrinth({ projectId: m.projectId }) }}
+                        <button type="button" onClick={(e) => { e.stopPropagation(); const r = refOf(m, entry.name); if (r) setBrowser({ detail: r, tab: 'versions' }) }}
                           className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/20 text-accent hover:bg-accent/30 font-medium">
                           Actualización
                         </button>
                       )}
                     </div>
-                    <p className="text-[11px] text-text-muted truncate">{entry.name} · {formatBytes(entry.size)}{!m && !identify ? ' · no está en Modrinth' : ''}</p>
+                    <p className="text-[11px] text-text-muted truncate">{entry.name} · {formatBytes(entry.size)}{!m && !identify ? ' · no está en Modrinth, CurseForge ni Fport1' : m?.source && m.source !== 'modrinth' ? ` · ${m.source === 'curseforge' ? 'CurseForge' : 'Fport1'}` : ''}</p>
                   </div>
-                  {m && (
-                    <button type="button" title="Ver en Modrinth / cambiar versión"
-                      onClick={(e) => { e.stopPropagation(); setModrinth({ projectId: m.projectId }) }}
+                  {m && refOf(m, entry.name) && (
+                    <button type="button" title="Ver ficha y cambiar de versión"
+                      onClick={(e) => { e.stopPropagation(); setBrowser({ detail: refOf(m, entry.name)!, tab: 'versions' }) }}
                       className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs rounded border border-border text-text-muted hover:text-text-primary">
                       Versiones
                     </button>
@@ -295,16 +314,13 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
         </div>
       )}
 
-      {/* Buscador de Modrinth apuntando al servidor */}
-      {modrinth && target && (
-        <ModrinthModal
+      {browser && target && (
+        <ContentBrowser
           target={target}
-          projectType={slot === 'mods' ? 'mod' : 'plugin'}
-          initialProjectId={modrinth.projectId}
-          onClose={() => setModrinth(null)}
-          onInstalled={loadJars}
-          projectVersionMap={Object.fromEntries(Object.values(meta).map((m) => [m.projectId, m.versionId]))}
-          projectFilenameMap={Object.fromEntries(Object.entries(meta).map(([file, m]) => [m.projectId, file]))}
+          initialDetail={browser.detail}
+          initialSource={browser.detail?.source}
+          initialTab={browser.tab}
+          onClose={() => setBrowser(null)}
         />
       )}
 

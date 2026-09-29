@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { nav } from '../nav'
 import { startHosting } from '../lib/assist/session'
 import { useStore, activeAccount } from '../store'
 import InstanceCard from '../components/InstanceCard'
@@ -340,6 +341,50 @@ function IconPickerModal({
 }
 
 /* ─── Main component ───────────────────────────────────────── */
+const CONFETTI_COLORS = ['#22c55e', '#4ade80', '#facc15', '#38bdf8', '#f472b6', '#a78bfa']
+
+/** Confeti que sale del centro de la tarjeta de una instancia recién creada. */
+function NewInstanceBurst() {
+  const [pieces] = useState(() => Array.from({ length: 28 }, (_, i) => {
+    const angle = (i / 28) * Math.PI * 2 + Math.random() * 0.4
+    const dist = 90 + Math.random() * 110
+    return {
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      dx: Math.cos(angle) * dist,
+      dy: Math.sin(angle) * dist - 40,
+      rot: Math.random() * 720 - 360,
+      delay: Math.random() * 0.15,
+      round: i % 3 === 0
+    }
+  }))
+  return (
+    <>
+      <div className="new-instance-badge absolute -top-2.5 -right-2.5 z-30 flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent text-white text-xs font-bold shadow-lg shadow-accent/40">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6L9 17l-5-5" /></svg>
+        Nueva
+      </div>
+      <div className="absolute inset-0 pointer-events-none overflow-visible">
+        {pieces.map((c, i) => (
+          <span
+            key={i}
+            className="confetti-piece"
+            style={{
+              background: c.color,
+              borderRadius: c.round ? '99px' : undefined,
+              width: c.round ? 8 : undefined,
+              height: c.round ? 8 : undefined,
+              animationDelay: `${c.delay}s`,
+              ['--dx' as string]: `${c.dx}px`,
+              ['--dy' as string]: `${c.dy}px`,
+              ['--rot' as string]: `${c.rot}deg`
+            }}
+          />
+        ))}
+      </div>
+    </>
+  )
+}
+
 export default function InstancesPage() {
   const t = useT()
   const { instances, setInstances, addInstance, updateInstance, removeInstance } = useStore()
@@ -351,6 +396,20 @@ export default function InstancesPage() {
   const [modalStep, setModalStep] = useState<ModalStep | EditMode | null>(null)
   const [editing, setEditing] = useState<Instance | null>(null)
   const [detailInstance, setDetailInstance] = useState<Instance | null>(null)
+  // Adelante (botón del ratón) vuelve a abrir el detalle que se acaba de cerrar con atrás
+  const lastDetail = useRef<Instance | null>(null)
+  const detailRef = useRef(detailInstance)
+  useEffect(() => {
+    if (detailRef.current && !detailInstance) lastDetail.current = detailRef.current
+    detailRef.current = detailInstance
+  }, [detailInstance])
+  useEffect(() => nav.setInterceptor(dir => {
+    if (dir !== 'forward' || detailRef.current || !lastDetail.current) return false
+    const inst = useStore.getState().instances.find(i => i.id === lastDetail.current!.id)
+    lastDetail.current = null
+    if (inst) setDetailInstance(inst)
+    return !!inst
+  }), [])
   const [fullDetailInstance, setFullDetailInstance] = useState<Instance | null>(null)
   const [exportInstance, setExportInstance] = useState<Instance | null>(null)
   const [duplicateSource, setDuplicateSource] = useState<Instance | null>(null)
@@ -372,6 +431,33 @@ export default function InstancesPage() {
     setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration)
   }
+
+  // Instancia recién creada: se pone la primera, se lleva la vista hasta ella
+  // y se anima, además del aviso de arriba, para que se note sin buscarla.
+  const [justCreated, setJustCreated] = useState<Instance | null>(null)
+  const [bannerLeaving, setBannerLeaving] = useState(false)
+  const createdTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  function celebrateCreated(inst: Instance) {
+    createdTimers.current.forEach(clearTimeout)
+    setDragOrder(prev => {
+      const next = [inst.id, ...prev.filter(id => id !== inst.id)]
+      localStorage.setItem('ml-instance-order', JSON.stringify(next))
+      return next
+    })
+    const groupKey = inst.group || '__ungrouped__'
+    setCollapsedGroups(prev => prev.filter(k => k !== groupKey))
+    setBannerLeaving(false)
+    setJustCreated(inst)
+    // Esperar a que la tarjeta esté pintada antes de desplazarse
+    createdTimers.current = [
+      setTimeout(() => {
+        document.querySelector(`[data-instance-id="${inst.id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 120),
+      setTimeout(() => setBannerLeaving(true), 5200),
+      setTimeout(() => { setJustCreated(null); setBannerLeaving(false) }, 5600)
+    ]
+  }
+  useEffect(() => () => createdTimers.current.forEach(clearTimeout), [])
 
   // Group right-click edit
   const [groupCtxMenu, setGroupCtxMenu] = useState<{ name: string; x: number; y: number } | null>(null)
@@ -668,10 +754,13 @@ export default function InstancesPage() {
         maxMemory: 4096, minMemory: 512
       })
       addInstance(inst)
-      await window.api.modpacks.install(inst.id, modpackManifest)
       cancelModal()
+      celebrateCreated(inst)
+      await window.api.modpacks.install(inst.id, modpackManifest)
     } catch (e: unknown) {
-      setModpackError(e instanceof Error ? e.message : 'Error al crear instancia')
+      const msg = e instanceof Error ? e.message : 'Error al crear instancia'
+      setModpackError(msg)
+      addToast(msg, 'error', 6000)
     } finally {
       setModpackLoading(false)
     }
@@ -753,12 +842,12 @@ export default function InstancesPage() {
           group: form.group.trim() || undefined,
           groupColor: form.groupColor.trim() || undefined
         })
-        if (pendingIcon) {
-          await window.api.instances.applyPendingIcon(inst.id, pendingIcon.filePath)
-          addInstance({ ...inst, icon: 'icon.png' })
-        } else {
-          addInstance(inst)
-        }
+        const created = pendingIcon ? { ...inst, icon: 'icon.png' } : inst
+        if (pendingIcon) await window.api.instances.applyPendingIcon(inst.id, pendingIcon.filePath)
+        addInstance(created)
+        cancelModal()
+        celebrateCreated(created)
+        return
       }
       cancelModal()
     } catch (e: unknown) {
@@ -854,7 +943,7 @@ export default function InstancesPage() {
         setDuplicateSource(null)
         setDuplicateStep(-1)
         setDuplicateMinimized(false)
-        addToast(`"${newName}" creado`, 'success')
+        celebrateCreated(dup)
       })
       .catch(e => {
         unsub()
@@ -959,8 +1048,10 @@ export default function InstancesPage() {
                 onDragLeave={() => setDragOverId(prev => prev === inst.id ? null : prev)}
                 onDrop={() => handleDrop(inst.id)}
                 onDragEnd={() => { dragIdRef.current = null; setDragOverId(null) }}
-                className={`h-full transition-all duration-100 rounded-2xl ${dragOverId === inst.id && dragIdRef.current !== inst.id ? 'ring-2 ring-accent/60 scale-[1.02]' : ''}`}
+                data-instance-id={inst.id}
+                className={`relative h-full transition-all duration-100 rounded-2xl ${dragOverId === inst.id && dragIdRef.current !== inst.id ? 'ring-2 ring-accent/60 scale-[1.02]' : ''} ${justCreated?.id === inst.id ? 'new-instance' : ''}`}
               >
+                {justCreated?.id === inst.id && <NewInstanceBurst />}
                 <InstanceCard
                   instance={inst}
                   onPlay={() => handlePlay(inst.id)}
@@ -1123,7 +1214,7 @@ export default function InstancesPage() {
           onInstalled={inst => {
             addInstance(inst)
             setFpackFile(null)
-            addToast(`"${inst.name}" instalado`, 'success')
+            celebrateCreated(inst)
           }}
         />
       )}
@@ -1715,6 +1806,30 @@ export default function InstancesPage() {
           </div>
         ))}
       </div>
+
+      {justCreated && (
+        <div className={`created-banner ${bannerLeaving ? 'leaving' : ''} fixed top-14 left-1/2 z-[60] w-[min(440px,calc(100vw-32px))] rounded-2xl border border-accent/50 bg-bg-secondary/95 backdrop-blur shadow-2xl shadow-accent/20 overflow-hidden`}>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <div className="w-11 h-11 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
+              <svg className="created-check" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-text-primary">¡Instancia creada!</p>
+              <p className="text-xs text-text-secondary truncate">
+                {justCreated.name} · {justCreated.minecraft}{justCreated.modloader && justCreated.modloader !== 'vanilla' ? ` · ${justCreated.modloader}` : ''}
+              </p>
+            </div>
+            <button
+              onClick={() => { const id = justCreated.id; setBannerLeaving(true); setTimeout(() => setJustCreated(null), 350); handlePlay(id) }}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors flex-shrink-0"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+              Jugar
+            </button>
+          </div>
+          <div className="h-1 bg-accent/15"><div className="created-progress h-full bg-accent" style={{ animationDuration: '5.2s' }} /></div>
+        </div>
+      )}
     </div>
   )
 }

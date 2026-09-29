@@ -235,26 +235,29 @@ export default function SettingsPage() {
   }
 
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
+  const [refreshError, setRefreshError] = useState<{ id: string; message: string } | null>(null)
 
+  // El launcher renueva solo el token antes de que caduque; solo hace falta
+  // actuar cuando Microsoft ha rechazado la sesión.
   function isExpired(acc: MinecraftAccount): boolean {
-    if (acc.type === 'offline') return false
-    if (!acc.expiresAt) return true
-    return Date.now() > acc.expiresAt - 300_000
+    return acc.type === 'microsoft' && !!acc.needsLogin
   }
 
   async function refreshAccount(e: React.MouseEvent, acc: MinecraftAccount) {
     e.stopPropagation()
     setRefreshingId(acc.id)
     try {
-      const refreshed = await window.api.auth.refresh(acc)
-      // refreshed.id === acc.id (preserved in main process), so addAccount replaces in-place
-      addAccount(refreshed)
-      if (acc.id === activeAccountId) {
-        await window.api.auth.setActive(refreshed.id)
-      }
-    } catch {
-      await window.api.auth.logout(acc.id)
-      removeAccount(acc.id)
+      setRefreshError(null)
+      // El refresh token ya no vale: se vuelve a entrar con Microsoft y la
+      // cuenta nueva sustituye a la vieja (el proceso principal la reemplaza
+      // por uuid de Minecraft).
+      const fresh = await window.api.auth.loginMicrosoft()
+      if (fresh.uuid === acc.uuid) removeAccount(acc.id)
+      addAccount(fresh)
+      await window.api.auth.setActive(fresh.id)
+    } catch (err) {
+      // Nunca borrar la cuenta por un fallo: puede ser solo la conexión.
+      setRefreshError({ id: acc.id, message: err instanceof Error ? err.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '') : String(err) })
     } finally {
       setRefreshingId(null)
     }
@@ -356,7 +359,10 @@ export default function SettingsPage() {
                     {acc.type === 'microsoft' ? 'Microsoft (Premium)' : 'Offline (No premium)'}
                   </p>
                   {acc.type === 'microsoft' && isExpired(acc) && (
-                    <p className="text-[10px] text-amber-400 mt-0.5">⚠ Sesión expirada</p>
+                    <p className="text-[10px] text-amber-400 mt-0.5">⚠ Vuelve a iniciar sesión</p>
+                  )}
+                  {refreshError?.id === acc.id && (
+                    <p className="text-[10px] text-red-400 mt-0.5">{refreshError.message}</p>
                   )}
                 </div>
                 {acc.type === 'microsoft' && isExpired(acc) && (
@@ -365,7 +371,7 @@ export default function SettingsPage() {
                     disabled={refreshingId === acc.id}
                     className="text-xs text-amber-400 border border-amber-400/40 bg-amber-400/10 hover:bg-amber-400/20 px-2 py-0.5 rounded-full transition-colors disabled:opacity-50"
                   >
-                    {refreshingId === acc.id ? 'Renovando...' : 'Renovar'}
+                    {refreshingId === acc.id ? 'Abriendo...' : 'Entrar'}
                   </button>
                 )}
                 {!isExpired(acc) && acc.id === activeAccountId && (

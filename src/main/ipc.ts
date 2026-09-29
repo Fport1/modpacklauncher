@@ -81,7 +81,7 @@ import {
   getQuiltVersions,
   getNeoForgeVersions
 } from './launcher'
-import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta, getInstalledProjectInfo } from './modrinth'
+import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta, getInstalledProjectInfo, getProjectMembers } from './modrinth'
 import { requestCancel, runCancellable, CancelError } from './cancelToken'
 import { readModelOverrides, writeModelOverrides } from './modelOverrides'
 import {
@@ -99,6 +99,11 @@ import { serverDetect, serverSetOverride, serverListJars, serverIdentifyJars, se
 import type { FtpSiteInput, RemoteEntry, ServerOverride, NbtDocument, AssistInstanceInfo, BedrockEdition } from '../shared/types'
 import { scanStorage, listStorageChildren, deleteStoragePath, openStoragePath, revealStoragePath, getDiskInfo } from './storage'
 import { safeJoin } from './paths'
+import { cfGet as cfFetch, cfPost } from './curseforge'
+import { listWorldDatapacks, setWorldDatapackEnabled, deleteWorldDatapack, addWorldDatapacks } from './worldDatapacks'
+import { hasRunningInstances } from './launcher'
+import { aiContextStatus, prepareAiContext, writeToolConfigs } from './aiContext'
+import { setAiControl, startAiBridge } from './aiBridge'
 import { listAssetSources, listAssetDir, readAssetFile } from './assets'
 import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
@@ -192,6 +197,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── Accounts ────────────────────────────────────────────────────────────────
 
+  refreshAccountsSoon()
+  setInterval(refreshAccountsSoon, 20 * 60 * 1000)
+
   ipcMain.handle('auth:login-microsoft', async () => {
     const account = await loginMicrosoft(getMainWindow())
     addAccount(account)
@@ -221,10 +229,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('auth:refresh', async (_e, account: MinecraftAccount) => {
-    const refreshed = await refreshMicrosoftToken(account)
-    refreshed.id = account.id  // preserve original ID so updateAccount finds the record
-    updateAccount(refreshed)
-    return refreshed
+    return freshAccount(account, true)
   })
 
   // ── Instances ────────────────────────────────────────────────────────────────
@@ -330,7 +335,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── Launcher ────────────────────────────────────────────────────────────────
 
-  ipcMain.handle('launcher:launch', async (_e, instanceId: string) => {
+  ipcMain.handle('launcher:launch', (_e, instanceId: string) => launchById(instanceId))
+  // La IA arranca el juego por el mismo camino que el botón Jugar
+  startAiBridge(launchById)
+
+  async function launchById(instanceId: string): Promise<void> {
     const instances = await loadInstances()
     const instance = instances.find((i) => i.id === instanceId)
     if (!instance) throw new Error('Instance not found')
@@ -341,10 +350,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     const settings = settingsStore.getAll()
 
-    if (isTokenExpired(account) && account.type === 'microsoft') {
-      account = await refreshMicrosoftToken(account)
-      updateAccount(account)
-    }
+    account = await freshAccount(account)
 
     const op = makeOpEmitter(`Iniciando ${instance.name}`, 'install-minecraft')
     try {
@@ -372,7 +378,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       op.error(describeError(e, 'Error'))
       throw e
     }
-  })
+  }
 
   ipcMain.handle(
     'launcher:install-version',
@@ -408,10 +414,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (!account) throw new Error('No account selected')
 
     const settings = settingsStore.getAll()
-    if (isTokenExpired(account) && account.type === 'microsoft') {
-      account = await refreshMicrosoftToken(account)
-      updateAccount(account)
-    }
+    account = await freshAccount(account)
 
     await launchInstance(instance, account, settings, getMainWindow(), undefined, undefined, { suppressEvents: true })
   })
@@ -625,6 +628,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     getInstalledProjectIcons(instanceId, subFolder, extensions)
   )
   ipcMain.handle('modrinth:get-project', (_e, projectId: string) => getProject(projectId))
+  ipcMain.handle('modrinth:get-members', (_e, projectId: string) => getProjectMembers(projectId))
   ipcMain.handle('modrinth:get-projects', (_e, projectIds: string[]) => getProjects(projectIds))
   ipcMain.handle('instances:get-size', (_e, instanceId: string) => getInstanceSize(instanceId))
   ipcMain.handle('modrinth:get-project-version', (_e, projectId: string, mcVersion: string, loader: string, channel: 'all' | 'stable' = 'all') =>
@@ -878,10 +882,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     let account = accounts.find(a => a.id === accountId)
     if (!account || account.type !== 'microsoft') throw new Error('Cuenta Microsoft no encontrada')
 
-    if (isTokenExpired(account)) {
-      account = await refreshMicrosoftToken(account)
-      updateAccount(account)
-    }
+    account = await freshAccount(account)
 
     const base64Data = skinBase64.replace(/^data:image\/png;base64,/, '')
     const skinBuffer = Buffer.from(base64Data, 'base64')
@@ -1229,18 +1230,37 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── CurseForge ──────────────────────────────────────────────────────────────
 
-  const CF_API_KEY = '$2a$10$lH3wV/Q8E/bCpE7.jyIeWObw2LhbSypU8klDDAXvLsuikkHHJyAx.'
 
-  async function cfFetch(apiPath: string) {
-    const res = await axios.get(`https://api.curseforge.com${apiPath}`, {
-      headers: {
-        'x-api-key': CF_API_KEY,
-        'Accept': 'application/json',
-        'User-Agent': 'ModpackLauncher/1.5 (contact@fport1.dev)'
-      }
-    })
-    return res.data
+  /**
+   * Enlace de descarga de un archivo de CurseForge. Si el autor desactivó la
+   * distribución fuera de su web, la API responde sin enlace (o con 403): se
+   * devuelve null para avisar en vez de fallar con un error críptico.
+   */
+  async function cfDownloadUrl(modId: number, fileId: number): Promise<string | null> {
+    try {
+      const r = await cfFetch(`/v1/mods/${modId}/files/${fileId}/download-url`)
+      return typeof r?.data === 'string' && r.data ? r.data : null
+    } catch (e) {
+      if ((e as { response?: { status?: number } }).response?.status === 403) return null
+      throw e
+    }
   }
+
+  ipcMain.handle('curseforge:get-mods', async (_e, modIds: number[]) => {
+    if (!modIds.length) return []
+    return (await cfPost<{ data?: unknown[] }>('/v1/mods', { modIds })).data ?? []
+  })
+  ipcMain.handle('curseforge:file-changelog', async (_e, modId: number, fileId: number) => {
+    try { return (await cfFetch(`/v1/mods/${modId}/files/${fileId}/changelog`)).data as string } catch { return '' }
+  })
+  ipcMain.handle('curseforge:file-url', (_e, modId: number, fileId: number) => cfDownloadUrl(modId, fileId))
+
+  // Buscadores de plugins sin cabeceras CORS: se consultan desde aquí
+  ipcMain.handle('content:get-json', async (_e, url: string) => {
+    if (!/^https:\/\/(hangar\.papermc\.io\/api\/v1\/|api\.spiget\.org\/v2\/)/.test(url)) throw new Error('Origen no permitido')
+    const res = await axios.get(url, { timeout: 20_000, headers: { 'User-Agent': 'ModpackLauncher/1.9 (contact@fport1.dev)' } })
+    return res.data
+  })
 
   ipcMain.handle('curseforge:search', async (_e, { query, gameVersion, classId, sortField, offset, modLoaderType, categoryId }: {
     query: string; gameVersion?: string; classId: number; sortField?: number; offset?: number; modLoaderType?: number; categoryId?: number
@@ -1269,7 +1289,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   )
 
   ipcMain.handle('curseforge:get-files', async (_e, modId: number, gameVersion: string | undefined, modLoaderType: number | undefined) => {
-    const params = new URLSearchParams({ pageSize: '20' })
+    const params = new URLSearchParams({ pageSize: '50' })
     if (gameVersion) params.set('gameVersion', gameVersion)
     if (modLoaderType !== undefined) params.set('modLoaderType', String(modLoaderType))
     return cfFetch(`/v1/mods/${modId}/files?${params}`)
@@ -1283,8 +1303,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const op = makeOpEmitter('Instalando desde CurseForge', 'install-curseforge')
     const tmpDir = path.join(os.tmpdir(), `cf-modpack-${Date.now()}`)
     try {
-      const urlData = await cfFetch(`/v1/mods/${modId}/files/${fileId}/download-url`)
-      const downloadUrl: string = urlData.data
+      const downloadUrl = await cfDownloadUrl(modId, fileId)
+      if (!downloadUrl) throw new Error('El autor de este modpack no permite descargarlo fuera de CurseForge. Descárgalo desde su web.')
       await fs.promises.mkdir(tmpDir, { recursive: true })
       const zipPath = path.join(tmpDir, 'modpack.zip')
 
@@ -1303,16 +1323,31 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       zip.extractAllTo(tmpDir, true)
 
       const manifest = JSON.parse(await fs.promises.readFile(path.join(tmpDir, 'manifest.json'), 'utf-8'))
+      // La instancia se crea antes de saber qué pide el modpack: se ajusta aquí
+      // a su versión de Minecraft y su loader («neoforge-21.1.77», «fabric-0.16.5»…)
+      {
+        const loaderId: string = (manifest.minecraft?.modLoaders ?? []).find((l: { primary?: boolean }) => l.primary)?.id ?? manifest.minecraft?.modLoaders?.[0]?.id ?? ''
+        const m = /^(forge|neoforge|fabric|quilt)-(.+)$/i.exec(loaderId)
+        const inst = (await loadInstances()).find((i) => i.id === instanceId)
+        if (inst) {
+          await updateInstance({
+            ...inst,
+            minecraft: manifest.minecraft?.version || inst.minecraft,
+            modloader: (m ? m[1].toLowerCase() : inst.modloader) as Instance['modloader'],
+            modloaderVersion: m ? m[2] : inst.modloaderVersion
+          })
+        }
+      }
       const gameDir = await getInstanceGameDir(instanceId)
       const modsDir = path.join(gameDir, 'mods')
       await fs.promises.mkdir(modsDir, { recursive: true })
       const requiredFiles = ((manifest.files ?? []) as { projectID: number; fileID: number; required: boolean }[]).filter(f => f.required)
       let done = 0
+      const blocked: number[] = []
       for (const file of requiredFiles) {
         try {
-          const urlRes = await cfFetch(`/v1/mods/${file.projectID}/files/${file.fileID}/download-url`)
-          const modUrl: string = urlRes.data
-          if (!modUrl) { done++; continue }
+          const modUrl = await cfDownloadUrl(file.projectID, file.fileID)
+          if (!modUrl) { blocked.push(file.projectID); done++; continue }
           const filename = path.basename(decodeURIComponent(modUrl.split('/').pop() ?? `${file.projectID}.jar`))
           const modData = await axios.get(modUrl, { responseType: 'arraybuffer' })
           await fs.promises.writeFile(safeJoin(modsDir, filename), Buffer.from(modData.data as ArrayBuffer))
@@ -1325,7 +1360,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       try { await fs.promises.cp(overridesDir, gameDir, { recursive: true, force: true }) } catch { /* no overrides */ }
 
       await fs.promises.rm(tmpDir, { recursive: true, force: true })
-      op.done('¡Modpack de CurseForge instalado!')
+      op.done(blocked.length
+        ? `Modpack instalado, pero faltan ${blocked.length} mods que sus autores solo dejan bajar desde CurseForge`
+        : '¡Modpack de CurseForge instalado!')
       return manifest
     } catch (ex) {
       await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
@@ -1336,8 +1373,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('curseforge:install-mod', async (_e, instanceId: string, modId: number, fileId: number, subFolder?: string) => {
-    const urlData = await cfFetch(`/v1/mods/${modId}/files/${fileId}/download-url`)
-    const modUrl: string = urlData.data
+    const modUrl = await cfDownloadUrl(modId, fileId)
+    if (!modUrl) throw new Error('El autor no permite descargarlo fuera de CurseForge. Descárgalo desde su web.')
     const filename = path.basename(decodeURIComponent(modUrl.split('/').pop() ?? `${modId}.jar`))
     const gameDir = await getInstanceGameDir(instanceId)
     const destDir = safeJoin(gameDir, subFolder ?? 'mods')
@@ -1458,12 +1495,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     let account = accounts.find((a) => a.id === accountId)
     if (!account || account.type !== 'microsoft') return null
     try {
-      if (isTokenExpired(account)) {
-        const refreshed = await refreshMicrosoftToken(account)
-        refreshed.id = account.id
-        updateAccount(refreshed)
-        account = refreshed
-      }
+      account = await freshAccount(account)
       const { data } = await axios.get<{ items?: { name: string }[] }>('https://api.minecraftservices.com/entitlements/mcstore', {
         headers: { Authorization: `Bearer ${account.accessToken}` }, timeout: 15_000
       })
@@ -1490,6 +1522,64 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
     const r = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     return r.canceled ? null : r.filePaths[0] ?? null
+  })
+  // Contexto para IAs (Claude Code, Codex, Gemini…)
+  ipcMain.handle('ai-context:status', (_e, instanceId: string) => aiContextStatus(instanceId))
+  ipcMain.handle('ai-context:prepare', async (_e, instanceId: string) => {
+    const op = makeOpEmitter('Preparando el modpack para IA', 'ai-context')
+    try {
+      const r = await prepareAiContext(instanceId, (msg) => op.progress(msg, 0, 1))
+      op.done(`Listo: ${r.mods ?? 0} mods documentados`)
+      return r
+    } catch (e) {
+      op.error(describeError(e, 'No se pudo preparar'))
+      throw e
+    }
+  })
+
+  // Qué puede hacer una IA en la instancia (desactivado / preguntar / automático)
+  ipcMain.handle('ai:set-control', async (_e, instanceId: string, mode: 'off' | 'ask' | 'auto') => {
+    const inst = await setAiControl(instanceId, mode)
+    if ((await aiContextStatus(instanceId)).exists) await writeToolConfigs(inst, await getInstanceGameDir(instanceId))
+    return inst
+  })
+  // Abre una IA de terminal (Claude Code, Codex, Gemini) ya conectada al launcher en la carpeta del juego
+  ipcMain.handle('ai:open-terminal', async (_e, instanceId: string, tool: 'claude' | 'codex' | 'gemini') => {
+    const inst = (await loadInstances()).find((i) => i.id === instanceId)
+    if (!inst) throw new Error('Instancia no encontrada')
+    const gameDir = await getInstanceGameDir(instanceId)
+    await writeToolConfigs(inst, gameDir)
+    const { execFile, spawn } = await import('child_process')
+    const cmd = tool === 'codex' ? 'codex' : tool === 'gemini' ? 'gemini' : 'claude'
+    const found = await new Promise<boolean>((res) => execFile(process.platform === 'win32' ? 'where' : 'which', [cmd], (err) => res(!err)))
+    if (!found) {
+      const how = cmd === 'claude' ? 'https://claude.com/claude-code' : cmd === 'codex' ? 'npm i -g @openai/codex' : 'npm i -g @google/gemini-cli'
+      throw new Error(`No se encontró «${cmd}» en este equipo. Instálalo (${how}) y vuelve a intentarlo.`)
+    }
+    const title = `${inst.name} · ${cmd}`.replace(/[&|<>^"%]/g, '')
+    if (process.platform === 'win32') {
+      spawn('cmd.exe', ['/c', 'start', `"${title}"`, 'cmd.exe', '/k', cmd], { cwd: gameDir, detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref()
+    } else if (process.platform === 'darwin') {
+      spawn('osascript', ['-e', `tell application "Terminal" to do script "cd ${JSON.stringify(gameDir).slice(1, -1)} && ${cmd}"`], { detached: true, stdio: 'ignore' }).unref()
+    } else {
+      spawn('x-terminal-emulator', ['-e', `sh -c 'cd "${gameDir}" && ${cmd}; exec sh'`], { detached: true, stdio: 'ignore' }).unref()
+    }
+  })
+
+  // Datapacks de un mundo
+  ipcMain.handle('world-datapacks:list', (_e, instanceId: string, world: string) => listWorldDatapacks(instanceId, world))
+  ipcMain.handle('world-datapacks:set-enabled', (_e, instanceId: string, world: string, id: string, on: boolean) => {
+    // Con el juego abierto, Minecraft sobrescribe level.dat al guardar y el cambio se perdería
+    if (hasRunningInstances()) throw new Error('Cierra Minecraft antes: al guardar el mundo se perdería el cambio.')
+    return setWorldDatapackEnabled(instanceId, world, id, on)
+  })
+  ipcMain.handle('world-datapacks:delete', (_e, instanceId: string, world: string, filename: string) => deleteWorldDatapack(instanceId, world, filename))
+  ipcMain.handle('world-datapacks:add', (_e, instanceId: string, world: string, sources: string[]) => addWorldDatapacks(instanceId, world, sources))
+  ipcMain.handle('world-datapacks:pick', async (e, instanceId: string, world: string) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? currentMainWindow
+    const opts: Electron.OpenDialogOptions = { title: 'Añadir datapacks', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Datapacks', extensions: ['zip'] }] }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return r.canceled ? [] : addWorldDatapacks(instanceId, world, r.filePaths)
   })
   ipcMain.handle('instances:saves-path', async (_e, instanceId: string) => path.join(await getInstanceGameDir(instanceId), 'saves'))
 
@@ -1732,4 +1822,63 @@ function updateAccount(account: MinecraftAccount): void {
     'accounts',
     accounts.map((a) => (a.id === account.id ? account : a))
   )
+}
+
+// ── Renovación de cuentas de Microsoft ──────────────────────────────────────
+// El token de Minecraft dura 24 h. Se renueva solo, en segundo plano, antes de
+// que caduque, y siempre a partir de la cuenta guardada en disco: el renderer
+// puede tener una copia vieja con un refresh token que Microsoft ya sustituyó.
+// La renovación conserva el id de la cuenta; si no, updateAccount no la
+// encontraba, la renovación se perdía y la sesión «caducaba» en cada arranque.
+
+const refreshing = new Map<string, Promise<MinecraftAccount>>()
+
+function broadcastAccount(account: MinecraftAccount): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('auth:account-updated', account)
+  }
+}
+
+async function freshAccount(account: MinecraftAccount, force = false): Promise<MinecraftAccount> {
+  if (account.type !== 'microsoft') return account
+  const stored = accountsStore.getAll().accounts.find((a) => a.id === account.id) ?? account
+  if (!force && !isTokenExpired(stored)) return stored
+
+  // Dos renovaciones a la vez con el mismo refresh token: la segunda usaría
+  // uno ya consumido. Se comparte la que está en curso.
+  const pending = refreshing.get(stored.id)
+  if (pending) return pending
+
+  const job = (async () => {
+    try {
+      const refreshed = await refreshMicrosoftToken(stored)
+      refreshed.id = stored.id
+      updateAccount(refreshed)
+      broadcastAccount(refreshed)
+      return refreshed
+    } catch (err) {
+      // Solo si Microsoft rechaza el refresh token hace falta volver a entrar;
+      // un fallo de red no cierra nada, se reintenta más tarde.
+      if (err instanceof Error && /caducado/.test(err.message)) {
+        const marked = { ...stored, needsLogin: true }
+        updateAccount(marked)
+        broadcastAccount(marked)
+      }
+      throw err
+    } finally {
+      refreshing.delete(stored.id)
+    }
+  })()
+  refreshing.set(stored.id, job)
+  return job
+}
+
+/** Renueva las cuentas a las que les queda menos de una hora. */
+function refreshAccountsSoon(): void {
+  const { accounts } = accountsStore.getAll()
+  for (const a of accounts) {
+    if (a.type !== 'microsoft' || a.needsLogin || !a.refreshToken) continue
+    if (a.expiresAt && a.expiresAt - Date.now() > 60 * 60 * 1000) continue
+    freshAccount(a, true).catch((e) => console.warn('[auth] No se pudo renovar', a.username, e?.message ?? e))
+  }
 }

@@ -1,0 +1,487 @@
+import { app, BrowserWindow, ipcMain } from 'electron'
+import http from 'http'
+import crypto from 'crypto'
+import fs from 'fs-extra'
+import path from 'path'
+import { gameEvents, isInstanceRunning, killInstance } from './launcher'
+import { getInstance, getInstanceGameDir, listMods, listResourcepacks, listShaderpacks, loadInstances, updateInstance } from './instances'
+import { getInstalledModsMeta, getModVersions, installModFromUrl, searchMods } from './modrinth'
+import { cfGet, CF_CLASS, CF_GAME_MINECRAFT, CF_LOADER } from './curseforge'
+import { listWorldDatapacks, setWorldDatapackEnabled } from './worldDatapacks'
+import type { AiActivity, AiApprovalRequest, Instance } from '../shared/types'
+import { MCP_SCRIPT } from './aiMcpScript'
+
+// Puente local para IAs (Claude Code, Codex, Gemini, Cursor…).
+//
+// Todo lo que hace una IA sobre una instancia pasa por aquí, dentro del
+// launcher: arrancar el juego y esperar a ver si crashea, leer registros,
+// activar/desactivar/instalar/quitar mods, resource packs, shaders y datapacks,
+// editar configs y anotar lo aprendido. El launcher muestra cada acción y, en
+// modo «preguntar», pide permiso en su propia ventana.
+//
+// Es un servidor HTTP solo en 127.0.0.1 con una clave aleatoria guardada en
+// userData/ai-bridge.json; lo usa el servidor MCP de aiMcpScript.ts.
+
+export const BRIDGE_FILE = (): string => path.join(app.getPath('userData'), 'ai-bridge.json')
+export const MCP_SCRIPT_FILE = (): string => path.join(app.getPath('userData'), 'ai', 'modpack-mcp.cjs')
+
+type LaunchFn = (instanceId: string) => Promise<void>
+type Kind = 'mod' | 'resourcepack' | 'shader' | 'datapack'
+
+interface RunState {
+  startedAt: number
+  lines: string[]
+  exitCode: number | null | undefined
+  exitedAt?: number
+  ready?: boolean
+}
+
+
+const runs = new Map<string, RunState>()
+const MAX_LINES = 4000
+// El juego ha llegado al menú principal (o a cargar un mundo)
+const READY_RE = /Sound engine started|textures\/atlas\/blocks\.png-atlas|Loaded \d+ advancements|Preparing spawn area|Joining world/i
+const ERROR_RE = /\b(ERROR|FATAL|Exception|Caused by:|Mixin apply failed|NoClassDefFoundError|ClassNotFoundException|Missing or unsupported mandatory dependencies|requires .* but|Incompatible mod set)/
+
+gameEvents.on('start', (id: string) => { runs.set(id, { startedAt: Date.now(), lines: [], exitCode: undefined }) })
+gameEvents.on('log', (id: string, line: string) => {
+  const r = runs.get(id)
+  if (!r) return
+  r.lines.push(line)
+  if (r.lines.length > MAX_LINES) r.lines.splice(0, r.lines.length - MAX_LINES)
+  if (!r.ready && READY_RE.test(line)) r.ready = true
+})
+gameEvents.on('exit', (id: string, code: number | null) => {
+  const r = runs.get(id)
+  if (r) { r.exitCode = code; r.exitedAt = Date.now() }
+})
+
+// ── Actividad y permisos (se ven en el launcher) ─────────────────────────────
+
+const activity: AiActivity[] = []
+const pending = new Map<string, (d: 'allow' | 'always' | 'deny') => void>()
+const alwaysAllowed = new Set<string>() // `${instanceId}|${acción}` durante esta sesión
+
+function broadcast(channel: string, payload: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, payload)
+}
+
+function logActivity(instanceId: string, text: string, kind: AiActivity['kind'] = 'change'): void {
+  const a = { instanceId, text, at: Date.now(), kind }
+  activity.push(a)
+  if (activity.length > 300) activity.shift()
+  broadcast('ai:activity', a)
+}
+
+async function askUser(inst: Instance, action: string, detail: string): Promise<boolean> {
+  if ((inst.aiControl ?? 'off') === 'auto' || alwaysAllowed.has(`${inst.id}|${action}`)) return true
+  const id = crypto.randomUUID()
+  const req: AiApprovalRequest = { id, instanceId: inst.id, instanceName: inst.name, action, detail }
+  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  if (win) { if (win.isMinimized()) win.restore(); win.flashFrame(true) }
+  broadcast('ai:approval', req)
+  const decision = await new Promise<'allow' | 'always' | 'deny'>((resolve) => {
+    pending.set(id, resolve)
+    setTimeout(() => { if (pending.delete(id)) resolve('deny') }, 5 * 60_000)
+  })
+  broadcast('ai:approval-done', id)
+  if (decision === 'always') alwaysAllowed.add(`${inst.id}|${action}`)
+  if (decision === 'deny') logActivity(inst.id, `Denegado: ${detail}`, 'denied')
+  return decision !== 'deny'
+}
+
+// ── Utilidades ──────────────────────────────────────────────────────────────
+
+async function latestCrash(gameDir: string, since = 0): Promise<{ file: string; text: string } | null> {
+  const dirs = [path.join(gameDir, 'crash-reports'), gameDir]
+  let best: { file: string; mtime: number } | null = null
+  for (const dir of dirs) {
+    const names = await fs.readdir(dir).catch(() => [] as string[])
+    for (const n of names) {
+      if (dir === gameDir ? !/^hs_err_pid\d+\.log$/.test(n) : !n.endsWith('.txt')) continue
+      const st = await fs.stat(path.join(dir, n)).catch(() => null)
+      if (st && st.mtimeMs >= since && (!best || st.mtimeMs > best.mtime)) best = { file: path.join(dir, n), mtime: st.mtimeMs }
+    }
+  }
+  if (!best) return null
+  const text = await fs.readFile(best.file, 'utf8').catch(() => '')
+  return { file: path.relative(gameDir, best.file).replace(/\\/g, '/'), text: text.slice(0, 12_000) }
+}
+
+function summarizeRun(r: RunState | undefined): Record<string, unknown> {
+  if (!r) return { state: 'never-started' }
+  return {
+    state: r.exitCode === undefined ? (r.ready ? 'running' : 'starting') : r.exitCode === 0 ? 'exited' : 'crashed',
+    exitCode: r.exitCode ?? null,
+    secondsRunning: Math.round(((r.exitedAt ?? Date.now()) - r.startedAt) / 1000),
+    reachedMenu: !!r.ready,
+    errorLines: r.lines.filter((l) => ERROR_RE.test(l)).slice(-60),
+    logTail: r.lines.slice(-120),
+  }
+}
+
+async function waitForOutcome(instanceId: string, since: number, timeoutMs: number): Promise<void> {
+  const until = Date.now() + timeoutMs
+  while (Date.now() < until) {
+    const r = runs.get(instanceId)
+    if (r && r.startedAt >= since && (r.exitCode !== undefined || r.ready)) {
+      // Tras llegar al menú se espera un poco más: muchos crashes llegan justo después
+      if (r.ready && r.exitCode === undefined) await new Promise((res) => setTimeout(res, 8000))
+      return
+    }
+    await new Promise((res) => setTimeout(res, 1000))
+  }
+}
+
+const KIND_NAME: Record<Kind, string> = { mod: 'mod', resourcepack: 'resource pack', shader: 'shader', datapack: 'datapack' }
+
+function parseKind(v: unknown): Kind {
+  const s = String(v ?? 'mod')
+  if (s === 'resourcepack' || s === 'shader' || s === 'datapack') return s
+  return 'mod'
+}
+
+/** Carpeta del tipo de contenido dentro de la carpeta del juego. */
+function kindDir(gameDir: string, kind: Kind, world?: string): string {
+  if (kind === 'datapack') {
+    if (!world) throw new Error('Los datapacks son de un mundo: indica «mundo» (usa listar_contenido tipo=datapack sin mundo para ver los mundos)')
+    return path.join(gameDir, 'saves', path.basename(world), 'datapacks')
+  }
+  return path.join(gameDir, kind === 'mod' ? 'mods' : kind === 'resourcepack' ? 'resourcepacks' : 'shaderpacks')
+}
+
+function inside(base: string, rel: string): string {
+  const full = path.resolve(base, rel)
+  if (full !== base && !full.startsWith(base + path.sep)) throw new Error('Ruta fuera de la carpeta del juego')
+  return full
+}
+
+/** Loader que entiende Modrinth para cada tipo. */
+function mrLoader(inst: Instance, kind: Kind): string {
+  if (kind === 'mod') return inst.modloader === 'vanilla' ? '' : inst.modloader
+  if (kind === 'datapack') return 'datapack'
+  return ''
+}
+
+const CF_CLASS_OF: Record<Kind, number> = { mod: CF_CLASS.mod, resourcepack: CF_CLASS.resourcepack, shader: CF_CLASS.shader, datapack: CF_CLASS.datapack }
+
+async function installFromSource(inst: Instance, kind: Kind, source: string, project: string, versionId: string | undefined, world?: string): Promise<{ filename: string; version: string; folder: string }> {
+  const gameDir = await getInstanceGameDir(inst.id)
+  const folder = path.relative(gameDir, kindDir(gameDir, kind, world)).replace(/\\/g, '/')
+  if (source === 'curseforge') {
+    const modId = Number(project)
+    const params = new URLSearchParams({ pageSize: '50', gameVersion: inst.minecraft })
+    if (kind === 'mod' && CF_LOADER[inst.modloader]) params.set('modLoaderType', String(CF_LOADER[inst.modloader]))
+    const files = (await cfGet<{ data: any[] }>(`/v1/mods/${modId}/files?${params}`)).data
+    const f = versionId ? files.find((x) => String(x.id) === versionId) : files.find((x) => x.releaseType === 1) ?? files[0]
+    if (!f) throw new Error(`No hay versión en CurseForge para ${inst.minecraft}${kind === 'mod' ? ` ${inst.modloader}` : ''}`)
+    const url = (await cfGet<{ data: string }>(`/v1/mods/${modId}/files/${f.id}/download-url`).catch(() => ({ data: '' }))).data
+    if (!url) throw new Error('El autor no permite descargarlo fuera de CurseForge')
+    await installModFromUrl(inst.id, url, f.fileName, folder)
+    return { filename: f.fileName, version: f.displayName, folder }
+  }
+  const vs = await getModVersions(project, inst.minecraft, mrLoader(inst, kind))
+  const v = versionId ? vs.find((x) => x.id === versionId || x.version_number === versionId) : vs.find((x) => x.version_type === 'release') ?? vs[0]
+  if (!v) throw new Error(`No hay versión de «${project}» en Modrinth para ${inst.minecraft}${kind === 'mod' ? ` ${inst.modloader}` : ''}`)
+  const file = v.files.find((f) => f.primary) ?? v.files[0]
+  await installModFromUrl(inst.id, file.url, file.filename, folder)
+  return { filename: file.filename, version: v.version_number, folder }
+}
+
+async function listContent(inst: Instance, kind: Kind, world?: string): Promise<Record<string, unknown>> {
+  const gameDir = await getInstanceGameDir(inst.id)
+  if (kind === 'datapack') {
+    if (!world) return { worlds: await fs.readdir(path.join(gameDir, 'saves')).catch(() => [] as string[]) }
+    return { world, datapacks: (await listWorldDatapacks(inst.id, world)).map(({ iconBase64: _i, ...d }) => d) }
+  }
+  if (kind === 'resourcepack') {
+    const opts = await fs.readFile(path.join(gameDir, 'options.txt'), 'utf8').catch(() => '')
+    const active = opts.match(/^resourcePacks:(.*)$/m)?.[1] ?? '[]'
+    return { items: (await listResourcepacks(inst.id)).map((r) => ({ filename: r.filename, enabled: r.enabled })), activeInOptions: active, note: 'Además de estar en la carpeta, el pack tiene que estar en resourcePacks de options.txt (o activarse en el juego) para usarse.' }
+  }
+  if (kind === 'shader') {
+    const iris = await fs.readFile(path.join(gameDir, 'config', 'iris.properties'), 'utf8').catch(() => '')
+    return { items: (await listShaderpacks(inst.id)).map((r) => ({ filename: r.filename, enabled: r.enabled })), selected: iris.match(/^shaderPack=(.*)$/m)?.[1] ?? null }
+  }
+  const [mods, meta] = await Promise.all([listMods(inst.id), getInstalledModsMeta(inst.id, inst.minecraft, inst.modloader).catch(() => ({} as Record<string, any>))])
+  return {
+    minecraft: inst.minecraft, loader: inst.modloader,
+    items: mods.map((m) => {
+      const x = (meta as Record<string, any>)[m.filename] ?? {}
+      return {
+        filename: m.filename, enabled: m.enabled, name: x.title || m.meta?.name, modIds: m.meta?.modIds ?? [], requires: m.meta?.requires ?? [],
+        source: x.source ?? 'archivo', project: x.source === 'curseforge' ? x.cfModId : x.source === 'fport1' ? x.f1ProjectId : x.projectId,
+        hasUpdate: !!x.hasUpdate, clientSide: x.clientSide, serverSide: x.serverSide,
+      }
+    }),
+  }
+}
+
+// ── Servidor ────────────────────────────────────────────────────────────────
+
+const READ_ONLY = new Set(['state', 'log', 'crashes', 'content', 'search', 'versions', 'lessons', 'lessons/add', 'files', 'files/read'])
+
+export function startAiBridge(launch: LaunchFn): void {
+  const token = crypto.randomBytes(24).toString('hex')
+  // Se reescribe en cada arranque para que las instancias usen siempre la versión del launcher instalado
+  fs.outputFile(MCP_SCRIPT_FILE(), MCP_SCRIPT).catch(() => {})
+
+  ipcMain.handle('ai:activity', (_e, instanceId?: string) => activity.filter((a) => !instanceId || a.instanceId === instanceId).slice(-100))
+  ipcMain.handle('ai:approve', (_e, id: string, decision: 'allow' | 'always' | 'deny') => {
+    const r = pending.get(id)
+    if (r) { pending.delete(id); r(decision) }
+  })
+
+  const server = http.createServer(async (req, res) => {
+    const send = (status: number, body: unknown): void => {
+      res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify(body))
+    }
+    if (req.headers.authorization !== `Bearer ${token}`) return send(401, { error: 'Clave incorrecta' })
+    let body: any = {}
+    try {
+      const chunks: Buffer[] = []
+      for await (const c of req) chunks.push(c as Buffer)
+      body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+    } catch { return send(400, { error: 'JSON inválido' }) }
+
+    let instId = ''
+    try {
+      const url = new URL(req.url ?? '/', 'http://x')
+      const parts = url.pathname.split('/').filter(Boolean)
+      if (parts[0] === 'status') {
+        const list = await loadInstances()
+        return send(200, { launcher: app.getVersion(), instances: list.map((i) => ({ id: i.id, name: i.name, minecraft: i.minecraft, loader: i.modloader, aiControl: i.aiControl ?? 'off', running: isInstanceRunning(i.id) })) })
+      }
+      if (parts[0] !== 'instance' || !parts[1]) return send(404, { error: 'Ruta desconocida' })
+      const inst = await getInstance(decodeURIComponent(parts[1]))
+      if (!inst) return send(404, { error: 'Instancia no encontrada' })
+      instId = inst.id
+      const gameDir = await getInstanceGameDir(inst.id)
+      const action = parts.slice(2).join('/')
+      const kind = parseKind(body.kind)
+      const world = body.world ? String(body.world) : undefined
+
+      // Permisos: desactivado → solo lectura; preguntar → el launcher pide permiso; automático → libre
+      if (!READ_ONLY.has(action)) {
+        if ((inst.aiControl ?? 'off') === 'off') {
+          logActivity(inst.id, `Bloqueado (IA en «Solo mirar»): ${describe(action, body, kind)}`, 'denied')
+          return send(403, { error: 'El control por IA está desactivado para esta instancia. Pide al usuario que lo active en el launcher: detalle de la instancia › IA › «Qué puede hacer la IA».' })
+        }
+        const detail = describe(action, body, kind)
+        if (!(await askUser(inst, action, detail))) return send(403, { error: `El usuario no ha dado permiso para: ${detail}. No lo repitas sin preguntarle.` })
+      }
+
+      switch (action) {
+        case 'launch': {
+          if (isInstanceRunning(inst.id)) return send(409, { error: 'La instancia ya está abierta', ...summarizeRun(runs.get(inst.id)) })
+          const t0 = Date.now()
+          logActivity(inst.id, 'Abriendo el juego para probar', 'info')
+          try { await launch(inst.id) } catch (e) {
+            const raw = e instanceof Error ? e.message : String(e)
+            const msg = /No account selected/i.test(raw) ? 'No hay ninguna cuenta de Minecraft en el launcher: pide al usuario que inicie sesión y vuelve a intentarlo' : raw
+            logActivity(inst.id, `No se pudo abrir: ${msg}`, 'error')
+            return send(200, { state: 'launch-failed', error: msg })
+          }
+          await waitForOutcome(inst.id, t0, Math.min(Number(body.waitSeconds ?? 240), 600) * 1000)
+          const r = runs.get(inst.id)
+          const out = summarizeRun(r && r.startedAt >= t0 ? r : undefined)
+          if (r && r.exitCode !== undefined && r.exitCode !== 0) out.crashReport = await latestCrash(gameDir, t0)
+          logActivity(inst.id, out.state === 'running' ? 'El juego llegó al menú' : out.state === 'crashed' ? `El juego crasheó (código ${out.exitCode})` : `Estado del juego: ${out.state}`, out.state === 'crashed' ? 'error' : 'info')
+          return send(200, out)
+        }
+        case 'stop':
+          killInstance(inst.id)
+          logActivity(inst.id, 'Juego cerrado')
+          return send(200, { ok: true })
+        case 'state':
+          return send(200, { running: isInstanceRunning(inst.id), ...summarizeRun(runs.get(inst.id)) })
+        case 'log': {
+          const n = Math.min(Number(body.lines ?? 300), 3000)
+          const text = await fs.readFile(path.join(gameDir, 'logs', 'latest.log'), 'utf8').catch(() => '')
+          const lines = text.split(/\r?\n/)
+          const filter = body.filter ? new RegExp(String(body.filter), 'i') : null
+          return send(200, { lines: (filter ? lines.filter((l) => filter.test(l)) : lines).slice(-n) })
+        }
+        case 'crashes': {
+          const names = (await fs.readdir(path.join(gameDir, 'crash-reports')).catch(() => [] as string[])).filter((n) => n.endsWith('.txt')).sort().reverse()
+          return send(200, { reports: names.slice(0, 30), latest: await latestCrash(gameDir) })
+        }
+        case 'content':
+          return send(200, await listContent(inst, kind, world))
+        case 'toggle': {
+          if (kind === 'datapack') {
+            if (isInstanceRunning(inst.id)) return send(409, { error: 'Con el juego abierto usa /datapack enable|disable dentro del juego; al guardar el mundo se perdería el cambio' })
+            // «mipack.zip» → «file/mipack.zip»; los integrados (vanilla, bundle…) van tal cual
+            const f = String(body.filename)
+            const id = f.includes('/') || !(await fs.pathExists(path.join(kindDir(gameDir, kind, world), f))) ? f : `file/${f}`
+            await setWorldDatapackEnabled(inst.id, String(world), id, body.enabled !== false)
+            logActivity(inst.id, `Datapack ${id} ${body.enabled !== false ? 'activado' : 'desactivado'} en ${world}`)
+            return send(200, { ok: true })
+          }
+          const dir = kindDir(gameDir, kind)
+          const base = String(body.filename).replace(/\.disabled$/, '')
+          const cur = (await fs.pathExists(path.join(dir, base))) ? base : (await fs.pathExists(path.join(dir, `${base}.disabled`))) ? `${base}.disabled` : null
+          if (!cur) return send(404, { error: `${KIND_NAME[kind]} no encontrado` })
+          const want = body.enabled !== false
+          const next = want ? base : `${base}.disabled`
+          if (cur !== next) await fs.rename(path.join(dir, cur), path.join(dir, next))
+          logActivity(inst.id, `${want ? 'Activado' : 'Desactivado'} ${base}`)
+          return send(200, { filename: next, enabled: want })
+        }
+        case 'remove': {
+          // No se borra: va a la papelera de la instancia para poder deshacerlo
+          const src = path.join(kindDir(gameDir, kind, world), path.basename(String(body.filename)))
+          if (!(await fs.pathExists(src))) return send(404, { error: `${KIND_NAME[kind]} no encontrado` })
+          const dest = path.join(gameDir, '.ai', 'papelera', kind, path.basename(src))
+          await fs.ensureDir(path.dirname(dest))
+          await fs.move(src, dest, { overwrite: true })
+          logActivity(inst.id, `Quitado ${path.basename(src)} (se puede restaurar)`)
+          return send(200, { ok: true, restoreWith: { kind, filename: path.basename(src), world } })
+        }
+        case 'restore': {
+          const src = path.join(gameDir, '.ai', 'papelera', kind, path.basename(String(body.filename)))
+          if (!(await fs.pathExists(src))) return send(404, { error: 'No está en la papelera' })
+          await fs.move(src, path.join(kindDir(gameDir, kind, world), path.basename(src)), { overwrite: true })
+          logActivity(inst.id, `Restaurado ${path.basename(src)}`)
+          return send(200, { ok: true })
+        }
+        case 'install': {
+          const r = await installFromSource(inst, kind, String(body.source ?? 'modrinth'), String(body.project), body.version ? String(body.version) : undefined, world)
+          // Si sustituye a otro archivo (cambio de versión), el viejo va a la papelera
+          if (body.replaceFilename && body.replaceFilename !== r.filename) {
+            const old = path.join(kindDir(gameDir, kind, world), path.basename(String(body.replaceFilename)))
+            if (await fs.pathExists(old)) {
+              await fs.ensureDir(path.join(gameDir, '.ai', 'papelera', kind))
+              await fs.move(old, path.join(gameDir, '.ai', 'papelera', kind, path.basename(old)), { overwrite: true })
+            }
+          }
+          logActivity(inst.id, `Instalado ${r.filename}${body.replaceFilename ? ` (sustituye a ${body.replaceFilename})` : ''}`)
+          return send(200, r)
+        }
+        case 'install-file': {
+          // El jar de un mod en desarrollo, o un pack de un proyecto
+          const src = String(body.path)
+          if (!(await fs.pathExists(src))) return send(404, { error: 'No existe ese archivo' })
+          const dest = path.join(kindDir(gameDir, kind, world), path.basename(src))
+          await fs.ensureDir(path.dirname(dest))
+          await fs.copy(src, dest, { overwrite: true })
+          logActivity(inst.id, `Copiado ${path.basename(src)} a ${path.relative(gameDir, path.dirname(dest))}`)
+          return send(200, { ok: true, dest: path.relative(gameDir, dest).replace(/\\/g, '/') })
+        }
+        case 'link': {
+          // Enlaza la carpeta de un proyecto (datapack, resource pack o shader) a la instancia:
+          // se edita en el proyecto y el juego lo ve al recargar (/reload, F3+T, R en shaders)
+          if (kind === 'mod') return send(400, { error: 'Un mod en desarrollo no se enlaza: compílalo y usa copiar_archivo con el .jar' })
+          const projectDir = String(body.projectDir)
+          const marker = kind === 'shader' ? 'shaders' : 'pack.mcmeta'
+          if (!(await fs.pathExists(path.join(projectDir, marker)))) return send(400, { error: `Esa carpeta no tiene ${marker}` })
+          const dest = path.join(kindDir(gameDir, kind, world), String(body.name ?? path.basename(projectDir)))
+          await fs.ensureDir(path.dirname(dest))
+          if (await fs.pathExists(dest)) return send(409, { error: 'Ya hay algo con ese nombre; quítalo o usa otro nombre' })
+          await fs.symlink(projectDir, dest, 'junction')
+          logActivity(inst.id, `Enlazado el proyecto ${path.basename(projectDir)} (${KIND_NAME[kind]})`)
+          return send(200, { ok: true, dest: path.relative(gameDir, dest).replace(/\\/g, '/'), reload: kind === 'datapack' ? '/reload' : kind === 'resourcepack' ? 'F3+T' : 'tecla R (Iris) o recargar shaders' })
+        }
+        case 'search': {
+          const q = String(body.query ?? '')
+          if (body.source === 'curseforge') {
+            const params = new URLSearchParams({ gameId: String(CF_GAME_MINECRAFT), classId: String(CF_CLASS_OF[kind]), searchFilter: q, pageSize: '10', sortField: '2', sortOrder: 'desc', gameVersion: inst.minecraft })
+            if (kind === 'mod' && CF_LOADER[inst.modloader]) params.set('modLoaderType', String(CF_LOADER[inst.modloader]))
+            const r = await cfGet<{ data: any[] }>(`/v1/mods/search?${params}`)
+            return send(200, { results: r.data.map((m) => ({ source: 'curseforge', project: String(m.id), name: m.name, summary: m.summary, downloads: m.downloadCount })) })
+          }
+          const r = await searchMods(q, inst.minecraft, mrLoader(inst, kind), [], '', kind, 10, 0, 'relevance')
+          return send(200, { results: r.hits.map((h: any) => ({ source: 'modrinth', project: h.slug ?? h.project_id, name: h.title, summary: h.description, downloads: h.downloads })) })
+        }
+        case 'versions': {
+          if (body.source === 'curseforge') {
+            const r = await cfGet<{ data: any[] }>(`/v1/mods/${Number(body.project)}/files?pageSize=30&gameVersion=${encodeURIComponent(inst.minecraft)}`)
+            return send(200, { versions: r.data.map((f) => ({ id: String(f.id), name: f.displayName, file: f.fileName, date: f.fileDate, gameVersions: f.gameVersions })) })
+          }
+          const vs = await getModVersions(String(body.project), inst.minecraft, mrLoader(inst, kind))
+          return send(200, { versions: vs.slice(0, 30).map((v) => ({ id: v.id, name: v.version_number, type: v.version_type, date: v.date_published, loaders: v.loaders, gameVersions: v.game_versions })) })
+        }
+        case 'files': {
+          // Archivos editables: config/, options.txt, defaultconfigs/, serverconfig de un mundo…
+          const rel = String(body.path ?? 'config')
+          const dir = inside(gameDir, rel)
+          const names = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+          return send(200, { path: rel, entries: names.slice(0, 500).map((d) => (d.isDirectory() ? `${d.name}/` : d.name)) })
+        }
+        case 'files/read': {
+          const file = inside(gameDir, String(body.path))
+          const text = await fs.readFile(file, 'utf8')
+          return send(200, { path: body.path, text: text.slice(0, 60_000), truncated: text.length > 60_000 })
+        }
+        case 'files/write': {
+          const rel = String(body.path)
+          if (/^(mods|saves\/[^/]+\/(region|playerdata|level\.dat))/.test(rel.replace(/\\/g, '/'))) return send(400, { error: 'Ese archivo no se edita como texto' })
+          const file = inside(gameDir, rel)
+          // Copia de seguridad antes de cambiar nada
+          if (await fs.pathExists(file)) {
+            const bak = path.join(gameDir, '.ai', 'copias', `${new Date().toISOString().replace(/[:.]/g, '-')}_${rel.replace(/[\\/]/g, '__')}`)
+            await fs.ensureDir(path.dirname(bak))
+            await fs.copy(file, bak)
+          }
+          await fs.outputFile(file, String(body.text ?? ''))
+          logActivity(inst.id, `Editado ${rel}${isInstanceRunning(inst.id) ? ' (el juego está abierto: puede que no lo lea hasta reiniciar)' : ''}`)
+          return send(200, { ok: true, backup: true })
+        }
+        case 'lessons': {
+          const text = await fs.readFile(path.join(gameDir, '.ai', 'lecciones.md'), 'utf8').catch(() => '')
+          return send(200, { text })
+        }
+        case 'lessons/add': {
+          const file = path.join(gameDir, '.ai', 'lecciones.md')
+          const entry = `\n## ${new Date().toISOString().slice(0, 10)} · ${String(body.title ?? 'Lección').slice(0, 120)}\n- Síntoma: ${body.symptom ?? '—'}\n- Causa: ${body.cause ?? '—'}\n- Arreglo: ${body.fix ?? '—'}\n${body.mods ? `- Implicados: ${body.mods}\n` : ''}`
+          if (!(await fs.pathExists(file))) await fs.outputFile(file, '# Lecciones aprendidas\n\nLo que la IA ha ido descubriendo al arreglar crashes y problemas de este modpack. Se lee antes de diagnosticar.\n')
+          await fs.appendFile(file, entry)
+          logActivity(inst.id, `Aprendido: ${String(body.title ?? '').slice(0, 80)}`, 'info')
+          return send(200, { ok: true })
+        }
+        default:
+          return send(404, { error: `Acción desconocida: ${action}` })
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      if (instId) logActivity(instId, `Error: ${msg}`, 'error')
+      return send(500, { error: msg })
+    }
+  })
+
+  server.listen(0, '127.0.0.1', () => {
+    const addr = server.address()
+    if (addr && typeof addr === 'object') {
+      fs.outputJsonSync(BRIDGE_FILE(), { port: addr.port, token, pid: process.pid, version: app.getVersion() })
+    }
+  })
+  app.on('before-quit', () => { fs.removeSync(BRIDGE_FILE()); server.close() })
+}
+
+function describe(action: string, b: any, kind: Kind): string {
+  const k = KIND_NAME[kind]
+  switch (action) {
+    case 'launch': return 'Abrir el juego para probar'
+    case 'stop': return 'Cerrar el juego'
+    case 'toggle': return `${b.enabled === false ? 'Desactivar' : 'Activar'} ${k} ${b.filename}${b.world ? ` en ${b.world}` : ''}`
+    case 'remove': return `Quitar ${k} ${b.filename} (a la papelera)`
+    case 'restore': return `Restaurar ${k} ${b.filename}`
+    case 'install': return `Instalar ${k} ${b.project} de ${b.source ?? 'modrinth'}${b.version ? ` (versión ${b.version})` : ''}${b.replaceFilename ? `, sustituyendo ${b.replaceFilename}` : ''}`
+    case 'install-file': return `Copiar ${path.basename(String(b.path))} a la instancia`
+    case 'link': return `Enlazar el proyecto ${b.projectDir}`
+    case 'files/write': return `Editar ${b.path}`
+    default: return action
+  }
+}
+
+/** Cambia qué puede hacer la IA en una instancia. */
+export async function setAiControl(instanceId: string, mode: 'off' | 'ask' | 'auto'): Promise<Instance> {
+  const inst = await getInstance(instanceId)
+  if (!inst) throw new Error('Instancia no encontrada')
+  const next = { ...inst, aiControl: mode }
+  await updateInstance(next)
+  if (mode !== 'auto') for (const k of [...alwaysAllowed]) if (k.startsWith(`${instanceId}|`)) alwaysAllowed.delete(k)
+  logActivity(instanceId, `Control por IA: ${mode === 'off' ? 'desactivado' : mode === 'ask' ? 'preguntar' : 'automático'}`, 'info')
+  return next
+}

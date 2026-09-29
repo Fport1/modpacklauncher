@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
-import ModrinthModal from './ModrinthModal'
+import type { InstalledMeta } from '../../../preload'
 import { startHosting } from '../lib/assist/session'
 import NbtFileView, { type NbtKind } from './ftp/NbtFileView'
 import { fileKindOf, localJoin, PLAYER_FILE } from './ftp/shared'
@@ -11,13 +11,44 @@ import ZoomableImage from './ZoomableImage'
 import { nav } from '../nav'
 import { IconCube, IconSettings, IconGlobe, IconPalette, IconSun, IconCamera, IconTerminal, IconSliders } from './ui/icons'
 import { getMonacoLanguage } from '../lib/monacoLanguage'
+import { dominantColor } from '../lib/dominantColor'
+import { cachedInstanceIcon, cachedInstanceColor, loadInstanceIcon } from '../lib/instanceIcons'
+import WorldDatapacks from './WorldDatapacks'
+import AiContextModal from './AiContextModal'
+import ContentBrowser, { type BrowseTarget, type InstalledIndex } from './content/ContentBrowser'
+import type { ProjectRef } from '../lib/contentSources'
+import type { DetailTab } from './explore/ExploreDetail'
+import { resolveDownloadUrl } from '../lib/contentSources'
 import { lazy, Suspense } from 'react'
 const ConfigFileEditor = lazy(() => import('./ConfigFileEditor'))
 
 type Tab = 'mods' | 'config' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
 type SortKey = 'name-asc' | 'name-desc' | 'size-asc' | 'size-desc' | 'date-asc' | 'date-desc'
 
-interface ModMeta { name?: string; author?: string; iconBase64?: string; clientSide?: string; serverSide?: string; hasUpdate?: boolean; projectId?: string; installedVersionId?: string }
+interface ModMeta {
+  name?: string; author?: string; iconBase64?: string; clientSide?: string; serverSide?: string; hasUpdate?: boolean; projectId?: string; installedVersionId?: string
+  source?: InstalledMeta['source']; title?: string; pageUrl?: string; update?: InstalledMeta['update']
+  cfModId?: number; cfFileId?: number; f1ProjectId?: string; f1VersionId?: string
+  modIds?: string[]; requires?: string[]
+}
+
+/**
+ * Junta lo leído del archivo (nombre e icono del jar) con lo que dice la
+ * fuente que lo identificó. keepIcon: el icono del propio archivo manda
+ * (packs de texturas, que traen pack.png).
+ */
+function mergeMeta(prev: ModMeta | undefined, info: InstalledMeta, keepIcon = false): ModMeta {
+  const icon = info.iconUrl && !(keepIcon && prev?.iconBase64) ? { iconBase64: info.iconUrl } : {}
+  return {
+    ...prev, ...icon,
+    clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate,
+    // projectId solo para Modrinth: con él se abre su ficha y se cambia de versión
+    projectId: info.source === 'modrinth' || !info.source ? info.projectId : undefined,
+    installedVersionId: info.installedVersionId,
+    source: info.source, title: info.title, pageUrl: info.pageUrl, update: info.update,
+    cfModId: info.cfModId, cfFileId: info.cfFileId, f1ProjectId: info.f1ProjectId, f1VersionId: info.f1VersionId
+  }
+}
 interface ModFile { filename: string; size: number; enabled: boolean; date: number; meta?: ModMeta }
 interface WorldFolder { name: string; lastPlayed?: number; iconBase64?: string; size?: number }
 interface ScreenshotFile { filename: string; filePath: string; date: number; size: number }
@@ -165,13 +196,15 @@ function CtxMenu({ x, y, items, onClose }: {
   items: { label: string; danger?: boolean; action: () => void }[]
   onClose: () => void
 }) {
+  const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const close = () => onClose()
+    // Los clics dentro del menú no lo cierran aquí: si se cerrara antes de que
+    // el clic llegue a la opción, la opción nunca se ejecutaría
+    const close = (e: MouseEvent) => { if (!menuRef.current?.contains(e.target as Node)) onClose() }
     window.addEventListener('click', close, true)
     window.addEventListener('contextmenu', close, true)
     return () => { window.removeEventListener('click', close, true); window.removeEventListener('contextmenu', close, true) }
   }, [onClose])
-  const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
   useEffect(() => {
     if (!menuRef.current) return
@@ -498,10 +531,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const aiConfigs = settings?.aiConfigs ?? []
   const aiDefaultId = settings?.aiDefaultId
   const [tab, setTab] = useState<Tab>('mods')
-  const [showModrinth, setShowModrinth] = useState(false)
-  const [showModrinthRp, setShowModrinthRp] = useState(false)
-  const [showModrinthShader, setShowModrinthShader] = useState(false)
-  const [modrinthProjectId, setModrinthProjectId] = useState<string | null>(null)
+  // Explorador para instalar (todas las fuentes), abierto en una lista o en una ficha
+  const [browser, setBrowser] = useState<{ kind: 'mod' | 'resourcepack' | 'shader'; detail?: ProjectRef; tab?: DetailTab } | null>(null)
   const [unlinkConfirm, setUnlinkConfirm] = useState(false)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<{ hasUpdate: boolean; version?: string } | null>(null)
@@ -547,25 +578,69 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [sideFilter, setSideFilter] = useState<'all' | 'client' | 'server' | 'both'>('all')
   const [updatesOnly, setUpdatesOnly] = useState(false)
   const [checkingMeta, setCheckingMeta] = useState(false)
-  const [versionPicker, setVersionPicker] = useState<{ filename: string; projectId: string; installedVersionId?: string; subFolder: string; modLoader: string; modName: string } | null>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
   const [ctx, setCtx] = useState<CtxState | null>(null)
-  const [iconSrc, setIconSrc] = useState<string | null>(null)
+  const [iconSrc, setIconSrc] = useState<string | null>(() => cachedInstanceIcon(instance) ?? null)
   const [dragOver, setDragOver] = useState(false)
   const [backups, setBackups] = useState<{ filename: string; size: number; date: number }[]>([])
   const [backupsLoaded, setBackupsLoaded] = useState(false)
   const [backingUp, setBackingUp] = useState<string | null>(null)
   const [gearOpen, setGearOpen] = useState(false)
   const [modSources, setModSources] = useState<Record<string, { source: 'curseforge' | 'modrinth' }>>({})
+  const [updatingFile, setUpdatingFile] = useState<string | null>(null)
+  const [datapacksWorld, setDatapacksWorld] = useState<string | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
+  // Si una IA cambia algo de esta instancia (desde el launcher), se recarga la pestaña abierta
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const off = window.api.aiAgent.onActivity((a) => {
+      if (a.instanceId !== instance.id || a.kind !== 'change') return
+      clearTimeout(timer)
+      timer = setTimeout(() => loadTab(tabRef.current), 400)
+    })
+    return () => { off(); clearTimeout(timer) }
+  }, [instance.id])
+  const [depPrompt, setDepPrompt] = useState<{ mod: ModFile; mode: 'disable' | 'enable'; others: ModFile[]; missing: string[] } | null>(null)
+  const [depInfo, setDepInfo] = useState<ModFile | null>(null)
+
+  /** Actualiza un archivo identificado en CurseForge o Fport1: baja el nuevo y borra el viejo. */
+  async function updateFromSource(item: ModFile) {
+    const u = item.meta?.update
+    if (!u) return
+    const subFolder = tab === 'resourcepacks' ? 'resourcepacks' : tab === 'shaderpacks' ? 'shaderpacks' : 'mods'
+    setUpdatingFile(item.filename)
+    try {
+      const newName = u.kind === 'curseforge'
+        ? await window.api.curseforge.installMod(instance.id, u.modId, u.fileId, subFolder)
+        : (await window.api.modrinth.installMod(instance.id, u.url, u.filename, subFolder), u.filename)
+      if (newName !== item.filename) {
+        if (subFolder === 'mods') await window.api.instances.deleteMod(instance.id, item.filename)
+        else if (subFolder === 'resourcepacks') await window.api.instances.deleteResourcepack(instance.id, item.filename)
+        else await window.api.instances.deleteShaderpack(instance.id, item.filename)
+      }
+      await loadTab(tab)
+    } catch (e) {
+      alert(e instanceof Error ? e.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '') : 'No se pudo actualizar')
+    } finally { setUpdatingFile(null) }
+  }
 
   useEffect(() => {
     window.api.instances.getModSources(instance.id).then(setModSources).catch(() => {})
   }, [instance.id])
 
   useEffect(() => {
-    window.api.instances.getIcon(instance.id).then(setIconSrc).catch(() => setIconSrc(null))
+    loadInstanceIcon(instance).then(setIconSrc)
   }, [instance.id, instance.icon])
+
+  // Color principal del icono para el degradado de la cabecera
+  const [iconColor, setIconColor] = useState<string | null>(() => cachedInstanceColor(instance))
+  useEffect(() => {
+    if (!iconSrc) { setIconColor(null); return }
+    let alive = true
+    dominantColor(iconSrc).then(c => { if (alive) setIconColor(c) })
+    return () => { alive = false }
+  }, [iconSrc])
 
   const gameLogs = useStore(s => s.gameLogs[instance.id] ?? [])
   const isRunning = useStore(s => s.runningInstances.has(instance.id))
@@ -655,11 +730,78 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     return () => { nav.clearFrom(baseSize) }
   }, [])
 
+  // ── Historial de vistas (pestaña y carpeta) con posición, para atrás/adelante ──
+  type View = { tab: Tab; configPath: string[]; worldFilePath: string[] }
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const viewHist = useRef<{ list: View[]; idx: number; scroll: Record<number, number> }>({ list: [{ tab, configPath: [], worldFilePath: [] }], idx: 0, scroll: {} })
+  const restoringView = useRef<View | null>(null)
+  const pendingScroll = useRef<number | null>(null)
+  const scrollEl = (): HTMLElement | null => bodyRef.current?.querySelector<HTMLElement>('.overflow-y-auto') ?? null
+
+  function recordView(v: View) {
+    const h = viewHist.current
+    h.scroll[h.idx] = scrollEl()?.scrollTop ?? 0
+    h.list = [...h.list.slice(0, h.idx + 1), v]
+    h.idx = h.list.length - 1
+    for (const k of Object.keys(h.scroll)) if (Number(k) >= h.idx) delete h.scroll[Number(k)]
+  }
+
+  function restoreFolders(v: View) {
+    if (v.tab === 'config' && v.configPath.length) navigateConfig(v.configPath, true)
+    else if (v.tab === 'worlds' && v.worldFilePath.length) navigateWorld(v.worldFilePath, true)
+  }
+
+  function travel(step: -1 | 1): boolean {
+    const h = viewHist.current
+    const next = h.idx + step
+    if (next < 0 || next >= h.list.length) return false
+    h.scroll[h.idx] = scrollEl()?.scrollTop ?? 0
+    h.idx = next
+    const v = h.list[next]
+    pendingScroll.current = h.scroll[next] ?? 0
+    if (v.tab !== tabRef.current) { restoringView.current = v; setTab(v.tab) }
+    else if (v.tab === 'config') navigateConfig(v.configPath, true)
+    else if (v.tab === 'worlds') navigateWorld(v.worldFilePath, true)
+    else requestAnimationFrame(() => { const el = scrollEl(); if (el) el.scrollTop = pendingScroll.current ?? 0; pendingScroll.current = null })
+    return true
+  }
+
+  // Los botones del ratón recorren este historial antes de cerrar la ventana
+  const tabRef = useRef(tab)
+  tabRef.current = tab
+  const overlayState = useRef({ editing: false, datapacks: false, closeModal: null as null | (() => void) })
+  overlayState.current = {
+    editing: !!editingConfigFile || !!editingWorldFile || !!worldNbt,
+    datapacks: !!datapacksWorld,
+    // Ventanitas encima del detalle: atrás las cierra
+    closeModal: aiOpen ? () => setAiOpen(false) : depPrompt ? () => setDepPrompt(null) : depInfo ? () => setDepInfo(null) : null,
+  }
+  const travelRef = useRef(travel)
+  travelRef.current = travel
+  useEffect(() => nav.pushOverlay((dir) => {
+    if (overlayState.current.datapacks) { if (dir === 'back') setDatapacksWorld(null); return true }
+    if (overlayState.current.closeModal) { if (dir === 'back') overlayState.current.closeModal(); return true }
+    // Con un editor abierto, atrás lo cierra (lo gestiona la pila de siempre)
+    if (overlayState.current.editing) return dir === 'forward'
+    if (dir === 'back') return travelRef.current(-1)
+    travelRef.current(1)
+    return true
+  }), [])
+
+  // Volver a la misma posición cuando termina de cargar la vista
+  useEffect(() => {
+    if (loading || pendingScroll.current === null) return
+    const y = pendingScroll.current
+    pendingScroll.current = null
+    requestAnimationFrame(() => requestAnimationFrame(() => { const el = scrollEl(); if (el) el.scrollTop = y }))
+  }, [loading])
+
   useEffect(() => { loadTab(tab) }, [tab, instance.id])
   useEffect(() => {
     setSearch(''); setSort('name-asc'); setFilterEnabled('all'); setSideFilter('all'); setUpdatesOnly(false); setSelected(new Set()); setConfigPath([]); setEditingConfigFile(null)
     setWorldFilePath([]); setWorldFiles([]); setEditingWorldFile(null); closeWorldNbt()
     if (tab === 'worlds') { setBackupsLoaded(false); setBackups([]) }
+    if (restoringView.current) { const v = restoringView.current; restoringView.current = null; restoreFolders(v) }
   }, [tab])
   useEffect(() => {
     if (tab === 'console' && consoleView === 'live' && logRef.current) {
@@ -669,6 +811,52 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
   const modsReady = useRef(false)
   useEffect(() => { if (modsReady.current) modsSnapshot.set(instance.id, mods) }, [mods])
+
+  /** Ficha de un archivo identificado (Modrinth, CurseForge o Fport1). */
+  function refOf(m: ModFile): ProjectRef | null {
+    const meta = m.meta
+    if (!meta) return null
+    const base = { title: meta.title || meta.name || displayName(m.filename), icon: meta.iconBase64 ?? null, summary: '' }
+    if (meta.source === 'curseforge' && meta.cfModId) return { source: 'curseforge', id: String(meta.cfModId), ...base }
+    if (meta.source === 'fport1' && meta.f1ProjectId) return { source: 'fport1', id: meta.f1ProjectId, ...base }
+    if (meta.projectId) return { source: 'modrinth', id: meta.projectId, ...base }
+    return null
+  }
+
+  function installedIndex(list: ModFile[]): InstalledIndex {
+    const out: InstalledIndex = {}
+    for (const m of list) {
+      const ref = refOf(m)
+      if (!ref) continue
+      const versionId = ref.source === 'modrinth' ? m.meta?.installedVersionId : ref.source === 'curseforge' ? (m.meta?.cfFileId ? String(m.meta.cfFileId) : undefined) : m.meta?.f1VersionId
+      out[`${ref.source}:${ref.id}`] = { filename: m.filename, versionId }
+    }
+    return out
+  }
+
+  function browserTarget(kind: 'mod' | 'resourcepack' | 'shader'): BrowseTarget {
+    const folder = kind === 'mod' ? 'mods' : kind === 'resourcepack' ? 'resourcepacks' : 'shaderpacks'
+    const list = kind === 'mod' ? mods : kind === 'resourcepack' ? resourcepacks : shaderpacks
+    const label = kind === 'mod' ? 'mods' : kind === 'resourcepack' ? 'resource packs' : 'shaders'
+    return {
+      title: `Buscar ${label}`,
+      subtitle: `Para «${instance.name}» · Minecraft ${instance.minecraft}${kind === 'mod' ? ` · ${instance.modloader}` : ''}`,
+      kind, minecraft: instance.minecraft, loader: kind === 'mod' ? instance.modloader : '',
+      installed: installedIndex(list),
+      install: async (v) => {
+        if (v.cf) { await window.api.curseforge.installMod(instance.id, v.cf.modId, v.cf.fileId, folder); return }
+        const url = await resolveDownloadUrl(v)
+        if (!url) throw new Error('No hay archivo para descargar')
+        await window.api.modrinth.installMod(instance.id, url, v.filename, folder)
+      },
+      remove: async (filename) => {
+        if (kind === 'mod') await window.api.instances.deleteMod(instance.id, filename)
+        else if (kind === 'resourcepack') await window.api.instances.deleteResourcepack(instance.id, filename)
+        else await window.api.instances.deleteShaderpack(instance.id, filename)
+      },
+      onChanged: () => loadTab(tab),
+    }
+  }
 
   async function loadTab(t: Tab) {
     setLoading(true)
@@ -683,22 +871,14 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         const known = new Map((snap ?? []).map(m => [m.filename, m.meta]))
         setMods(fresh.map(m => { const k = known.get(m.filename); return k ? { ...m, meta: { ...m.meta, ...k } } : m }))
         modsReady.current = true
+        if (instance.aiAutoContext) {
+          window.api.aiContext.status(instance.id).then(st => { if (st.exists && st.stale) window.api.aiContext.prepare(instance.id).catch(() => {}) }).catch(() => {})
+        }
         window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, instance.modloader)
           .then(meta => setMods(prev => prev.map(m => {
             const info = meta[m.filename]
             if (!info) return m
-            return {
-              ...m,
-              meta: {
-                ...m.meta,
-                ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}),
-                clientSide: info.clientSide,
-                serverSide: info.serverSide,
-                hasUpdate: info.hasUpdate,
-                projectId: info.projectId,
-                installedVersionId: info.installedVersionId
-              }
-            }
+            return { ...m, meta: mergeMeta(m.meta, info) }
           })))
           .catch(() => {})
       }
@@ -710,7 +890,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           .then(meta => setResourcepacks(prev => prev.map(m => {
             const info = meta[m.filename]
             if (!info) return m
-            return { ...m, meta: { ...m.meta, ...(!m.meta?.iconBase64 && info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+            return { ...m, meta: mergeMeta(m.meta, info, true) }
           })))
           .catch(() => {})
       }
@@ -721,7 +901,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           .then(meta => setShaderpacks(prev => prev.map(m => {
             const info = meta[m.filename]
             if (!info) return m
-            return { ...m, meta: { ...m.meta, ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+            return { ...m, meta: mergeMeta(m.meta, info) }
           })))
           .catch(() => {})
       }
@@ -750,21 +930,21 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         setMods(prev => prev.map(m => {
           const info = meta[m.filename]
           if (!info) return m
-          return { ...m, meta: { ...m.meta, ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+          return { ...m, meta: mergeMeta(m.meta, info) }
         }))
       } else if (tab === 'resourcepacks') {
         const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'resourcepacks', ['.zip', '.zip.disabled'], true)
         setResourcepacks(prev => prev.map(m => {
           const info = meta[m.filename]
           if (!info) return m
-          return { ...m, meta: { ...m.meta, ...(!m.meta?.iconBase64 && info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+          return { ...m, meta: mergeMeta(m.meta, info, true) }
         }))
       } else if (tab === 'shaderpacks') {
         const meta = await window.api.modrinth.getInstalledModsMeta(instance.id, instance.minecraft, 'vanilla', 'shaderpacks', ['.zip', '.zip.disabled'], true)
         setShaderpacks(prev => prev.map(m => {
           const info = meta[m.filename]
           if (!info) return m
-          return { ...m, meta: { ...m.meta, ...(info.iconUrl ? { iconBase64: info.iconUrl } : {}), clientSide: info.clientSide, serverSide: info.serverSide, hasUpdate: info.hasUpdate, projectId: info.projectId, installedVersionId: info.installedVersionId } }
+          return { ...m, meta: mergeMeta(m.meta, info) }
         }))
       }
     } catch {}
@@ -795,8 +975,9 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     }
   }
 
-  async function navigateConfig(newPath: string[]) {
+  async function navigateConfig(newPath: string[], fromHistory = false) {
     const doNavigate = async () => {
+      if (!fromHistory) recordView({ tab: 'config', configPath: newPath, worldFilePath: [] })
       setUnsavedConfirm(null)
       setEditingConfigFile(null)
       setConfigPath(newPath)
@@ -858,7 +1039,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
   // ── world file browser ───────────────────────────────────────────────────
 
-  async function navigateWorld(newPath: string[]) {
+  async function navigateWorld(newPath: string[], fromHistory = false) {
+    if (!fromHistory) recordView({ tab: 'worlds', configPath: [], worldFilePath: newPath })
     setEditingWorldFile(null)
     setWorldFilePath(newPath)
     if (newPath.length === 0) {
@@ -982,6 +1164,49 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const filteredWorlds = filtered(worlds, i => i.name)
 
   // ── toggle / delete helpers ──────────────────────────────────────────────
+
+  // ── Dependencias entre mods (leídas de cada jar) ──
+  /** Mods que necesitan obligatoriamente a este, directa o indirectamente. */
+  function dependentsOf(mod: ModFile, onlyEnabled = true): ModFile[] {
+    const out: ModFile[] = []
+    const provided = new Set(mod.meta?.modIds ?? [])
+    let changed = provided.size > 0
+    while (changed) {
+      changed = false
+      for (const m of mods) {
+        if (m.filename === mod.filename || out.includes(m) || (onlyEnabled && !m.enabled)) continue
+        if ((m.meta?.requires ?? []).some(r => provided.has(r))) {
+          out.push(m)
+          ;(m.meta?.modIds ?? []).forEach(id => provided.add(id))
+          changed = true
+        }
+      }
+    }
+    return out
+  }
+
+  /** Lo que necesita este mod: qué lo cumple (activo o no) y qué falta. */
+  function requirementsOf(mod: ModFile): { id: string; by: ModFile | null }[] {
+    return (mod.meta?.requires ?? []).map(id => ({
+      id,
+      by: mods.find(m => m.enabled && m.meta?.modIds?.includes(id)) ?? mods.find(m => m.meta?.modIds?.includes(id)) ?? null,
+    }))
+  }
+
+
+  /** Activar o desactivar teniendo en cuenta las dependencias obligatorias. */
+  function smartToggleMod(mod: ModFile) {
+    if (mod.enabled) {
+      const deps = dependentsOf(mod)
+      if (deps.length) { setDepPrompt({ mod, mode: 'disable', others: deps, missing: [] }); return }
+    } else {
+      const req = requirementsOf(mod)
+      const disabled = req.filter(r => r.by && !r.by.enabled).map(r => r.by!)
+      const missing = req.filter(r => !r.by).map(r => r.id)
+      if (disabled.length || missing.length) { setDepPrompt({ mod, mode: 'enable', others: [...new Set(disabled)], missing }); return }
+    }
+    doToggleMod(mod.filename)
+  }
 
   async function doToggleMod(filename: string) {
     const next = await window.api.instances.toggleMod(instance.id, filename)
@@ -1114,7 +1339,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   // ── ModFile row (shared by mods, rp, shaders) ────────────────────────────
 
   function FileRow({
-    item, icon, onToggle, onDelete, onCtx, onChangeVersion, onOpenModrinth, showSideBadges = true
+    item, icon, onToggle, onDelete, onCtx, onChangeVersion, onOpenDetail, showSideBadges = true
   }: {
     item: ModFile
     icon: React.ReactNode
@@ -1122,17 +1347,18 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     onDelete: () => void
     onCtx: (e: React.MouseEvent) => void
     onChangeVersion?: () => void
-    onOpenModrinth?: () => void
+    onOpenDetail?: () => void
     showSideBadges?: boolean
   }) {
     const isSelected = selected.has(item.filename)
-    const hasMeta = !!(item.meta?.name || item.meta?.iconBase64)
-    const displayLabel = item.meta?.name || displayName(item.filename)
+    const hasMeta = !!(item.meta?.name || item.meta?.title || item.meta?.iconBase64)
+    const displayLabel = item.meta?.title || item.meta?.name || displayName(item.filename)
+    const openPage = item.meta?.pageUrl ? () => window.api.shell.openExternal(item.meta!.pageUrl!) : undefined
 
     return (
       <div
         onContextMenu={onCtx}
-        className={`group flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors cursor-pointer ${
+        className={`group flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border transition-colors cursor-pointer ${
           isSelected ? 'bg-accent/10 border-accent/40' : 'bg-bg-card border-border hover:border-border/80'
         } ${!item.enabled ? 'opacity-50' : ''}`}
         onClick={() => toggleSel(item.filename)}
@@ -1146,25 +1372,25 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
         {/* Icon */}
         {hasMeta && item.meta?.iconBase64 ? (
-          <img src={item.meta.iconBase64} alt="" className="w-8 h-8 rounded flex-shrink-0 object-cover" />
+          <img src={item.meta.iconBase64} alt="" className="w-10 h-10 rounded-lg flex-shrink-0 object-cover" />
         ) : (
-          <div className="w-8 h-8 rounded bg-bg-hover flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
             {icon}
           </div>
         )}
 
         {/* Name + filename */}
         <div className="flex-1 min-w-0">
-          {onOpenModrinth && item.meta?.projectId ? (
+          {onOpenDetail || openPage ? (
             <p
-              className="text-sm text-text-primary truncate hover:underline cursor-pointer"
-              onClick={e => { e.stopPropagation(); onOpenModrinth() }}
+              className="text-[14.5px] font-medium text-text-primary truncate hover:underline cursor-pointer"
+              onClick={e => { e.stopPropagation(); if (onOpenDetail) onOpenDetail(); else openPage?.() }}
             >{displayLabel}</p>
           ) : (
-            <p className="text-sm text-text-primary truncate">{displayLabel}</p>
+            <p className="text-[14.5px] font-medium text-text-primary truncate">{displayLabel}</p>
           )}
-          {item.meta?.name ? (
-            <p className="text-[11px] text-text-muted truncate flex items-center gap-1">
+          {item.meta?.name || item.meta?.title ? (
+            <p className="text-xs text-text-muted truncate flex items-center gap-1 mt-0.5">
               <span className="opacity-75">{displayName(item.filename)}</span>
               {item.meta?.author && (
                 <>
@@ -1177,7 +1403,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               )}
             </p>
           ) : item.meta?.author ? (
-            <p className="text-[11px] text-text-muted truncate flex items-center gap-1">
+            <p className="text-xs text-text-muted truncate flex items-center gap-1 mt-0.5">
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="flex-shrink-0">
                 <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
               </svg>
@@ -1190,11 +1416,13 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
         {/* Source badge */}
         {(() => {
-          const src = modSources[displayName(item.filename)]?.source
-          if (!src) return null
+          const src = item.meta?.source ?? modSources[displayName(item.filename)]?.source
+          if (!src) return <span title="Archivo sin identificar: no está en Modrinth, CurseForge ni Fport1" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-bg-hover text-text-muted border border-border">Archivo</span>
           return src === 'curseforge'
-            ? <span title="Instalado desde CurseForge" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-[#F16436]/15 text-[#F16436] border border-[#F16436]/30">CF</span>
-            : <span title="Instalado desde Modrinth" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">MR</span>
+            ? <span title="De CurseForge" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#F16436]/15 text-[#F16436] border border-[#F16436]/30">CF</span>
+            : src === 'fport1'
+              ? <span title="Creación de Fport1" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#a855f7]/15 text-[#c084fc] border border-[#a855f7]/30">F1</span>
+              : <span title="De Modrinth" className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">MR</span>
         })()}
 
         {/* Size */}
@@ -1214,18 +1442,29 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
         {/* Update indicator */}
         {item.meta?.hasUpdate && (
-          <span title="Actualización disponible en Modrinth" className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-accent/15 border border-accent/40 text-accent">
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polyline points="8 17 12 21 16 17" /><line x1="12" y1="21" x2="12" y2="3" />
-            </svg>
-          </span>
+          item.meta.update ? (
+            <button onClick={e => { e.stopPropagation(); updateFromSource(item) }} disabled={updatingFile === item.filename}
+              title={`Actualizar desde ${item.meta.update.kind === 'curseforge' ? 'CurseForge' : 'Fport1'}`}
+              className="flex-shrink-0 flex items-center gap-1 h-5 px-2 rounded-full bg-accent/15 border border-accent/40 text-accent text-[10px] font-semibold hover:bg-accent hover:text-white transition-colors disabled:opacity-50">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="8 17 12 21 16 17" /><line x1="12" y1="21" x2="12" y2="3" />
+              </svg>
+              {updatingFile === item.filename ? '...' : 'Actualizar'}
+            </button>
+          ) : (
+            <span title="Actualización disponible en Modrinth" className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-accent/15 border border-accent/40 text-accent">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="8 17 12 21 16 17" /><line x1="12" y1="21" x2="12" y2="3" />
+              </svg>
+            </span>
+          )
         )}
 
         {/* Change version button */}
-        {onChangeVersion && item.meta?.projectId && (
+        {onChangeVersion && (
           <button onClick={e => { e.stopPropagation(); onChangeVersion() }}
             title="Cambiar versión"
-            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent hover:bg-accent/10 transition-colors">
+            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent hover:bg-accent/10 transition-colors">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/>
               <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/>
@@ -1233,23 +1472,21 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           </button>
         )}
 
-        {/* Toggle pill */}
+        {/* Interruptor activar/desactivar */}
         {onToggle && (
           <button onClick={e => { e.stopPropagation(); onToggle() }}
-            title={item.enabled ? 'Deshabilitar' : 'Habilitar'}
-            className={`flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-medium transition-colors border ${
-              item.enabled
-                ? 'bg-green-500/10 text-green-400 border-green-500/30 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30'
-                : 'bg-bg-hover text-text-muted border-border hover:bg-green-500/10 hover:text-green-400 hover:border-green-500/30'
-            }`}>
-            {item.enabled ? 'Activo' : 'Inactivo'}
+            title={item.enabled ? 'Desactivar' : 'Activar'}
+            aria-label={item.enabled ? 'Desactivar' : 'Activar'}
+            role="switch" aria-checked={item.enabled}
+            className={`relative flex-shrink-0 w-10 h-5 rounded-full transition-colors ${item.enabled ? 'bg-accent' : 'bg-border hover:bg-text-muted/40'}`}>
+            <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${item.enabled ? 'left-[22px]' : 'left-0.5'}`} />
           </button>
         )}
 
         {/* Delete */}
         <button onClick={e => { e.stopPropagation(); onDelete() }}
           title="Eliminar"
-          className="flex-shrink-0 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
+          className="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
           <TrashIcon />
         </button>
       </div>
@@ -1297,7 +1534,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     <div className={fullPage ? 'flex flex-col h-full w-full bg-bg-secondary overflow-hidden' : 'relative bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[min(1100px,94vw)] flex flex-col overflow-hidden'} style={fullPage ? undefined : { height: '92vh', maxHeight: '940px', minHeight: '560px' }}>
 
         {/* Header */}
-        <div className="flex items-center gap-4 px-6 py-4 border-b border-border/50 flex-shrink-0 bg-gradient-to-r from-accent/5 to-transparent">
+        <div className="flex items-center gap-4 px-6 py-4 border-b border-border/50 flex-shrink-0 transition-[background] duration-500"
+          style={{ background: iconColor
+            ? `linear-gradient(100deg, ${iconColor.replace('rgb(', 'rgba(').replace(')', ', 0.38)')} 0%, ${iconColor.replace('rgb(', 'rgba(').replace(')', ', 0.12)')} 45%, transparent 85%)`
+            : 'linear-gradient(to right, rgba(34,197,94,0.05), transparent)' }}>
           {fullPage && (
             <button onClick={onClose}
               className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text-primary transition-colors flex-shrink-0 mr-1">
@@ -1307,7 +1547,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               Instancias
             </button>
           )}
-          <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 shadow-md">
+          <div className="w-14 h-14 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0 overflow-hidden ring-1 ring-white/10 shadow-md"
+            style={iconColor ? { boxShadow: `0 6px 24px ${iconColor.replace('rgb(', 'rgba(').replace(')', ', 0.45)')}` } : undefined}>
             {iconSrc
               ? <img src={iconSrc} alt="" className="w-full h-full object-cover" draggable={false} />
               : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-accent">
@@ -1324,6 +1565,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               {instanceSize && ` · ${instanceSize}`}
             </p>
           </div>
+          <button onClick={() => setAiOpen(true)}
+            title="Claude Code, Codex, Gemini u otra IA trabajando en esta instancia: arreglar crashes, mods, packs y configs"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-[#d97757]/10 hover:bg-[#d97757]/20 border border-[#d97757]/30 text-[#e8a488] text-sm rounded-lg transition-colors">
+            ✳ IA
+          </button>
           <button onClick={() => { startHosting(instance.id).catch(() => {}) }}
             title="Genera un código para que un amigo vea y arregle los archivos de esta instancia desde su launcher"
             className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-sm rounded-lg transition-colors">
@@ -1416,7 +1662,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           {TABS.map(t => (
             <button key={t.key} onClick={() => {
               if (t.key !== tab) {
-                const doSwitch = () => { const prev = tab; nav.push(() => setTab(prev)); setTab(t.key) }
+                const doSwitch = () => { recordView({ tab: t.key, configPath: [], worldFilePath: [] }); setTab(t.key) }
                 if (tab === 'config' && editingConfigFile && editingConfigFile.content !== editingConfigFile.savedContent) {
                   setUnsavedConfirm({ onDiscard: () => { setUnsavedConfirm(null); doSwitch() } })
                 } else {
@@ -1434,7 +1680,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div ref={bodyRef} className="flex-1 overflow-hidden flex flex-col min-h-0">
 
           {/* ── MODS ── */}
           {tab === 'mods' && (
@@ -1473,13 +1719,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                 <FolderBtn onClick={() => window.api.instances.openModsFolder(instance.id)} />
                 {!isModpack && instance.modloader !== 'vanilla' && (
-                  <button
-                    onClick={() => { nav.push(() => setShowModrinth(false)); setShowModrinth(true) }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-medium transition-colors flex-shrink-0"
-                    title="Buscar mods en Modrinth"
-                  >
+                  <button onClick={() => setBrowser({ kind: 'mod' })}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-semibold transition-colors flex-shrink-0"
+                    title="Modrinth, CurseForge y las creaciones de Fport1">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    Modrinth
+                    Buscar mods
                   </button>
                 )}
               </div>
@@ -1520,17 +1764,19 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       onToggle={isRunning ? undefined : () => {
                         if (selected.has(mod.filename) && selected.size > 1)
                           doToggleModBulk(sortedMods.filter(m => selected.has(m.filename)).map(m => m.filename))
-                        else doToggleMod(mod.filename)
+                        else smartToggleMod(mod)
                       }}
-                      onOpenModrinth={mod.meta?.projectId ? () => setModrinthProjectId(mod.meta!.projectId!) : undefined}
-                      onChangeVersion={mod.meta?.projectId ? () => setVersionPicker({ filename: mod.filename, projectId: mod.meta!.projectId!, installedVersionId: mod.meta?.installedVersionId, subFolder: 'mods', modLoader: instance.modloader, modName: mod.meta?.name || displayName(mod.filename) }) : undefined}
+                      onOpenDetail={refOf(mod) ? () => setBrowser({ kind: 'mod', detail: refOf(mod)! }) : undefined}
+                      onChangeVersion={refOf(mod) ? () => setBrowser({ kind: 'mod', detail: refOf(mod)!, tab: 'versions' }) : undefined}
                       onDelete={() => deleteModFiles([mod.filename])}
                       onCtx={e => {
                         e.preventDefault()
                         setCtx({ x: e.clientX, y: e.clientY, items: [
                           ...(mod.enabled
-                            ? [{ label: 'Deshabilitar', action: () => doToggleMod(mod.filename) }]
-                            : [{ label: 'Habilitar', action: () => doToggleMod(mod.filename) }]),
+                            ? [{ label: 'Deshabilitar', action: () => smartToggleMod(mod) }]
+                            : [{ label: 'Habilitar', action: () => smartToggleMod(mod) }]),
+                          { label: 'Ver dependencias', action: () => setDepInfo(mod) },
+                          ...(refOf(mod) ? [{ label: 'Ver ficha y versiones', action: () => setBrowser({ kind: 'mod' as const, detail: refOf(mod)!, tab: 'versions' as const }) }] : []),
                           { label: 'Eliminar', danger: true, action: () => deleteModFiles([mod.filename]) }
                         ]})
                       }}
@@ -1901,29 +2147,35 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         onContextMenu={e => {
                           e.preventDefault()
                           setCtx({ x: e.clientX, y: e.clientY, items: [
+                            { label: 'Datapacks', action: () => setDatapacksWorld(w.name) },
                             { label: 'Crear backup', action: () => handleBackupWorld(w.name) },
                             { label: 'Eliminar', danger: true, action: () => deleteWorldItems([w.name]) }
                           ]})
                         }}
                         onClick={() => toggleSel(w.name)}
-                        className={`group flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors cursor-pointer ${isSel ? 'bg-accent/10 border-accent/40' : 'bg-bg-card border-border hover:border-border/80'}`}>
+                        className={`group flex items-center gap-3 px-3.5 py-3 rounded-xl border transition-colors cursor-pointer ${isSel ? 'bg-accent/10 border-accent/40' : 'bg-bg-card border-border hover:border-border/80'}`}>
                         <div className="w-4 flex-shrink-0 flex items-center justify-center">
                           <div className={`w-3.5 h-3.5 rounded border transition-colors ${isSel ? 'bg-accent border-accent' : 'border-border group-hover:border-text-muted'}`}>
                             {isSel && <svg viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2" className="w-full h-full p-0.5"><polyline points="2 6 5 9 10 3" /></svg>}
                           </div>
                         </div>
                         {w.iconBase64
-                          ? <img src={w.iconBase64} alt="" className="w-10 h-10 rounded-md flex-shrink-0 object-cover" />
-                          : <div className="w-10 h-10 rounded-md bg-bg-hover flex items-center justify-center flex-shrink-0"><GlobeIcon className="text-green-400" /></div>
+                          ? <img src={w.iconBase64} alt="" className="w-11 h-11 rounded-lg flex-shrink-0 object-cover" />
+                          : <div className="w-11 h-11 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0"><GlobeIcon className="text-green-400" /></div>
                         }
                         <div className="flex-1 overflow-hidden">
-                          <p className="text-sm text-text-primary truncate">{w.name}</p>
+                          <p className="text-[14.5px] font-medium text-text-primary truncate">{w.name}</p>
                           <p className="text-[13px] text-text-muted">{formatDate(w.lastPlayed)}{w.size ? ` · ${formatSize(w.size)}` : ''}</p>
                         </div>
                         <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'level.dat']) }}
                           title="Hora, tiempo, reglas del juego y tu jugador"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
                           🌍 Editar
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setDatapacksWorld(w.name) }}
+                          title="Instalar, activar y desactivar datapacks de este mundo"
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          📦 Datapacks
                         </button>
                         <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'data', 'scoreboard.dat']) }}
                           title="Equipos, objetivos y puntos (scoreboard)"
@@ -2006,10 +2258,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                 <FolderBtn onClick={() => window.api.instances.openResourcepacksFolder(instance.id)} />
                 {!isModpack && (
-                  <button onClick={() => { nav.push(() => setShowModrinthRp(false)); setShowModrinthRp(true) }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-medium transition-colors flex-shrink-0">
+                  <button onClick={() => setBrowser({ kind: 'resourcepack' })}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-semibold transition-colors flex-shrink-0"
+                    title="Modrinth, CurseForge y las creaciones de Fport1">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    Modrinth
+                    Buscar resource packs
                   </button>
                 )}
               </div>
@@ -2033,7 +2286,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           doToggleRpBulk(sortedRps.filter(m => selected.has(m.filename)).map(m => m.filename))
                         else doToggleRp(rp.filename)
                       }}
-                      onChangeVersion={rp.meta?.projectId ? () => setVersionPicker({ filename: rp.filename, projectId: rp.meta!.projectId!, installedVersionId: rp.meta?.installedVersionId, subFolder: 'resourcepacks', modLoader: 'vanilla', modName: rp.meta?.name || displayName(rp.filename) }) : undefined}
+                      onOpenDetail={refOf(rp) ? () => setBrowser({ kind: 'resourcepack', detail: refOf(rp)! }) : undefined}
+                      onChangeVersion={refOf(rp) ? () => setBrowser({ kind: 'resourcepack', detail: refOf(rp)!, tab: 'versions' }) : undefined}
                       onDelete={() => deleteRpFiles([rp.filename])}
                       onCtx={e => {
                         e.preventDefault()
@@ -2067,10 +2321,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 <EnabledFilter value={filterEnabled} onChange={setFilterEnabled} />
                 <FolderBtn onClick={() => window.api.instances.openShaderpacks(instance.id)} />
                 {!isModpack && instance.modloader !== 'vanilla' && (
-                  <button onClick={() => { nav.push(() => setShowModrinthShader(false)); setShowModrinthShader(true) }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-medium transition-colors flex-shrink-0">
+                  <button onClick={() => setBrowser({ kind: 'shader' })}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-green-500/15 hover:bg-green-500/25 text-green-400 rounded-lg text-[13px] font-semibold transition-colors flex-shrink-0"
+                    title="Modrinth, CurseForge y las creaciones de Fport1">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    Modrinth
+                    Buscar shaders
                   </button>
                 )}
               </div>
@@ -2094,7 +2349,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           doToggleShaderBulk(sortedShaders.filter(m => selected.has(m.filename)).map(m => m.filename))
                         else doToggleShader(s.filename)
                       }}
-                      onChangeVersion={s.meta?.projectId ? () => setVersionPicker({ filename: s.filename, projectId: s.meta!.projectId!, installedVersionId: s.meta?.installedVersionId, subFolder: 'shaderpacks', modLoader: 'vanilla', modName: s.meta?.name || displayName(s.filename) }) : undefined}
+                      onOpenDetail={refOf(s) ? () => setBrowser({ kind: 'shader', detail: refOf(s)! }) : undefined}
+                      onChangeVersion={refOf(s) ? () => setBrowser({ kind: 'shader', detail: refOf(s)!, tab: 'versions' }) : undefined}
                       onDelete={() => deleteShaderFiles([s.filename])}
                       onCtx={e => {
                         e.preventDefault()
@@ -2335,25 +2591,6 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         </div>
       </div>
 
-      {/* Version picker */}
-      {versionPicker && (
-        <VersionPickerModal
-          modName={versionPicker.modName}
-          projectId={versionPicker.projectId}
-          installedVersionId={versionPicker.installedVersionId}
-          currentFilename={versionPicker.filename}
-          instance={instance}
-          subFolder={versionPicker.subFolder}
-          loader={versionPicker.modLoader}
-          onClose={() => setVersionPicker(null)}
-          onInstalled={() => {
-            if (versionPicker.subFolder === 'mods') loadTab('mods')
-            else if (versionPicker.subFolder === 'resourcepacks') loadTab('resourcepacks')
-            else if (versionPicker.subFolder === 'shaderpacks') loadTab('shaderpacks')
-          }}
-        />
-      )}
-
       {/* Overlays */}
       {confirm && (
         <ConfirmDialog title={confirm.title} message={confirm.message}
@@ -2371,25 +2608,108 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           onDelete={s => deleteScreenshotItems([s.filename])}
         />
       )}
-      {(showModrinth || modrinthProjectId !== null) && (
-        <ModrinthModal
-          instance={instance}
-          initialProjectId={modrinthProjectId ?? undefined}
-          onClose={() => { setShowModrinth(false); setModrinthProjectId(null) }}
-          onInstalled={() => loadTab('mods')}
-          projectVersionMap={Object.fromEntries(mods.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
-          projectFilenameMap={Object.fromEntries(mods.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.filename]))}
+      {datapacksWorld && (
+        <WorldDatapacks instanceId={instance.id} minecraft={instance.minecraft} world={datapacksWorld} onClose={() => setDatapacksWorld(null)} />
+      )}
+
+      {aiOpen && <AiContextModal instance={instance} onClose={() => setAiOpen(false)} />}
+
+      {depPrompt && (
+        <div className="fixed inset-0 z-[250] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setDepPrompt(null)}>
+          <div className="w-[520px] max-h-[80vh] flex flex-col bg-bg-secondary border border-border rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-border">
+              <p className="text-base font-bold text-text-primary">
+                {depPrompt.mode === 'disable'
+                  ? `${depPrompt.others.length} mod${depPrompt.others.length > 1 ? 's necesitan' : ' necesita'} «${depPrompt.mod.meta?.title || depPrompt.mod.meta?.name || displayName(depPrompt.mod.filename)}»`
+                  : `«${depPrompt.mod.meta?.title || depPrompt.mod.meta?.name || displayName(depPrompt.mod.filename)}» necesita otros mods`}
+              </p>
+              <p className="text-sm text-text-muted mt-1">
+                {depPrompt.mode === 'disable'
+                  ? 'Si lo desactivas solo, estos no podrán cargar y el juego no arrancará.'
+                  : 'Sin ellos el juego no arrancará.'}
+              </p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+              {depPrompt.others.map(m => (
+                <div key={m.filename} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-bg-card border border-border">
+                  {m.meta?.iconBase64 ? <img src={m.meta.iconBase64} alt="" className="w-8 h-8 rounded" /> : <div className="w-8 h-8 rounded bg-bg-hover" />}
+                  <span className="flex-1 text-sm text-text-primary truncate">{m.meta?.title || m.meta?.name || displayName(m.filename)}</span>
+                  <span className="text-[11px] text-text-muted">{depPrompt.mode === 'disable' ? 'activo' : 'desactivado'}</span>
+                </div>
+              ))}
+              {depPrompt.missing.map(id => (
+                <div key={id} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30">
+                  <span className="w-8 h-8 rounded bg-red-500/20 flex items-center justify-center text-red-300">!</span>
+                  <span className="flex-1 text-sm text-red-200 truncate">{id}</span>
+                  <span className="text-[11px] text-red-300">no está instalado</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-border">
+              <button onClick={() => setDepPrompt(null)} className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary">Cancelar</button>
+              <button onClick={() => { const d = depPrompt; setDepPrompt(null); doToggleMod(d.mod.filename) }}
+                className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary">Solo este</button>
+              {depPrompt.others.length > 0 && (
+                <button onClick={() => { const d = depPrompt; setDepPrompt(null); doToggleModBulk([d.mod.filename, ...d.others.map(m => m.filename)]) }}
+                  className="px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-semibold">
+                  {depPrompt.mode === 'disable' ? `Desactivar los ${depPrompt.others.length + 1}` : `Activar los ${depPrompt.others.length + 1}`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {depInfo && (() => {
+        const needs = requirementsOf(depInfo)
+        const needed = dependentsOf(depInfo, false)
+        const name = (m: ModFile) => m.meta?.title || m.meta?.name || displayName(m.filename)
+        const Row = ({ m, label, tone }: { m: ModFile | null; label: string; tone: string }) => (
+          <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-bg-card border border-border">
+            {m?.meta?.iconBase64 ? <img src={m.meta.iconBase64} alt="" className="w-8 h-8 rounded" /> : <div className="w-8 h-8 rounded bg-bg-hover" />}
+            <span className="flex-1 text-sm text-text-primary truncate">{label}</span>
+            <span className={`text-[11px] ${tone}`}>{!m ? 'no instalado' : m.enabled ? 'activo' : 'desactivado'}</span>
+          </div>
+        )
+        return (
+          <div className="fixed inset-0 z-[250] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setDepInfo(null)}>
+            <div className="w-[560px] max-h-[80vh] flex flex-col bg-bg-secondary border border-border rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-3 p-5 border-b border-border">
+                {depInfo.meta?.iconBase64 ? <img src={depInfo.meta.iconBase64} alt="" className="w-11 h-11 rounded-lg" /> : <div className="w-11 h-11 rounded-lg bg-bg-hover" />}
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-bold text-text-primary truncate">{name(depInfo)}</p>
+                  <p className="text-xs text-text-muted truncate">{depInfo.meta?.modIds?.join(', ') || displayName(depInfo.filename)}</p>
+                </div>
+                <button onClick={() => setDepInfo(null)} className="w-8 h-8 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover">✕</button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-text-muted mb-2">Necesita · {needs.length}</p>
+                  {needs.length === 0 ? <p className="text-sm text-text-muted">Ningún otro mod</p> : (
+                    <div className="space-y-1.5">{needs.map(r => <Row key={r.id} m={r.by} label={r.by ? name(r.by) : r.id} tone={!r.by ? 'text-red-300' : r.by.enabled ? 'text-green-300' : 'text-amber-300'} />)}</div>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-text-muted mb-2">Lo necesitan · {needed.length}</p>
+                  {needed.length === 0 ? <p className="text-sm text-text-muted">Ningún mod depende de este: se puede desactivar sin romper nada</p> : (
+                    <div className="space-y-1.5">{needed.map(m => <Row key={m.filename} m={m} label={name(m)} tone={m.enabled ? 'text-green-300' : 'text-text-muted'} />)}</div>
+                  )}
+                </div>
+                {!depInfo.meta?.modIds?.length && <p className="text-xs text-amber-300">Este archivo no declara su id de mod, así que no se pueden saber sus dependencias.</p>}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {browser && (
+        <ContentBrowser
+          target={browserTarget(browser.kind)}
+          initialDetail={browser.detail}
+          initialSource={browser.detail?.source}
+          initialTab={browser.tab}
+          onClose={() => setBrowser(null)}
         />
-      )}
-      {showModrinthRp && (
-        <ModrinthModal instance={instance} projectType="resourcepack" onClose={() => setShowModrinthRp(false)} onInstalled={() => loadTab('resourcepacks')}
-          projectVersionMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
-          projectFilenameMap={Object.fromEntries(resourcepacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.filename]))} />
-      )}
-      {showModrinthShader && (
-        <ModrinthModal instance={instance} projectType="shader" onClose={() => setShowModrinthShader(false)} onInstalled={() => loadTab('shaderpacks')}
-          projectVersionMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId && m.meta?.installedVersionId).map(m => [m.meta!.projectId!, m.meta!.installedVersionId!]))}
-          projectFilenameMap={Object.fromEntries(shaderpacks.filter(m => m.meta?.projectId).map(m => [m.meta!.projectId!, m.filename]))} />
       )}
       {unlinkConfirm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60]">
@@ -2426,106 +2746,4 @@ function EmptyMsg({ msg }: { msg: string }) {
   return <div className="flex items-center justify-center py-12 text-text-muted text-sm">{msg}</div>
 }
 
-function VersionPickerModal({ modName, projectId, installedVersionId, currentFilename, instance, subFolder, loader, onClose, onInstalled }: {
-  modName: string; projectId: string; installedVersionId?: string; currentFilename: string
-  instance: import('../../../shared/types').Instance; subFolder: string; loader: string
-  onClose: () => void; onInstalled: () => void
-}) {
-  const [versions, setVersions] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [installing, setInstalling] = useState<string | null>(null)
-  const [error, setError] = useState('')
 
-  useEffect(() => {
-    window.api.modrinth.getVersions(projectId, instance.minecraft, loader)
-      .then(v => setVersions(v as any[]))
-      .catch(() => setVersions([]))
-      .finally(() => setLoading(false))
-  }, [projectId])
-
-  async function installVersion(ver: any) {
-    const file = ver.files.find((f: any) => f.primary) ?? ver.files[0]
-    if (!file) return
-    setInstalling(ver.id); setError('')
-    try {
-      if (subFolder === 'mods') await window.api.instances.deleteMod(instance.id, currentFilename)
-      else if (subFolder === 'resourcepacks') await window.api.instances.deleteResourcepack(instance.id, currentFilename)
-      else if (subFolder === 'shaderpacks') await window.api.instances.deleteShaderpack(instance.id, currentFilename)
-      await window.api.modrinth.installMod(instance.id, file.url, file.filename, subFolder)
-      onInstalled(); onClose()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error al instalar')
-      setInstalling(null)
-    }
-  }
-
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [onClose])
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80]" onClick={onClose}>
-      <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[540px] max-h-[72vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-border/50 flex-shrink-0">
-          <div className="min-w-0">
-            <p className="text-[13px] text-text-muted">Cambiar versión</p>
-            <h3 className="font-semibold text-text-primary text-sm truncate">{modName}</h3>
-          </div>
-          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover flex-shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1.5 min-h-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-10 gap-2 text-text-muted text-sm">
-              <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-              Cargando versiones...
-            </div>
-          ) : versions.length === 0 ? (
-            <div className="text-center py-10 text-text-muted text-sm">No hay versiones compatibles</div>
-          ) : versions.map((ver: any) => {
-            const isInstalled = ver.id === installedVersionId
-            const isInstalling = installing === ver.id
-            const file = ver.files.find((f: any) => f.primary) ?? ver.files[0]
-            return (
-              <button key={ver.id}
-                onClick={() => { if (!isInstalled && !installing) installVersion(ver) }}
-                disabled={!!installing}
-                className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors ${isInstalled ? 'bg-accent/10 border-accent/40 cursor-default' : 'bg-bg-card border-border hover:border-accent/40 hover:bg-bg-hover'} ${isInstalling ? 'opacity-70' : ''}`}>
-                <div className="flex items-start gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-sm font-medium ${isInstalled ? 'text-accent' : 'text-text-primary'}`}>{ver.version_number}</span>
-                      {isInstalled && <span className="text-[11px] px-1.5 py-0.5 bg-accent text-white rounded-full font-medium">Instalada</span>}
-                      {ver.version_type && ver.version_type !== 'release' && (
-                        <span className="text-[11px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded-full border border-amber-500/30">{ver.version_type}</span>
-                      )}
-                    </div>
-                    {ver.name && ver.name !== ver.version_number && (
-                      <p className="text-[13px] text-text-muted truncate mt-0.5">{ver.name}</p>
-                    )}
-                    <div className="flex items-center gap-1 mt-1 flex-wrap">
-                      {(ver.game_versions as string[]).slice(0, 4).map((gv: string) => (
-                        <span key={gv} className="text-[11px] px-1.5 py-0.5 bg-bg-hover text-text-muted rounded border border-border/50">{gv}</span>
-                      ))}
-                      {ver.game_versions.length > 4 && <span className="text-[11px] text-text-muted">+{ver.game_versions.length - 4}</span>}
-                    </div>
-                  </div>
-                  <div className="flex-shrink-0 flex flex-col items-end gap-1 pt-0.5">
-                    <span className="text-[11px] text-text-muted">{new Date(ver.date_published).toLocaleDateString()}</span>
-                    {file && <span className="text-[11px] text-text-muted font-mono">{(file.size / 1024).toFixed(0)} KB</span>}
-                    {isInstalling && <span className="text-[13px] text-accent">Instalando...</span>}
-                    {!isInstalled && !installing && <span className="text-[11px] text-accent/70">Instalar →</span>}
-                  </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-        {error && <p className="text-[13px] text-red-400 px-4 pb-3 flex-shrink-0">{error}</p>}
-      </div>
-    </div>
-  )
-}

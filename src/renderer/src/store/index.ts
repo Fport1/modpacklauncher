@@ -24,6 +24,15 @@ interface AppState {
   openDetailInstanceId: string | null
   sidebarCompact: boolean
   pendingFpackFile: string | null
+  /** Chats de fport1social con mensajes sin leer (para el aviso del menú). */
+  chatUnread: number
+  /** Chat que hay que abrir al entrar en Amigos (p. ej. desde una notificación). */
+  pendingChatCid: string | null
+  /** Chat abierto ahora mismo en Amigos (para no avisar de ese). */
+  activeChatCid: string | null
+  setActiveChatCid: (cid: string | null) => void
+  setChatUnread: (n: number) => void
+  setPendingChatCid: (cid: string | null) => void
 
   setInstances: (instances: Instance[]) => void
   addInstance: (instance: Instance) => void
@@ -32,6 +41,8 @@ interface AppState {
 
   setAccounts: (accounts: MinecraftAccount[]) => void
   addAccount: (account: MinecraftAccount) => void
+  /** Sustituye la cuenta en su sitio, sin cambiar la activa. */
+  replaceAccount: (account: MinecraftAccount) => void
   removeAccount: (id: string) => void
   setActiveAccountId: (id: string | undefined) => void
 
@@ -70,6 +81,9 @@ export const useStore = create<AppState>((set) => ({
   openDetailInstanceId: null,
   sidebarCompact: localStorage.getItem('ml-sidebar-compact') === 'true',
   pendingFpackFile: null,
+  chatUnread: 0,
+  activeChatCid: null,
+  pendingChatCid: null,
   friends: [],
 
   setInstances: (instances) => set({ instances }),
@@ -84,6 +98,8 @@ export const useStore = create<AppState>((set) => ({
       accounts: [...s.accounts.filter((a) => a.id !== account.id), account],
       activeAccountId: account.id
     })),
+  replaceAccount: (account) =>
+    set((s) => ({ accounts: s.accounts.map((a) => (a.id === account.id ? account : a)) })),
   removeAccount: (id) =>
     set((s) => ({
       accounts: s.accounts.filter((a) => a.id !== id),
@@ -133,6 +149,9 @@ export const useStore = create<AppState>((set) => ({
     }),
   setOpenDetailInstanceId: (id) => set({ openDetailInstanceId: id }),
   setPendingFpackFile: (path) => set({ pendingFpackFile: path }),
+  setChatUnread: (n) => set({ chatUnread: n }),
+  setActiveChatCid: (cid) => set({ activeChatCid: cid }),
+  setPendingChatCid: (cid) => set({ pendingChatCid: cid }),
   setSidebarCompact: (compact) => {
     localStorage.setItem('ml-sidebar-compact', String(compact))
     set({ sidebarCompact: compact })

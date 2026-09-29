@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useStore, activeAccount } from '../store'
+import { loadInstanceIcon } from '../lib/instanceIcons'
 import { SkinAvatar } from '../pages/SettingsPage'
 import { useT } from '../i18n'
 
@@ -73,6 +74,7 @@ export default function Sidebar() {
   const t = useT()
   const account = useStore(activeAccount)
   const instances = useStore(s => s.instances)
+  const chatUnread = useStore(s => s.chatUnread)
   const showConsole = useStore(s => s.settings.showConsole)
   const setOpenDetailInstanceId = useStore(s => s.setOpenDetailInstanceId)
   const isAdmin = account?.type === 'microsoft' && account.username.toLowerCase() === OWNER
@@ -91,9 +93,8 @@ export default function Sidebar() {
   const [recentIcons, setRecentIcons] = useState<Record<string, string>>({})
   useEffect(() => {
     recentInstances.forEach(inst => {
-      window.api.instances.getIcon(inst.id)
+      loadInstanceIcon(inst)
         .then(icon => { if (icon) setRecentIcons(prev => ({ ...prev, [inst.id]: icon })) })
-        .catch(() => {})
     })
   }, [recentInstances.map(i => i.id).join(',')])
 
@@ -172,8 +173,13 @@ export default function Sidebar() {
               </NavLink>
             )}
             {item.to === '/modpacks' && extraNavItems.filter(e => e.show).map(e => (
-              <NavLink key={e.to} to={e.to} title={t(e.labelKey)} className={({ isActive }) => e.social ? navClsSocial(isActive) : navCls(isActive)}>
+              <NavLink key={e.to} to={e.to} title={t(e.labelKey)} className={({ isActive }) => `relative ${e.social ? navClsSocial(isActive) : navCls(isActive)}`}>
                 {e.icon}
+                {e.to === '/friends' && chatUnread > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#7c3aed] text-white text-[10px] font-bold flex items-center justify-center ring-2 ring-bg-secondary animate-[chat-pop_.3s_ease]">
+                    {chatUnread > 9 ? '9+' : chatUnread}
+                  </span>
+                )}
               </NavLink>
             ))}
           </div>

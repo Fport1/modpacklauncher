@@ -6,8 +6,17 @@ import type { Instance, MinecraftAccount, Settings } from '../shared/types'
 import { getSharedDir, getInstanceGameDir } from './instances'
 import { ensureJava } from './java'
 import { checkCancel } from './cancelToken'
+import { EventEmitter } from 'events'
 
 const runningProcesses = new Map<string, ChildProcess>()
+
+/** Arranque, líneas de registro y cierre de cada partida (lo usa el puente para IAs). */
+export const gameEvents = new EventEmitter()
+
+/** Si una instancia está abierta ahora mismo. */
+export function isInstanceRunning(instanceId: string): boolean {
+  return runningProcesses.has(instanceId)
+}
 
 function sendToWindow(window: BrowserWindow, channel: string, ...args: unknown[]): boolean {
   if (window.isDestroyed() || window.webContents.isDestroyed()) return false
@@ -400,8 +409,10 @@ export async function launchInstance(
   const sessionStart = Date.now()
   const sendLog = (line: string) => {
     if (!extra) sendToWindow(mainWindow, 'game:log', instance.id, line)
+    gameEvents.emit('log', instance.id, line)
   }
   if (!extra) sendToWindow(mainWindow, 'game:started', instance.id)
+  gameEvents.emit('start', instance.id)
 
   proc.stdout?.on('data', (buf) =>
     buf.toString().split('\n').filter(Boolean).forEach(sendLog)
@@ -410,6 +421,7 @@ export async function launchInstance(
     buf.toString().split('\n').filter(Boolean).forEach(sendLog)
   )
   proc.on('exit', (code) => {
+    gameEvents.emit('exit', instance.id, code)
     if (!extra) {
       runningProcesses.delete(instance.id)
       sendToWindow(mainWindow, 'game:exit', instance.id, code)

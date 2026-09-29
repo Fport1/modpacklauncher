@@ -319,9 +319,28 @@ function saveModMetaCacheSoon(): void {
   }, 2000)
 }
 
+/** Dependencias que no son mods: el juego, Java y los propios loaders. */
+const NOT_MODS = new Set(['minecraft', 'java', 'fabricloader', 'fabric-loader', 'quilt_loader', 'quilt_base', 'forge', 'neoforge', 'javafml', 'lowcodefml'])
+
+/** Ids y dependencias obligatorias de un mods.toml (Forge / NeoForge). */
+function tomlIdsAndDeps(toml: string): { ids: string[]; requires: string[] } {
+  const ids = [...toml.matchAll(/\[\[mods\]\][\s\S]*?modId\s*=\s*["']([^"']+)["']/g)].map((m) => m[1])
+  const requires: string[] = []
+  for (const block of toml.split(/\[\[dependencies\.[^\]]+\]\]/).slice(1)) {
+    const body = block.split(/\n\s*\[/)[0]
+    const id = body.match(/modId\s*=\s*["']([^"']+)["']/)?.[1]
+    if (!id) continue
+    const mandatory = /mandatory\s*=\s*true/.test(body) || /type\s*=\s*["']required["']/i.test(body)
+    if (mandatory) requires.push(id)
+  }
+  return { ids, requires }
+}
+
 function readModMeta(jarPath: string, cacheKey: string): ModMeta {
-  if (modMetaCache.has(cacheKey)) return modMetaCache.get(cacheKey)!
-  const meta: ModMeta = {}
+  const hit = modMetaCache.get(cacheKey)
+  // Las entradas guardadas antes de leer dependencias se vuelven a leer una vez
+  if (hit && hit.modIds !== undefined) return hit
+  const meta: ModMeta = { modIds: [], requires: [] }
   try {
     const zip = new AdmZip(jarPath)
 
@@ -330,6 +349,8 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
     if (fabricEntry) {
       const d = JSON.parse(fabricEntry.getData().toString('utf-8'))
       meta.name = d.name
+      meta.modIds = [d.id, ...(Array.isArray(d.provides) ? d.provides : [])].filter((x: unknown): x is string => typeof x === 'string')
+      meta.requires = Object.keys(d.depends ?? {}).filter((x) => !NOT_MODS.has(x))
       if (Array.isArray(d.authors))
         meta.author = d.authors.map((a: string | { name: string }) => typeof a === 'string' ? a : a.name).join(', ')
       if (typeof d.icon === 'string') {
@@ -345,6 +366,11 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
         const d = JSON.parse(quiltEntry.getData().toString('utf-8'))
         const qm = d.quilt_loader?.metadata ?? d
         meta.name = qm.name
+        const ql = d.quilt_loader ?? {}
+        meta.modIds = [ql.id, ...(Array.isArray(ql.provides) ? ql.provides.map((x: string | { id: string }) => (typeof x === 'string' ? x : x.id)) : [])].filter(Boolean)
+        meta.requires = (Array.isArray(ql.depends) ? ql.depends : [])
+          .filter((x: string | { id: string; optional?: boolean }) => typeof x === 'string' || !x.optional)
+          .map((x: string | { id: string }) => (typeof x === 'string' ? x : x.id)).filter((x: string) => !NOT_MODS.has(x))
         if (qm.icon) {
           const ic = zip.getEntry(qm.icon)
           if (ic) meta.iconBase64 = `data:image/png;base64,${ic.getData().toString('base64')}`
@@ -357,6 +383,9 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
       const tomlEntry = zip.getEntry('META-INF/neoforge.mods.toml') ?? zip.getEntry('META-INF/mods.toml')
       if (tomlEntry) {
         const toml = tomlEntry.getData().toString('utf-8')
+        const td = tomlIdsAndDeps(toml)
+        meta.modIds = td.ids
+        meta.requires = td.requires.filter((x) => !NOT_MODS.has(x))
         meta.name   = toml.match(/displayName\s*=\s*["']([^"']+)["']/)?.[1]
         meta.author = toml.match(/authors\s*=\s*["']([^"']+)["']/)?.[1]
         const logo  = toml.match(/logoFile\s*=\s*["']([^"']+)["']/)?.[1]

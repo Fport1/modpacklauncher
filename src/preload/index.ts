@@ -1,5 +1,23 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+/** Lo que se sabe de un archivo instalado (Modrinth, CurseForge o Fport1). */
+export interface InstalledMeta {
+  iconUrl?: string | null
+  clientSide?: string
+  serverSide?: string
+  projectId?: string
+  installedVersionId?: string
+  hasUpdate?: boolean
+  source?: 'modrinth' | 'curseforge' | 'fport1'
+  title?: string
+  pageUrl?: string
+  update?: { kind: 'curseforge'; modId: number; fileId: number } | { kind: 'fport1'; url: string; filename: string }
+  cfModId?: number
+  cfFileId?: number
+  f1ProjectId?: string
+  f1VersionId?: string
+}
+
 /** Suscribirse a un canal y devolver la función para dejar de escuchar. */
 function listen<T>(channel: string, cb: (payload: T) => void): () => void {
   const handler = (_e: Electron.IpcRendererEvent, payload: T): void => cb(payload)
@@ -14,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, AiApprovalRequest } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -47,7 +65,8 @@ const api = {
       }>,
     setActive: (accountId: string) => ipcRenderer.invoke('auth:set-active', accountId),
     refresh: (account: MinecraftAccount) =>
-      ipcRenderer.invoke('auth:refresh', account) as Promise<MinecraftAccount>
+      ipcRenderer.invoke('auth:refresh', account) as Promise<MinecraftAccount>,
+    onAccountUpdated: (cb: (account: MinecraftAccount) => void) => listen<MinecraftAccount>('auth:account-updated', cb)
   },
 
   // Instances
@@ -199,9 +218,11 @@ const api = {
     getInstalledInfo: (instanceId: string, subFolder: string, extensions: string[]) =>
       ipcRenderer.invoke('modrinth:get-installed-info', instanceId, subFolder, extensions) as Promise<Record<string, { name: string | null; iconUrl: string | null }>>,
     getInstalledModsMeta: (instanceId: string, mcVersion: string, loader: string, subFolder?: string, extensions?: string[], force?: boolean) =>
-      ipcRenderer.invoke('modrinth:get-installed-mods-meta', instanceId, mcVersion, loader, subFolder, extensions, force) as Promise<Record<string, { iconUrl?: string | null; clientSide?: string; serverSide?: string; projectId?: string; installedVersionId?: string; hasUpdate?: boolean }>>,
+      ipcRenderer.invoke('modrinth:get-installed-mods-meta', instanceId, mcVersion, loader, subFolder, extensions, force) as Promise<Record<string, InstalledMeta>>,
     getProject: (projectId: string) =>
       ipcRenderer.invoke('modrinth:get-project', projectId) as Promise<any>,
+    getMembers: (projectId: string) =>
+      ipcRenderer.invoke('modrinth:get-members', projectId) as Promise<{ username: string; avatarUrl: string | null; role: string }[]>,
     getProjects: (projectIds: string[]) =>
       ipcRenderer.invoke('modrinth:get-projects', projectIds) as Promise<any[]>,
     getProjectVersion: (projectId: string, mcVersion: string, loader: string, channel?: 'all' | 'stable') =>
@@ -226,6 +247,11 @@ const api = {
       ipcRenderer.invoke('curseforge:install-modpack', instanceId, modId, fileId) as Promise<any>,
     installMod: (instanceId: string, modId: number, fileId: number, subFolder?: string) =>
       ipcRenderer.invoke('curseforge:install-mod', instanceId, modId, fileId, subFolder) as Promise<string>,
+    /** Enlace de descarga, o null si el autor no permite bajarlo fuera de CurseForge. */
+    getMods: (modIds: number[]) => ipcRenderer.invoke('curseforge:get-mods', modIds) as Promise<any[]>,
+    fileChangelog: (modId: number, fileId: number) => ipcRenderer.invoke('curseforge:file-changelog', modId, fileId) as Promise<string>,
+    fileUrl: (modId: number, fileId: number) =>
+      ipcRenderer.invoke('curseforge:file-url', modId, fileId) as Promise<string | null>,
   },
 
   // Settings
@@ -569,6 +595,71 @@ const api = {
       ipcRenderer.on('console:history', handler)
       return () => { ipcRenderer.removeListener('console:history', handler) }
     },
+  },
+
+  // Sesión de fport1social, guardada por el proceso principal
+  socialSession: {
+    get: (key: string) => ipcRenderer.invoke('social-session:get', key) as Promise<unknown>,
+    set: (key: string, value: unknown) => ipcRenderer.invoke('social-session:set', key, value) as Promise<void>,
+    remove: (key: string) => ipcRenderer.invoke('social-session:remove', key) as Promise<void>,
+    onChanged: (cb: (key: string, value: unknown) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, key: string, value: unknown) => cb(key, value)
+      ipcRenderer.on('social-session:changed', handler)
+      return () => { ipcRenderer.removeListener('social-session:changed', handler) }
+    }
+  },
+
+  // Chat de fport1social: llamadas a la web y descargas de adjuntos
+  social: {
+    webPost: (endpoint: string, idToken: string, body: unknown) =>
+      ipcRenderer.invoke('social:web-post', endpoint, idToken, body) as Promise<{ status: number; data: any }>,
+    saveFile: (url: string, name: string) => ipcRenderer.invoke('social:save-file', url, name) as Promise<string | null>,
+    downloadTemp: (url: string, filename: string) => ipcRenderer.invoke('fport1:download-temp', url, filename) as Promise<string>
+  },
+
+  // Fuentes de contenido sin API propia en el preload (Hangar, Spiget)
+  content: {
+    getJson: (url: string) => ipcRenderer.invoke('content:get-json', url) as Promise<any>
+  },
+
+  // Contexto del modpack para IAs
+  aiContext: {
+    status: (instanceId: string) => ipcRenderer.invoke('ai-context:status', instanceId) as Promise<{ exists: boolean; generatedAt?: number; mods?: number; stale?: boolean }>,
+    prepare: (instanceId: string) => ipcRenderer.invoke('ai-context:prepare', instanceId) as Promise<{ exists: boolean; generatedAt?: number; mods?: number; stale?: boolean }>
+  },
+
+  // La IA trabajando en una instancia a través del launcher
+  aiAgent: {
+    setControl: (instanceId: string, mode: 'off' | 'ask' | 'auto') => ipcRenderer.invoke('ai:set-control', instanceId, mode) as Promise<Instance>,
+    openTerminal: (instanceId: string, tool: 'claude' | 'codex' | 'gemini') => ipcRenderer.invoke('ai:open-terminal', instanceId, tool) as Promise<void>,
+    activity: (instanceId?: string) => ipcRenderer.invoke('ai:activity', instanceId) as Promise<AiActivity[]>,
+    approve: (id: string, decision: 'allow' | 'always' | 'deny') => ipcRenderer.invoke('ai:approve', id, decision) as Promise<void>,
+    onActivity: (cb: (a: AiActivity) => void) => {
+      const h = (_e: unknown, a: AiActivity): void => cb(a)
+      ipcRenderer.on('ai:activity', h)
+      return () => { ipcRenderer.removeListener('ai:activity', h) }
+    },
+    onApproval: (cb: (r: AiApprovalRequest) => void) => {
+      const h = (_e: unknown, r: AiApprovalRequest): void => cb(r)
+      ipcRenderer.on('ai:approval', h)
+      return () => { ipcRenderer.removeListener('ai:approval', h) }
+    },
+    onApprovalDone: (cb: (id: string) => void) => {
+      const h = (_e: unknown, id: string): void => cb(id)
+      ipcRenderer.on('ai:approval-done', h)
+      return () => { ipcRenderer.removeListener('ai:approval-done', h) }
+    }
+  },
+
+  // Datapacks de un mundo de una instancia
+  worldDatapacks: {
+    list: (instanceId: string, world: string) => ipcRenderer.invoke('world-datapacks:list', instanceId, world) as Promise<{
+      id: string; filename: string | null; builtIn: boolean; enabled: boolean; description: string | null; iconBase64: string | null; size: number
+    }[]>,
+    setEnabled: (instanceId: string, world: string, id: string, on: boolean) => ipcRenderer.invoke('world-datapacks:set-enabled', instanceId, world, id, on) as Promise<void>,
+    remove: (instanceId: string, world: string, filename: string) => ipcRenderer.invoke('world-datapacks:delete', instanceId, world, filename) as Promise<void>,
+    add: (instanceId: string, world: string, sources: string[]) => ipcRenderer.invoke('world-datapacks:add', instanceId, world, sources) as Promise<string[]>,
+    pick: (instanceId: string, world: string) => ipcRenderer.invoke('world-datapacks:pick', instanceId, world) as Promise<string[]>
   },
 
   // Game process events

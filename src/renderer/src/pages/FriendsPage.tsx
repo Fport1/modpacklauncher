@@ -7,9 +7,10 @@ import {
 } from 'firebase/auth'
 import {
   doc, getDoc, setDoc, writeBatch, onSnapshot, collection, deleteDoc, serverTimestamp,
-  addDoc, query, where, limit, updateDoc, getDocs, documentId, deleteField,
+  query, where, limit, updateDoc, getDocs, documentId,
 } from 'firebase/firestore'
 import { socialAuth, socialDb } from '../lib/firebase'
+import ChatView from '../components/chat/ChatView'
 import { useStore, activeAccount } from '../store'
 import {
   reserveUsernameAndUpsertProfile, validateHandle, normalizeHandle,
@@ -18,80 +19,7 @@ import {
 
 const WEB = 'https://fport1web.vercel.app'
 
-interface Conversation {
-  id: string
-  participantUids: string[]
-  lastMessage: any
-  lastMessageAt: any
-  lastSenderUid: string | null
-  otherUid: string
-  otherName: string | null
-  groupName?: string | null
-  isGroup?: boolean
-  hasUnread: boolean
-}
 
-
-interface ChatMessage {
-  id: string
-  text: string
-  senderUid: string
-  at: any
-  reactions: Record<string, Record<string, boolean>>
-  edited?: boolean
-  forwarded?: boolean
-  replyToId?: string | null
-  replyToText?: string | null
-  replyToSenderName?: string | null
-}
-
-const REACTIONS = [
-  { key: 'like',   emoji: '👍' },
-  { key: 'heart',  emoji: '❤️' },
-  { key: 'laugh',  emoji: '😂' },
-  { key: 'wow',    emoji: '😮' },
-  { key: 'sad',    emoji: '😢' },
-  { key: 'angry',  emoji: '😡' },
-]
-
-function convLastText(lastMessage: any): string {
-  if (!lastMessage) return ''
-  if (typeof lastMessage === 'string') return lastMessage
-  return lastMessage?.text ?? ''
-}
-
-function convLastAt(conv: Conversation): any {
-  return conv.lastMessageAt ?? conv.lastMessage?.at ?? null
-}
-
-function fmtTime(ts: any): string {
-  if (!ts) return ''
-  const d: Date = ts.toDate ? ts.toDate() : new Date(ts.seconds * 1000)
-  const diff = Date.now() - d.getTime()
-  if (diff < 60_000)       return 'ahora'
-  if (diff < 3_600_000)    return `${Math.floor(diff / 60_000)}m`
-  if (diff < 86_400_000)   return `${Math.floor(diff / 3_600_000)}h`
-  return `${Math.floor(diff / 86_400_000)}d`
-}
-
-function fmtMsgTime(ts: any): string {
-  if (!ts) return ''
-  const d: Date = ts?.toDate ? ts.toDate() : new Date(ts.seconds * 1000)
-  return d.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' })
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-}
-
-function fmtDateSep(ts: any): string {
-  const d: Date = ts?.toDate ? ts.toDate() : new Date(ts.seconds * 1000)
-  const now = new Date()
-  const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1)
-  if (isSameDay(d, now)) return 'Hoy'
-  if (isSameDay(d, yesterday)) return 'Ayer'
-  return d.toLocaleDateString('es-ES', { weekday:'short', day:'numeric', month:'short' })
-}
 
 // ── Design tokens — fport1web exact palette ────────────────────────────────────
 const C = {
@@ -293,7 +221,7 @@ function PresencePill({ p }: { p: SocialFriend['presence'] }) {
   return <span style={{ fontSize:11, color:C.muted }}>Desconectado</span>
 }
 
-function FriendCard({ f, delay = 0 }: { f: SocialFriend; delay?: number }) {
+function FriendCard({ f, delay = 0, onMessage }: { f: SocialFriend; delay?: number; onMessage?: () => void }) {
   const isPlaying = !!f.presence?.playing
   const isOnline  = !!f.presence?.online
   return (
@@ -326,6 +254,14 @@ function FriendCard({ f, delay = 0 }: { f: SocialFriend; delay?: number }) {
         <PresencePill p={f.presence} />
         {f.minecraftUsername && <p style={{ fontSize:10, color:C.muted, margin:'2px 0 0' }}>⛏ {f.minecraftUsername}</p>}
       </div>
+      {onMessage && (
+        <button onClick={onMessage} title="Enviar mensaje" className="f1-google" style={{
+          flexShrink:0, width:36, height:36, borderRadius:10, border:`1px solid ${C.border}`,
+          background:'rgba(124,58,237,.12)', color:C.accent2, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center',
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg>
+        </button>
+      )}
     </div>
   )
 }
@@ -946,95 +882,23 @@ export default function FriendsPage() {
     usernameSlug: string|null; photoURL: string|null
   } | null>(null)
 
-  // Chat state
-  const [mainTab,        setMainTab]        = useState<'friends'|'chat'>('friends')
-  const [conversations,  setConversations]  = useState<Conversation[]>([])
-  const [loadingConvs,   setLoadingConvs]   = useState(false)
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
-  const [messages,       setMessages]       = useState<ChatMessage[]>([])
-  const [loadingMsgs,    setLoadingMsgs]    = useState(false)
-  const [msgInput,       setMsgInput]       = useState('')
-  const [sendingMsg,     setSendingMsg]     = useState(false)
-  const msgEndRef = useRef<HTMLDivElement>(null)
-  const taRef     = useRef<HTMLTextAreaElement>(null)
+  // Chat
+  const [mainTab, setMainTab] = useState<'friends'|'chat'>(() => (useStore.getState().pendingChatCid ? 'chat' : 'friends'))
+  const [chatOpenWith, setChatOpenWith] = useState<string | null>(null)
+  const pendingChatCid = useStore(s => s.pendingChatCid)
+  const setPendingChatCid = useStore(s => s.setPendingChatCid)
+  const chatUnread = useStore(s => s.chatUnread)
+  useEffect(() => { if (pendingChatCid) setMainTab('chat') }, [pendingChatCid])
 
   // Live search suggestions (add friend)
   const [suggestions,  setSuggestions]  = useState<{ slug: string; uid: string }[]>([])
   const [loadingSugg,  setLoadingSugg]  = useState(false)
 
-  // Message actions
-  const [ctxMenu,      setCtxMenu]      = useState<{ msg: ChatMessage; x: number; y: number } | null>(null)
-  const [editingId,    setEditingId]    = useState<string | null>(null)
-  const [editText,     setEditText]     = useState('')
-  const [selectMode,   setSelectMode]   = useState(false)
-  const [selectedIds,  setSelectedIds]  = useState<Set<string>>(new Set())
-  const [replyTo,      setReplyTo]      = useState<{ id: string; text: string; senderName: string } | null>(null)
-  const [fwdMsg,       setFwdMsg]       = useState<ChatMessage | null>(null)
-
-  // New chat modal
-  const [showNewChat,       setShowNewChat]       = useState(false)
-  const [newChatInput,      setNewChatInput]      = useState('')
-  const [newChatSugg,       setNewChatSugg]       = useState<{ slug: string; uid: string }[]>([])
-  const [newChatType,       setNewChatType]       = useState<'direct'|'group'>('direct')
-  const [newChatGroupName,  setNewChatGroupName]  = useState('')
-  const [newChatTargets,    setNewChatTargets]    = useState<{ uid: string; slug: string }[]>([])
-
   // Friend requests
   const [friendRequests, setFriendRequests] = useState<{ uid: string; profileName: string|null; username: string|null; usernameSlug: string|null }[]>([])
 
-  // Conversation hover menu
-  const [hoveredConvId, setHoveredConvId] = useState<string|null>(null)
-  const [convMenuId,    setConvMenuId]    = useState<string|null>(null)
-
-  // Message hover (3-dot button)
-  const [hoveredMsgId,  setHoveredMsgId]  = useState<string|null>(null)
-
-  // Floating hearts on double-click
-  const [floatingHearts, setFloatingHearts] = useState<{ id: number; x: number; y: number; msgId: string }[]>([])
-
-  // Swipe-to-reply gesture
-  const swipeRef = useRef<{ startX: number; dragging: boolean; triggered: boolean }>({ startX: 0, dragging: false, triggered: false })
-  const [swipeOffset, setSwipeOffset] = useState<{ msgId: string; offset: number } | null>(null)
-
   // Real-time presence map (uid → raw Firestore data)
   const [presenceMap, setPresenceMap] = useState<Record<string, any>>({})
-
-  function spawnHeart(e: React.MouseEvent, msgId: string) {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-    const id = Date.now() + Math.random()
-    setFloatingHearts(prev => [...prev, { id, x, y, msgId }])
-    setTimeout(() => setFloatingHearts(prev => prev.filter(h => h.id !== id)), 850)
-  }
-
-  function jumpToMessage(msgId: string) {
-    const el = document.getElementById(`msg-${msgId}`)
-    if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    const bubble = el.querySelector('[data-bubble]') as HTMLElement | null
-    setTimeout(() => {
-      if (!bubble) return
-      bubble.style.transition = 'box-shadow 0.15s ease'
-      bubble.style.boxShadow = '0 0 0 2px #3ea6ff, 0 0 18px rgba(62,166,255,0.5)'
-      setTimeout(() => {
-        bubble.style.transition = 'box-shadow 0.7s ease'
-        bubble.style.boxShadow = '0 0 0 0 rgba(62,166,255,0)'
-        setTimeout(() => { bubble.style.boxShadow = ''; bubble.style.transition = '' }, 750)
-      }, 450)
-    }, 350)
-  }
-
-  // Emoji picker
-  const [showEmoji, setShowEmoji] = useState(false)
-
-  // Read receipts
-  const [otherReadAt, setOtherReadAt] = useState<Date|null>(null)
-  const prevConvTimestampsRef = useRef<Record<string, number>>({})
-
-  // Typing indicator
-  const [otherIsTyping, setOtherIsTyping] = useState(false)
-  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function selectSuggestion(slug: string, uid: string) {
     setSuggestions([])
@@ -1169,25 +1033,6 @@ export default function FriendsPage() {
     return () => clearTimeout(t)
   }, [addInput])
 
-  // Live search for new chat
-  useEffect(() => {
-    const slug = normalizeHandle(newChatInput)
-    if (!slug || slug.length < 2) { setNewChatSugg([]); return }
-    const t = setTimeout(async () => {
-      try {
-        const q = query(
-          collection(socialDb, 'usernames'),
-          where(documentId(), '>=', slug),
-          where(documentId(), '<', slug + ''),
-          limit(6)
-        )
-        const snap = await getDocs(q)
-        setNewChatSugg(snap.docs.map(d => ({ slug: d.id, uid: (d.data() as any).uid })))
-      } catch { setNewChatSugg([]) }
-    }, 300)
-    return () => clearTimeout(t)
-  }, [newChatInput])
-
   useEffect(() => {
     if (!socialUser) { setFriends([]); setProfile(null); setNeedsProfile(false); return }
 
@@ -1258,340 +1103,6 @@ export default function FriendsPage() {
     return unsub
   }, [socialUser?.uid])
 
-  // Load conversations
-  useEffect(() => {
-    if (!socialUser) { setConversations([]); return }
-    setLoadingConvs(true)
-    const q = query(
-      collection(socialDb, 'conversations'),
-      where('participantUids', 'array-contains', socialUser.uid)
-    )
-    const unsub = onSnapshot(q, async snapshot => {
-      const raw = snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as any[]
-      raw.sort((a, b) => {
-        const aAt = a.lastMessageAt?.seconds ?? a.lastMessage?.at?.seconds ?? 0
-        const bAt = b.lastMessageAt?.seconds ?? b.lastMessage?.at?.seconds ?? 0
-        return bAt - aAt
-      })
-
-      const enriched: Conversation[] = await Promise.all(raw.map(async conv => {
-        const isGroup = !!(conv.isGroup || (conv.participantUids as string[]).length > 2)
-        const groupName: string|null = conv.groupName ?? null
-        const otherUid: string = isGroup
-          ? socialUser.uid
-          : ((conv.participantUids as string[]).find(u => u !== socialUser.uid) ?? conv.participantUids[0])
-        let otherName: string | null = isGroup ? (groupName ?? 'Grupo') : null
-        if (!isGroup) {
-          try {
-            const snap = await getDoc(doc(socialDb, 'users', otherUid))
-            if (snap.exists()) {
-              const d = snap.data()
-              otherName = d.profileName ?? d.username ?? null
-            }
-          } catch { /* ignore */ }
-        }
-        const lastMsgAt  = conv.lastMessageAt?.seconds ?? conv.lastMessage?.at?.seconds ?? 0
-        const myReadAt   = conv.readAt?.[socialUser.uid]?.seconds ?? 0
-        const hasUnread  = lastMsgAt > 0
-                        && (conv.lastSenderUid ?? conv.lastMessage?.senderUid ?? null) !== socialUser.uid
-                        && lastMsgAt > myReadAt
-        return {
-          id:             conv.id,
-          participantUids: conv.participantUids,
-          lastMessage:    conv.lastMessage    ?? null,
-          lastMessageAt:  conv.lastMessageAt  ?? null,
-          lastSenderUid:  conv.lastSenderUid  ?? null,
-          otherUid,
-          otherName,
-          groupName,
-          isGroup,
-          hasUnread,
-        }
-      }))
-      setConversations(enriched)
-      setLoadingConvs(false)
-    }, () => setLoadingConvs(false))
-    return unsub
-  }, [socialUser?.uid])
-
-  // Load messages for selected conversation
-  useEffect(() => {
-    if (!selectedConvId) { setMessages([]); return }
-    setLoadingMsgs(true)
-    // No orderBy — avoids needing a Firestore index; we sort client-side
-    const q = query(
-      collection(socialDb, 'conversations', selectedConvId, 'messages'),
-      limit(120)
-    )
-    const unsub = onSnapshot(q, snapshot => {
-      const msgs: ChatMessage[] = snapshot.docs.map(d => {
-        const data = d.data()
-        // Try every known field name, then fall back to any non-empty string value in the doc
-        const text: string =
-          data.textCipher ?? data.text ?? data.content ?? data.message ?? data.body ?? data.msg ??
-          (Object.values(data).find(v => typeof v === 'string' && (v as string).length > 0) as string | undefined) ?? ''
-        const at = data.at ?? data.sentAt ?? data.createdAt ?? data.timestamp ?? null
-        return {
-          id:        d.id,
-          text,
-          senderUid:  data.senderUid ?? data.from ?? data.uid ?? '',
-          at,
-          reactions:       (data.reactions ?? {}) as Record<string, Record<string, boolean>>,
-          edited:          data.edited ?? false,
-          forwarded:       data.forwarded ?? false,
-          replyToId:         data.replyToId         ?? null,
-          replyToText:       data.replyToText        ?? null,
-          replyToSenderName: data.replyToSenderName  ?? null,
-        }
-      })
-      msgs.sort((a, b) => (a.at?.seconds ?? 0) - (b.at?.seconds ?? 0))
-      setMessages(msgs)
-      setLoadingMsgs(false)
-    }, () => setLoadingMsgs(false))
-    return unsub
-  }, [selectedConvId])
-
-  // Mark conversation as read when opened / new messages arrive
-  useEffect(() => {
-    if (!selectedConvId || !socialUser) return
-    updateDoc(doc(socialDb, 'conversations', selectedConvId), {
-      [`readAt.${socialUser.uid}`]: serverTimestamp(),
-    }).catch(() => {})
-  }, [selectedConvId, messages.length])
-
-  // Watch other person's lastReadAt for read receipts
-  useEffect(() => {
-    if (!selectedConvId || !socialUser) { setOtherReadAt(null); return }
-    const unsub = onSnapshot(doc(socialDb, 'conversations', selectedConvId), snap => {
-      if (!snap.exists()) return
-      const data = snap.data()
-      const participants: string[] = data.participantUids ?? []
-      const otherUid = participants.find(u => u !== socialUser.uid) ?? null
-      if (!otherUid) { setOtherReadAt(null); return }
-      const ts = data.readAt?.[otherUid]
-      setOtherReadAt(ts?.toDate?.() ?? null)
-    }, () => {})
-    return unsub
-  }, [selectedConvId, socialUser?.uid])
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    msgEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Typing indicator listener
-  useEffect(() => {
-    if (!selectedConvId || !selectedConv || !socialUser) { setOtherIsTyping(false); return }
-    const otherUid = selectedConv.participantUids.find(u => u !== socialUser.uid) ?? null
-    if (!otherUid) { setOtherIsTyping(false); return }
-    const unsub = onSnapshot(doc(socialDb, 'conversations', selectedConvId), snap => {
-      const d = snap.data()
-      const ts = d?.typing?.[otherUid]
-      if (!ts) { setOtherIsTyping(false); return }
-      const date: Date = ts?.toDate ? ts.toDate() : new Date(ts.seconds * 1000)
-      setOtherIsTyping(Date.now() - date.getTime() < 5000)
-    }, () => {})
-    return unsub
-  }, [selectedConvId, socialUser?.uid])
-
-  // Request notification permission when user logs in
-  useEffect(() => {
-    if (!socialUser) return
-    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {})
-    }
-  }, [socialUser?.uid])
-
-  // Notify when new messages arrive on non-selected conversations
-  useEffect(() => {
-    if (!socialUser || conversations.length === 0) return
-    const prev = prevConvTimestampsRef.current
-    for (const conv of conversations) {
-      const lastAt = conv.lastMessageAt?.seconds ?? conv.lastMessage?.at?.seconds ?? 0
-      const prevAt = prev[conv.id] ?? -1
-      if (prevAt >= 0 && lastAt > prevAt && conv.lastSenderUid !== socialUser.uid && conv.id !== selectedConvId) {
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          new Notification(`${conv.otherName ?? 'Alguien'} te envió un mensaje`, {
-            body: convLastText(conv.lastMessage) || '…',
-          })
-        }
-      }
-      prev[conv.id] = lastAt
-    }
-  }, [conversations, selectedConvId, socialUser?.uid])
-
-  async function sendMessage() {
-    if (!msgInput.trim() || !selectedConvId || !socialUser || sendingMsg) return
-    setSendingMsg(true)
-    const text = msgInput.trim()
-    const replySnap = replyTo ? { id: replyTo.id, text: replyTo.text, senderName: replyTo.senderName } : null
-    setMsgInput('')
-    setReplyTo(null)
-    try {
-      await addDoc(collection(socialDb, 'conversations', selectedConvId, 'messages'), {
-        textCipher: text,
-        text,
-        senderUid: socialUser.uid,
-        at:        serverTimestamp(),
-        type:      'text',
-        attachments: [],
-        ...(replySnap ? {
-          replyToId:         replySnap.id,
-          replyToText:       replySnap.text,
-          replyToSenderName: replySnap.senderName,
-        } : {}),
-      })
-      await updateDoc(doc(socialDb, 'conversations', selectedConvId), {
-        lastMessage:    { text, senderUid: socialUser.uid, at: new Date() },
-        lastSenderUid:  socialUser.uid,
-        lastMessageAt:  serverTimestamp(),
-        [`readAt.${socialUser.uid}`]: serverTimestamp(),
-      })
-    } catch { setMsgInput(text) }
-    finally { setSendingMsg(false) }
-  }
-
-  // ── Message actions ───────────────────────────────────────────────────────────
-
-  function openCtxMenu(e: React.MouseEvent, msg: ChatMessage) {
-    e.preventDefault()
-    const menuW = 250
-    const menuH = 420
-    const x = (e.clientX + menuW > window.innerWidth)
-      ? Math.max(0, e.clientX - menuW)
-      : e.clientX
-    const y = Math.min(e.clientY, window.innerHeight - menuH)
-    setCtxMenu({ msg, x, y })
-  }
-
-  function copyMsg(text: string) {
-    const el = document.createElement('textarea')
-    el.value = text
-    el.style.cssText = 'position:fixed;opacity:0;pointer-events:none'
-    document.body.appendChild(el)
-    el.select()
-    document.execCommand('copy')
-    document.body.removeChild(el)
-    setCtxMenu(null)
-  }
-
-  async function deleteForEveryone(msgId: string) {
-    if (!selectedConvId) return
-    await deleteDoc(doc(socialDb, 'conversations', selectedConvId, 'messages', msgId)).catch(() => {})
-    setCtxMenu(null)
-  }
-
-  function deleteForMe(msgId: string) {
-    setMessages(prev => prev.filter(m => m.id !== msgId))
-    setCtxMenu(null)
-  }
-
-  function startEdit(msg: ChatMessage) {
-    setEditingId(msg.id); setEditText(msg.text); setCtxMenu(null)
-  }
-
-  async function saveEdit() {
-    if (!selectedConvId || !editingId || !editText.trim()) { setEditingId(null); return }
-    await updateDoc(doc(socialDb, 'conversations', selectedConvId, 'messages', editingId), {
-      textCipher: editText.trim(), text: editText.trim(), editedAt: serverTimestamp(),
-    }).catch(() => {})
-    setEditingId(null)
-  }
-
-  async function toggleReaction(msgId: string, key: string) {
-    if (!selectedConvId || !socialUser) return
-    const msg  = messages.find(m => m.id === msgId)
-    const alreadyReacted = !!msg?.reactions?.[key]?.[socialUser.uid]
-    const ref  = doc(socialDb, 'conversations', selectedConvId, 'messages', msgId)
-    const field = `reactions.${key}.${socialUser.uid}`
-    await updateDoc(ref, {
-      [field]: alreadyReacted ? deleteField() : true,
-    }).catch(() => {})
-    setCtxMenu(null)
-  }
-
-  async function doForward(toConvId: string) {
-    if (!fwdMsg || !socialUser) return
-    const text = fwdMsg.text
-    await addDoc(collection(socialDb, 'conversations', toConvId, 'messages'), {
-      textCipher: text,
-      text,
-      senderUid: socialUser.uid,
-      at: serverTimestamp(),
-      type: 'text',
-      attachments: [],
-      meta: { forwarded: true },
-    })
-    await updateDoc(doc(socialDb, 'conversations', toConvId), {
-      updatedAt: serverTimestamp(),
-      lastMessage: { text, senderUid: socialUser.uid, at: serverTimestamp() },
-      lastSenderUid: socialUser.uid,
-      lastMessageAt: serverTimestamp(),
-      [`readAt.${socialUser.uid}`]: serverTimestamp(),
-    })
-    setFwdMsg(null)
-  }
-
-  function toggleSelectMsg(msgId: string) {
-    setSelectedIds(prev => { const n = new Set(prev); n.has(msgId) ? n.delete(msgId) : n.add(msgId); return n })
-  }
-
-  async function deleteSelectedMsgs() {
-    if (!selectedConvId) return
-    await Promise.all([...selectedIds].map(id =>
-      deleteDoc(doc(socialDb, 'conversations', selectedConvId, 'messages', id)).catch(() => {})
-    ))
-    setSelectedIds(new Set()); setSelectMode(false)
-  }
-
-  function closeNewChat() {
-    setShowNewChat(false); setNewChatInput(''); setNewChatSugg([])
-    setNewChatType('direct'); setNewChatGroupName(''); setNewChatTargets([])
-  }
-
-  async function startNewChat(uid: string) {
-    if (!socialUser) return
-    const existing = conversations.find(c => !c.isGroup && c.participantUids.includes(uid))
-    if (existing) { setSelectedConvId(existing.id); closeNewChat(); return }
-    const ref = await addDoc(collection(socialDb, 'conversations'), {
-      participantUids: [socialUser.uid, uid],
-      createdAt: serverTimestamp(),
-      lastMessage: null, lastMessageAt: null,
-    })
-    setSelectedConvId(ref.id); closeNewChat()
-  }
-
-  async function createGroupChat() {
-    if (!socialUser || newChatTargets.length === 0) return
-    const name = newChatGroupName.trim() || 'Grupo'
-    const ref = await addDoc(collection(socialDb, 'conversations'), {
-      participantUids: [socialUser.uid, ...newChatTargets.map(t => t.uid)],
-      groupName: name,
-      isGroup: true,
-      createdAt: serverTimestamp(),
-      lastMessage: null, lastMessageAt: null,
-    })
-    setSelectedConvId(ref.id); closeNewChat()
-  }
-
-  function deleteConvForMe(convId: string) {
-    setConversations(prev => prev.filter(c => c.id !== convId))
-    if (selectedConvId === convId) setSelectedConvId(null)
-    setConvMenuId(null)
-  }
-
-  async function deleteConvForBoth(convId: string) {
-    try {
-      const msgsSnap = await getDocs(collection(socialDb, 'conversations', convId, 'messages'))
-      const batch = writeBatch(socialDb)
-      msgsSnap.docs.forEach(d => batch.delete(d.ref))
-      batch.delete(doc(socialDb, 'conversations', convId))
-      await batch.commit()
-    } catch { /* ignore */ }
-    if (selectedConvId === convId) setSelectedConvId(null)
-    setConvMenuId(null)
-  }
-
   // Firebase auth initializing
   if (socialUser === undefined) {
     return (
@@ -1635,12 +1146,10 @@ export default function FriendsPage() {
     const p = resolvePresence(presenceMap[f.uid])
     return !p?.playing && !p?.online
   })
-  const selectedConv = conversations.find(c => c.id === selectedConvId) ?? null
 
   return (
     <div
       style={{ height:'100%', display:'flex', flexDirection:'column', background:C.bg, animation:'fadeIn .25s ease' }}
-      onClick={() => { if (ctxMenu) setCtxMenu(null); if (showEmoji) setShowEmoji(false) }}
     >
       <style>{STYLES}</style>
 
@@ -1675,7 +1184,7 @@ export default function FriendsPage() {
       {/* Tab bar */}
       <div style={{ display:'flex', flexShrink:0, background:C.card, borderBottom:`1px solid ${C.border}` }}>
         {(['friends','chat'] as const).map(t => (
-          <button key={t} onClick={() => { setMainTab(t); setSelectedConvId(null); setSelectMode(false); setSelectedIds(new Set()); setCtxMenu(null) }} style={{
+          <button key={t} onClick={() => setMainTab(t)} style={{
             flex:1, padding:'10px 0', border:'none', background:'none', cursor:'pointer',
             fontSize:12, fontWeight:600,
             color: mainTab === t ? C.accent2 : C.muted,
@@ -1685,7 +1194,7 @@ export default function FriendsPage() {
             <span style={{ display:'flex', alignItems:'center', gap:5, justifyContent:'center' }}>
               {t === 'friends'
                 ? <>Amigos{friends.length > 0 ? ` · ${friends.length}` : ''}{friendRequests.length > 0 && <span style={{ width:7, height:7, borderRadius:'50%', background:C.red, display:'inline-block', flexShrink:0 }} />}</>
-                : `Mensajes${conversations.length > 0 ? ` · ${conversations.length}` : ''}`
+                : <>Mensajes{chatUnread > 0 && <span style={{ minWidth:18, height:18, padding:'0 5px', borderRadius:9, background:C.accent, color:'#fff', fontSize:10, display:'inline-flex', alignItems:'center', justifyContent:'center' }}>{chatUnread}</span>}</>
               }
             </span>
           </button>
@@ -1794,7 +1303,7 @@ export default function FriendsPage() {
                   <div>
                     <SectionLabel label="Jugando ahora" count={playing.length} color={C.green} />
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                      {playing.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} />)}
+                      {playing.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} onMessage={() => { setChatOpenWith(f.uid); setMainTab('chat') }} />)}
                     </div>
                   </div>
                 )}
@@ -1802,7 +1311,7 @@ export default function FriendsPage() {
                   <div>
                     <SectionLabel label="En línea" count={online.length} color={C.blue} />
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                      {online.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} />)}
+                      {online.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} onMessage={() => { setChatOpenWith(f.uid); setMainTab('chat') }} />)}
                     </div>
                   </div>
                 )}
@@ -1810,7 +1319,7 @@ export default function FriendsPage() {
                   <div style={{ opacity:.7 }}>
                     <SectionLabel label="Desconectados" count={offline.length} color={C.muted} />
                     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                      {offline.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} />)}
+                      {offline.map((f, i) => <FriendCard key={f.uid} f={{ ...f, presence: resolvePresence(presenceMap[f.uid]) }} delay={i * 60} onMessage={() => { setChatOpenWith(f.uid); setMainTab('chat') }} />)}
                     </div>
                   </div>
                 )}
@@ -1820,615 +1329,25 @@ export default function FriendsPage() {
         </div>
       )}
 
-      {/* ── Chat tab — split pane ── */}
+      {/* ── Chat tab ── */}
       {mainTab === 'chat' && (
-        <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
-
-          {/* Left panel: conversation list */}
-          <div style={{ width:240, borderRight:`1px solid ${C.border}`, display:'flex', flexDirection:'column', flexShrink:0, background:C.card }}>
-            {/* Header row */}
-            <div style={{ padding:'12px 12px 10px', display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
-              <span style={{ fontSize:18, fontWeight:600, color:C.text }}>Chatear</span>
-              <button onClick={() => setShowNewChat(true)} title="Nueva conversación" style={{
-                width:32, height:32, borderRadius:'50%',
-                border:`1px solid ${C.border}`,
-                background:'none', color:C.text, fontSize:20, cursor:'pointer',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                lineHeight:1,
-              }}>+</button>
-            </div>
-
-            {/* Conversation list */}
-            <div style={{ flex:1, overflowY:'auto' }}>
-              {loadingConvs ? (
-                <div style={{ padding:'20px 8px', display:'flex', justifyContent:'center' }}><Spinner size={14} color={C.muted} /></div>
-              ) : conversations.length === 0 ? (
-                <div style={{ padding:'16px 10px', textAlign:'center' }}>
-                  <p style={{ fontSize:10, color:C.muted, margin:'0 0 8px', lineHeight:1.5 }}>Sin conversaciones</p>
-                  <button onClick={() => window.api.shell.openExternal(`${WEB}/mensajes`)} style={{ padding:'4px 8px', borderRadius:6, border:`1px solid ${C.border}`, background:'transparent', color:C.muted, fontSize:10, cursor:'pointer' }}>Abrir →</button>
-                </div>
-              ) : conversations.map(conv => {
-                const active   = selectedConvId === conv.id
-                const hovered  = hoveredConvId === conv.id
-                const menuOpen = convMenuId === conv.id
-                const convPresence  = !conv.isGroup
-                  ? resolvePresence(presenceMap[conv.otherUid] ?? null)
-                  : null
-                const isPlayingConv = !!convPresence?.playing
-                const isOnlineConv  = !isPlayingConv && !!convPresence?.online
-                return (
-                  <div key={conv.id} style={{ position:'relative' }}
-                    onMouseEnter={() => setHoveredConvId(conv.id)}
-                    onMouseLeave={() => { setHoveredConvId(null); if (convMenuId === conv.id) setConvMenuId(null) }}
-                  >
-                    <button onClick={() => { setSelectedConvId(conv.id); setSelectMode(false); setSelectedIds(new Set()) }} className="f1-conv-item" style={{
-                      width:'100%', display:'flex', alignItems:'center', gap:10,
-                      padding:'10px 12px', border:'none', borderBottom:`1px solid ${C.border}`,
-                      cursor:'pointer', textAlign:'left', boxSizing:'border-box',
-                      background: active ? C.card2 : 'none',
-                    }}>
-                      {/* Avatar + presencia */}
-                      <div style={{ position:'relative', flexShrink:0 }}>
-                        <Avatar name={conv.otherName ?? '?'} size={46} />
-                        {isPlayingConv && <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background:C.green, border:`2px solid ${C.card}` }} />}
-                        {isOnlineConv  && <span style={{ position:'absolute', bottom:-2, right:-2, width:12, height:12, borderRadius:'50%', background:C.blue,  border:`2px solid ${C.card}` }} />}
-                      </div>
-                      {/* Contenido */}
-                      <div style={{ flex:1, minWidth:0 }}>
-                        {/* Fila 1: nombre + timestamp */}
-                        <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:2 }}>
-                          <span style={{ fontSize:14, fontWeight: conv.hasUnread ? 700 : 600, color: active || conv.hasUnread ? C.text : C.sub, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
-                            {conv.otherName ?? 'Usuario'}
-                          </span>
-                          {convLastAt(conv) && (
-                            <span style={{ fontSize:11, color: conv.hasUnread ? C.accent2 : C.muted, fontWeight: conv.hasUnread ? 500 : 400, whiteSpace:'nowrap', flexShrink:0 }}>
-                              {fmtTime(convLastAt(conv))}
-                            </span>
-                          )}
-                        </div>
-                        {/* Fila 2: último mensaje + badge/menú */}
-                        <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                          <p style={{ fontSize:12, color: conv.hasUnread ? 'rgba(255,255,255,.75)' : C.muted, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>
-                            {convLastText(conv.lastMessage) || '—'}
-                          </p>
-                          {conv.hasUnread && !(hovered || menuOpen) && (
-                            <span style={{ flexShrink:0, background:'#7c3aed', color:'#fff', fontSize:10, fontWeight:700, lineHeight:1, padding:'2px 5px', borderRadius:99, minWidth:16, textAlign:'center' }}>NEW</span>
-                          )}
-                          {(hovered || menuOpen) && (
-                            <span
-                              onClick={e => { e.stopPropagation(); setConvMenuId(menuOpen ? null : conv.id) }}
-                              style={{ fontSize:15, color:C.muted, padding:'0 2px', lineHeight:1, cursor:'pointer', flexShrink:0 }}
-                            >⋯</span>
-                          )}
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Conversation menu */}
-                    {menuOpen && (
-                      <div style={{ position:'absolute', top:'100%', right:8, zIndex:50, background:C.card2, border:`1px solid ${C.border}`, borderRadius:10, overflow:'hidden', boxShadow:'0 4px 16px rgba(0,0,0,.5)', minWidth:180 }}>
-                        {([
-                          { label:'Eliminar para mí',     fn: () => deleteConvForMe(conv.id),     red: false },
-                          { label:'Eliminar para ambos',  fn: () => deleteConvForBoth(conv.id),   red: true  },
-                          { label:'Abrir en web →',       fn: () => { setConvMenuId(null); window.api.shell.openExternal(`${WEB}/mensajes`) }, red: false },
-                        ] as {label:string;fn:()=>void;red:boolean}[]).map(item => (
-                          <button key={item.label} onClick={item.fn} style={{ width:'100%', padding:'9px 14px', border:'none', background:'none', color: item.red ? C.red : C.text, fontSize:12, cursor:'pointer', textAlign:'left' }}
-                            onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.06)'}
-                            onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'none'}
-                          >{item.label}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Right panel */}
-          {!selectedConvId ? (
-            <div style={{ flex:1, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:8 }}>
-              <p style={{ fontSize:13, color:C.muted, margin:0 }}>Selecciona una conversación</p>
-            </div>
-          ) : (
-            <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-              {/* Header */}
-              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px', borderBottom:`1px solid ${C.border}`, flexShrink:0, background:C.card }}>
-                <Avatar name={selectedConv?.otherName ?? '?'} size={40} />
-                <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ fontSize:13, fontWeight:600, color:C.text, margin:0 }}>{selectedConv?.otherName ?? 'Usuario'}</p>
-                  {selectedConv && !selectedConv.isGroup && (() => {
-                    const otherFriend = friends.find(f => f.uid === selectedConv.otherUid)
-                    const slug = otherFriend?.username?.replace(/^@/, '') ?? null
-                    return slug ? <p style={{ fontSize:11, color:C.muted, margin:'1px 0 0' }}>@{slug}</p> : null
-                  })()}
-                </div>
-                {selectMode ? (
-                  <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-                    <span style={{ fontSize:11, color:C.muted, marginRight:2 }}>{selectedIds.size} sel.</span>
-                    <button onClick={() => setSelectedIds(new Set(messages.map(m => m.id)))} style={{ padding:'3px 9px', borderRadius:6, border:`1px solid rgba(168,85,247,.4)`, background:'rgba(124,58,237,.12)', color:C.accent2, fontSize:11, cursor:'pointer', fontWeight:600 }}>Todo</button>
-                    <button onClick={deleteSelectedMsgs} disabled={selectedIds.size === 0} style={{ padding:'3px 9px', borderRadius:6, border:`1px solid ${selectedIds.size > 0 ? 'rgba(248,113,113,.4)' : C.border}`, background: selectedIds.size > 0 ? 'rgba(248,113,113,.1)' : 'transparent', color: selectedIds.size > 0 ? C.red : C.muted, fontSize:11, cursor: selectedIds.size > 0 ? 'pointer' : 'default', fontWeight:600 }}>Borrar</button>
-                    <button onClick={() => { setSelectMode(false); setSelectedIds(new Set()) }} style={{ padding:'3px 8px', borderRadius:6, border:`1px solid ${C.border}`, background:'rgba(255,255,255,.05)', color:C.muted, fontSize:12, cursor:'pointer' }}>✕</button>
-                  </div>
-                ) : (
-                  <button onClick={() => setSelectMode(true)} style={{ padding:'4px 8px', borderRadius:6, border:'none', background:'none', color:C.muted, fontSize:11, cursor:'pointer' }}>Selec.</button>
-                )}
-              </div>
-
-              {/* Messages */}
-              <div style={{ flex:1, overflowY:'auto', padding:'12px 14px', display:'flex', flexDirection:'column', gap:4 }}>
-                {loadingMsgs ? (
-                  <div style={{ display:'flex', justifyContent:'center', padding:'20px 0' }}><Spinner color={C.muted} /></div>
-                ) : messages.length === 0 ? (
-                  <p style={{ fontSize:12, color:C.muted, textAlign:'center', marginTop:24 }}>Ningún mensaje aún. ¡Di hola!</p>
-                ) : messages.map((m, index) => {
-                  const mine      = m.senderUid === socialUser.uid
-                  const isEditing = editingId === m.id
-                  const isSelected = selectedIds.has(m.id)
-                  const reacts    = REACTIONS
-                    .map(r => ({
-                      key:  r.key,
-                      emoji: r.emoji,
-                      uids: Object.keys(m.reactions?.[r.key] ?? {}),
-                    }))
-                    .filter(r => r.uids.length > 0)
-
-                  const msgAt     = m.at?.toDate ? m.at.toDate() : (m.at ? new Date(m.at.seconds * 1000) : null)
-                  const isRead    = !!(mine && otherReadAt && msgAt && otherReadAt >= msgAt)
-
-                  const showDots = hoveredMsgId === m.id && !selectMode && !isEditing
-
-                  const prevMsg  = index > 0 ? messages[index - 1] : null
-                  const prevAt   = prevMsg?.at?.toDate ? prevMsg.at.toDate() : (prevMsg?.at ? new Date(prevMsg.at.seconds * 1000) : null)
-                  const showDateSep = msgAt && (!prevAt || !isSameDay(msgAt, prevAt))
-
-                  return (
-                    <React.Fragment key={m.id}>
-                    {showDateSep && (
-                      <div style={{ textAlign:'center', margin:'16px 0 8px' }}>
-                        <span style={{ fontSize:12, color:C.muted, opacity:0.7 }}>{fmtDateSep(m.at)}</span>
-                      </div>
-                    )}
-                    <div
-                      style={{ display:'flex', alignItems:'center', gap:6, padding:'1px 0', borderRadius:8, background: isSelected ? 'rgba(124,58,237,.18)' : 'transparent', transition:'background .1s' }}
-                      onClick={() => selectMode && toggleSelectMsg(m.id)}
-                      onDoubleClick={e => { if (!selectMode) { spawnHeart(e, m.id); toggleReaction(m.id, 'heart') } }}
-                      onContextMenu={e => !selectMode && openCtxMenu(e, m)}
-                      onMouseEnter={() => setHoveredMsgId(m.id)}
-                      onMouseLeave={() => { setHoveredMsgId(null); swipeRef.current.dragging = false; setSwipeOffset(null) }}
-                      onMouseDown={e => { if (selectMode) return; swipeRef.current = { startX: e.clientX, dragging: true, triggered: false } }}
-                      onMouseMove={e => {
-                        if (!swipeRef.current.dragging) return
-                        const dx = e.clientX - swipeRef.current.startX
-                        if (dx > 0 && dx < 80) setSwipeOffset({ msgId: m.id, offset: dx * 0.45 })
-                        if (dx >= 60 && !swipeRef.current.triggered) {
-                          swipeRef.current.triggered = true
-                          swipeRef.current.dragging = false
-                          setSwipeOffset(null)
-                          const isMineSwipe = m.senderUid === socialUser?.uid
-                          setReplyTo({ id: m.id, text: m.text, senderName: isMineSwipe ? 'Tú' : (selectedConv?.otherName ?? 'Ellos') })
-                        }
-                      }}
-                      onMouseUp={() => { swipeRef.current.dragging = false; setSwipeOffset(null) }}
-                    >
-                      {/* Checkbox — always left, vertically centred */}
-                      {selectMode && (
-                        <div style={{ width:20, height:20, borderRadius:6, border:`2px solid ${isSelected ? C.accent : C.muted}`, background: isSelected ? C.accent : 'transparent', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', marginLeft:4, boxShadow: isSelected ? `0 0 8px rgba(124,58,237,.4)` : 'none', transition:'all .12s' }}>
-                          {isSelected && <span style={{ color:'#fff', fontSize:12, lineHeight:1, fontWeight:700 }}>✓</span>}
-                        </div>
-                      )}
-
-                      {/* Message column — takes remaining width, aligns content by sender */}
-                      <div id={`msg-${m.id}`} style={{ flex:1, display:'flex', flexDirection:'column', alignItems: mine ? 'flex-end' : 'flex-start', minWidth:0, position:'relative', marginBottom: reacts.length > 0 ? 18 : 0 }}>
-                        {/* Bubble — 3-dot is absolute so it never shifts layout */}
-                        {isEditing ? (
-                          <div style={{ display:'flex', gap:4, maxWidth:300 }}>
-                            <input
-                              autoFocus value={editText} onChange={e => setEditText(e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') setEditingId(null) }}
-                              style={{ flex:1, background:C.card, border:`1px solid ${C.accent}`, borderRadius:8, padding:'6px 10px', color:C.text, fontSize:13, outline:'none' }}
-                            />
-                            <button onClick={saveEdit} style={{ padding:'6px 10px', borderRadius:8, border:'none', background:`linear-gradient(135deg,${C.accent},#6d28d9)`, color:'#fff', cursor:'pointer', fontSize:12 }}>✓</button>
-                            <button onClick={() => setEditingId(null)} style={{ padding:'6px 8px', borderRadius:8, border:`1px solid ${C.border}`, background:'transparent', color:C.muted, cursor:'pointer', fontSize:12 }}>✕</button>
-                          </div>
-                        ) : (() => {
-                          const swipeOff = swipeOffset?.msgId === m.id ? swipeOffset.offset : 0
-                          return (
-                          <div data-bubble="true" style={{
-                            position:'relative',
-                            maxWidth:'78%', padding:'9px 14px',
-                            wordBreak:'break-word', overflowWrap:'break-word',
-                            borderRadius: mine ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-                            background: isSelected ? (mine ? 'rgba(124,58,237,.5)' : 'rgba(255,255,255,.12)') : (mine ? '#7c3aed' : C.card2),
-                            color: mine ? '#fff' : C.text,
-                            fontSize:14, lineHeight:1.5,
-                            border: 'none',
-                            cursor: selectMode ? 'pointer' : 'default',
-                            transform: swipeOff ? `translateX(${mine ? -swipeOff : swipeOff}px)` : undefined,
-                            transition: swipeOff ? 'none' : 'transform .18s ease-out',
-                          }}>
-                            {m.forwarded && <span style={{ fontSize:11, color: mine ? 'rgba(255,255,255,.6)' : C.muted, display:'block', marginBottom:2 }}>↪ Reenviado</span>}
-                            {/* Reply quote inside bubble */}
-                            {m.replyToId && (
-                              <button
-                                type="button"
-                                onClick={() => jumpToMessage(m.replyToId!)}
-                                style={{
-                                  display:'flex', alignItems:'stretch',
-                                  width:'100%', textAlign:'left',
-                                  background: mine ? 'rgba(0,0,0,.22)' : 'rgba(255,255,255,.08)',
-                                  border:'none', padding:0,
-                                  cursor:'pointer',
-                                  marginBottom:7,
-                                  borderRadius:10,
-                                  overflow:'hidden',
-                                  opacity:0.9,
-                                  transition:'opacity .12s',
-                                }}
-                                onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.opacity = '1'}
-                                onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.opacity = '0.9'}
-                              >
-                                <div style={{ width:4, flexShrink:0, borderRadius:'10px 0 0 10px', background: mine ? 'rgba(255,255,255,.75)' : C.accent2 }} />
-                                <div style={{ padding:'6px 10px', fontSize:12, lineHeight:1.35, maxHeight:50, overflow:'hidden' }}>
-                                  <span style={{ fontWeight:700, display:'block', color: mine ? '#fff' : C.accent2, marginBottom:1 }}>
-                                    {m.replyToSenderName ?? '↩'}
-                                  </span>
-                                  <span style={{ display:'block', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', color: mine ? 'rgba(255,255,255,.75)' : C.muted }}>
-                                    {m.replyToText || '📎 adjunto'}
-                                  </span>
-                                </div>
-                              </button>
-                            )}
-                            {m.text}
-                            {m.edited && <span style={{ fontSize:10, color: mine ? 'rgba(255,255,255,.5)' : C.muted, marginLeft:5 }}>editado</span>}
-                            {/* Timestamp + read receipt — inside bubble, bottom-right */}
-                            <div style={{ display:'flex', justifyContent:'flex-end', alignItems:'center', gap:3, marginTop:3, marginBottom:-2 }}>
-                              <span style={{ fontSize:11, color: mine ? 'rgba(255,255,255,.7)' : C.muted }}>{fmtMsgTime(m.at)}</span>
-                              {mine && (
-                                isRead
-                                  ? <span style={{ fontSize:11, color:'#a855f7', lineHeight:1, marginLeft:2 }}>✓✓</span>
-                                  : <span style={{ fontSize:12, color:'rgba(255,255,255,.5)', lineHeight:1, marginLeft:2 }}>✓</span>
-                              )}
-                            </div>
-                            {showDots && (
-                              <button
-                                onClick={e => { e.stopPropagation(); if (ctxMenu?.msg.id === m.id) setCtxMenu(null); else openCtxMenu(e, m) }}
-                                onDoubleClick={e => e.stopPropagation()}
-                                style={{
-                                  position:'absolute', top:'50%', transform:'translateY(-50%)',
-                                  ...(mine ? { right:'calc(100% + 6px)' } : { left:'calc(100% + 6px)' }),
-                                  width:28, height:28, borderRadius:'50%',
-                                  background:'rgba(30,30,40,.95)', border:`1px solid ${C.border}`,
-                                  color:C.sub, cursor:'pointer', fontSize:14,
-                                  display:'flex', alignItems:'center', justifyContent:'center',
-                                  zIndex:10, flexShrink:0,
-                                }}
-                              >⋮</button>
-                            )}
-                            {floatingHearts.filter(h => h.msgId === m.id).map(h => (
-                              <span key={h.id} className="float-heart" style={{ left: h.x - 14, top: h.y - 14 }} aria-hidden>❤️</span>
-                            ))}
-                          </div>
-                          )
-                        })()}
-
-                        {/* Reactions — absolute, below bubble */}
-                        {reacts.length > 0 && (
-                          <div style={{
-                            position: 'absolute',
-                            bottom: -18,
-                            ...(mine ? { right: 4 } : { left: 4 }),
-                            display: 'flex',
-                            gap: 3,
-                            flexWrap: 'wrap',
-                          }}>
-                            {reacts.map(r => {
-                              const isMine = r.uids.includes(socialUser.uid)
-                              return (
-                                <button key={r.key} onClick={() => !selectMode && toggleReaction(m.id, r.key)} style={{
-                                  background: isMine ? 'rgba(124,58,237,.30)' : 'rgba(255,255,255,.08)',
-                                  border: `1px solid ${isMine ? 'rgba(168,85,247,.45)' : C.border}`,
-                                  borderRadius: 999,
-                                  padding: '1px 6px',
-                                  fontSize: 13,
-                                  cursor: 'pointer',
-                                  color: C.text,
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 3,
-                                  backdropFilter: 'blur(4px)',
-                                }}>
-                                  {r.emoji}
-                                  {r.uids.length > 1 && <span style={{ fontSize: 10, fontWeight: 600 }}>{r.uids.length}</span>}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    </React.Fragment>
-                  )
-                })}
-                <div ref={msgEndRef} />
-              </div>
-
-              {/* Reply preview */}
-              {replyTo && (
-                <div style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', background:'#111116', borderTop:`1px solid ${C.border}`, flexShrink:0 }}>
-                  <div style={{ width:4, height:36, borderRadius:9999, background:C.accent2, flexShrink:0 }} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <p style={{ fontSize:12, fontWeight:600, color:C.accent2, margin:'0 0 2px' }}>{replyTo.senderName}</p>
-                    <p style={{ fontSize:12, color:'rgba(255,255,255,.6)', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{replyTo.text || '📎 adjunto'}</p>
-                  </div>
-                  <button onClick={() => setReplyTo(null)} style={{ background:'none', border:'none', color:'rgba(255,255,255,.5)', cursor:'pointer', padding:6, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:16, lineHeight:1 }}
-                    onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.color = '#fff'}
-                    onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.color = 'rgba(255,255,255,.5)'}
-                  >✕</button>
-                </div>
-              )}
-
-              {/* Typing indicator */}
-              {otherIsTyping && (
-                <div style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 14px 0', fontSize:12, color:C.muted, opacity:0.7, userSelect:'none' }}>
-                  <div style={{ display:'flex', gap:3 }}>
-                    {[0,1,2].map(i => (
-                      <span key={i} style={{ width:5, height:5, borderRadius:'50%', background:C.muted, display:'inline-block', animation:'typingDot 1.2s infinite ease-in-out', animationDelay:`${i * 0.2}s` }} />
-                    ))}
-                  </div>
-                  {selectedConv?.otherName ?? 'Alguien'} está escribiendo…
-                </div>
-              )}
-
-              {/* Input */}
-              <div style={{ borderTop: replyTo ? 'none' : `1px solid ${C.border}`, flexShrink:0, position:'relative' }}>
-                {/* Emoji picker panel */}
-                {showEmoji && (
-                  <div style={{ position:'absolute', bottom:'100%', left:0, right:0, background:C.card2, border:`1px solid ${C.border}`, borderRadius:'12px 12px 0 0', padding:'10px 12px', maxHeight:200, overflowY:'auto' }}>
-                    {[
-                      ['😀','😂','🥰','😎','😢','😡','🤔','😅','🤣','😊','🥺','😏','🤩','😭','🥳','😬'],
-                      ['👍','👎','👋','🤝','🙏','👏','💪','✌️','👌','🤙','🫶','🤜','🤛','✊','👊','🫂'],
-                      ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','💔','💕','💞','💓','💗','💖','💝','🔥'],
-                      ['🎉','🎊','✨','⭐','🌟','💯','🎯','💎','🏆','🎮','🎸','🍕','🐶','🐱','🦆','👀'],
-                    ].map((row, i) => (
-                      <div key={i} style={{ display:'flex', flexWrap:'wrap', gap:2, marginBottom:4 }}>
-                        {row.map(e => (
-                          <button key={e} onClick={() => setMsgInput(v => v + e)} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, padding:'2px 3px', borderRadius:4, lineHeight:1 }}
-                            onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'}
-                            onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'none'}
-                          >{e}</button>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px' }}>
-                  <button onClick={() => setShowEmoji(v => !v)} style={{ background: showEmoji ? 'rgba(124,58,237,.15)' : 'none', border:'none', color: showEmoji ? C.accent2 : C.muted, cursor:'pointer', fontSize:18, padding:'4px 7px', borderRadius:8, lineHeight:1, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>😊</button>
-                  {/* Pill: textarea + send */}
-                  <div style={{ flex:1, display:'flex', alignItems:'flex-end', border:`1px solid ${C.border}`, borderRadius:9999, padding:'2px 4px', background:'transparent', overflow:'hidden' }}>
-                    <textarea
-                      ref={taRef}
-                      placeholder="Mensaje"
-                      value={msgInput}
-                      rows={1}
-                      onChange={e => {
-                        setMsgInput(e.target.value)
-                        e.target.style.height = 'auto'
-                        e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px'
-                        if (selectedConvId && socialUser) {
-                          updateDoc(doc(socialDb, 'conversations', selectedConvId), {
-                            [`typing.${socialUser.uid}`]: serverTimestamp(),
-                          }).catch(() => {})
-                          if (typingTimerRef.current) clearTimeout(typingTimerRef.current)
-                          typingTimerRef.current = setTimeout(() => {
-                            updateDoc(doc(socialDb, 'conversations', selectedConvId), {
-                              [`typing.${socialUser.uid}`]: null,
-                            }).catch(() => {})
-                          }, 4000)
-                        }
-                      }}
-                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-                      onFocus={() => setShowEmoji(false)}
-                      style={{ flex:1, background:'transparent', border:'none', color:C.text, fontSize:14, outline:'none', resize:'none', lineHeight:'20px', minHeight:36, maxHeight:160, overflowY:'auto', padding:'8px 4px' }}
-                    />
-                    <button
-                      onClick={sendMessage}
-                      disabled={!msgInput.trim() || sendingMsg}
-                      style={{
-                        flexShrink:0, width:36, height:36, borderRadius:'50%', border:'none',
-                        background: msgInput.trim() && !sendingMsg ? '#7c3aed' : 'rgba(255,255,255,.08)',
-                        color: msgInput.trim() && !sendingMsg ? '#fff' : 'rgba(255,255,255,.3)',
-                        cursor: msgInput.trim() && !sendingMsg ? 'pointer' : 'default',
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        marginBottom:2, transition:'background .15s',
-                      }}
-                    >
-                      {sendingMsg ? <Spinner size={14} color="#fff" /> : (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ transform:'rotate(-45deg)' }}>
-                          <line x1="22" y1="2" x2="11" y2="13"/>
-                          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── New conversation modal ── */}
-      {showNewChat && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.65)', zIndex:2500, display:'flex', alignItems:'center', justifyContent:'center' }}
-          onClick={closeNewChat}>
-          <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:20, width:500, maxHeight:'80vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,.7)', animation:'fadeUp .2s ease both' }}
-            onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div style={{ padding:'18px 20px', borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-              <p style={{ fontSize:16, fontWeight:700, color:C.text, margin:0 }}>Nueva conversación</p>
-              <button onClick={closeNewChat} style={{ background:'none', border:`1px solid ${C.border}`, borderRadius:8, color:C.muted, cursor:'pointer', fontSize:16, padding:'2px 10px', lineHeight:1.4 }}>×</button>
-            </div>
-
-            {/* Type toggle */}
-            <div style={{ padding:'16px 20px 0', display:'flex', gap:8 }}>
-              <button onClick={() => { setNewChatType('direct'); setNewChatTargets([]) }} style={{
-                flex:1, padding:'11px', borderRadius:12, border:'none', fontWeight:600, fontSize:14, cursor:'pointer',
-                background: newChatType === 'direct' ? `linear-gradient(135deg,${C.accent},#6d28d9)` : C.card,
-                color: newChatType === 'direct' ? '#fff' : C.muted,
-              }}>Chat directo</button>
-              <button onClick={() => { setNewChatType('group'); setNewChatTargets([]) }} style={{
-                flex:1, padding:'11px', borderRadius:12, border:`1px solid ${C.border}`, fontWeight:600, fontSize:14, cursor:'pointer',
-                background: newChatType === 'group' ? `linear-gradient(135deg,${C.accent},#6d28d9)` : 'transparent',
-                color: newChatType === 'group' ? '#fff' : C.muted,
-              }}>👥 Crear grupo</button>
-            </div>
-
-            {/* Group name (only for group) */}
-            {newChatType === 'group' && (
-              <div style={{ padding:'12px 20px 0' }}>
-                <input type="text" placeholder="Nombre del grupo…" value={newChatGroupName}
-                  onChange={e => setNewChatGroupName(e.target.value)}
-                  style={{ width:'100%', background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 14px', color:C.text, fontSize:14, outline:'none', boxSizing:'border-box' }} />
-              </div>
-            )}
-
-            {/* Search */}
-            <div style={{ padding:'12px 20px 0', position:'relative' }}>
-              <input autoFocus type="text" placeholder="Buscar @usuario…"
-                value={newChatInput}
-                onChange={e => setNewChatInput(normalizeHandle(e.target.value))}
-                style={{ width:'100%', background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'10px 14px', color:C.text, fontSize:14, outline:'none', boxSizing:'border-box' }} />
-              {newChatSugg.length > 0 && (
-                <div style={{ marginTop:6, background:C.card, border:`1px solid ${C.border}`, borderRadius:10, overflow:'hidden' }}>
-                  {newChatSugg.map(s => (
-                    <button key={s.slug} onMouseDown={() => {
-                      if (newChatType === 'direct') {
-                        startNewChat(s.uid)
-                      } else {
-                        if (!newChatTargets.find(t => t.uid === s.uid)) {
-                          setNewChatTargets(prev => [...prev, s])
-                        }
-                        setNewChatInput(''); setNewChatSugg([])
-                      }
-                    }} style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 14px', border:'none', borderBottom:`1px solid ${C.border}`, background:'none', cursor:'pointer', textAlign:'left' }}
-                      onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.06)'}
-                      onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'none'}
-                    >
-                      <Avatar name={s.slug} size={28} />
-                      <span style={{ fontSize:14, color:C.text }}>@{s.slug}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Selected group members */}
-            {newChatType === 'group' && newChatTargets.length > 0 && (
-              <div style={{ padding:'10px 20px 0', display:'flex', flexWrap:'wrap', gap:6 }}>
-                {newChatTargets.map(t => (
-                  <span key={t.uid} style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:20, background:'rgba(124,58,237,.18)', border:`1px solid rgba(124,58,237,.3)`, fontSize:12, color:C.text }}>
-                    @{t.slug}
-                    <button onClick={() => setNewChatTargets(prev => prev.filter(x => x.uid !== t.uid))} style={{ background:'none', border:'none', color:C.muted, cursor:'pointer', padding:0, fontSize:14, lineHeight:1 }}>×</button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Actions */}
-            <div style={{ padding:'16px 20px', display:'flex', gap:8, justifyContent:'flex-end', marginTop:'auto' }}>
-              <button onClick={closeNewChat} style={{ padding:'10px 20px', borderRadius:10, border:`1px solid ${C.border}`, background:'transparent', color:C.muted, fontSize:14, cursor:'pointer' }}>Cancelar</button>
-              <button
-                disabled={newChatType === 'group' ? newChatTargets.length === 0 : false}
-                onClick={() => newChatType === 'group' ? createGroupChat() : undefined}
-                style={{ padding:'10px 20px', borderRadius:10, border:'none', fontSize:14, fontWeight:600, cursor: newChatType === 'group' && newChatTargets.length > 0 ? 'pointer' : 'not-allowed',
-                  background: newChatType === 'group' && newChatTargets.length > 0 ? `linear-gradient(135deg,${C.accent},#6d28d9)` : C.card,
-                  color: newChatType === 'group' && newChatTargets.length > 0 ? '#fff' : C.muted,
-                }}>
-                {newChatType === 'direct' ? 'Buscar' : 'Crear grupo'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Context menu ── */}
-      {ctxMenu && (
-        <div
-          style={{ position:'fixed', top:ctxMenu.y, left:ctxMenu.x, zIndex:3000, background:C.card2, border:`1px solid ${C.border}`, borderRadius:14, boxShadow:'0 8px 32px rgba(0,0,0,.7)', minWidth:190, overflow:'hidden' }}
-          onClick={e => e.stopPropagation()}
-        >
-          {/* Reaction bar */}
-          <div style={{ display:'flex', padding:'7px 8px', gap:1, borderBottom:`1px solid ${C.border}` }}>
-            {REACTIONS.map(r => (
-              <button key={r.key} onClick={() => toggleReaction(ctxMenu.msg.id, r.key)}
-                style={{ background:'none', border:'none', cursor:'pointer', fontSize:17, padding:'2px 5px', borderRadius:6 }}
-                onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.1)'}
-                onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'none'}
-              >{r.emoji}</button>
-            ))}
-          </div>
-          {/* Menu items */}
-          {([
-            { label:'Copiar',          fn: () => copyMsg(ctxMenu.msg.text) },
-            { label:'Responder',       fn: () => {
-              const isMine = ctxMenu.msg.senderUid === socialUser?.uid
-              setReplyTo({ id: ctxMenu.msg.id, text: ctxMenu.msg.text, senderName: isMine ? 'Tú' : (selectedConv?.otherName ?? 'Ellos') })
-              setCtxMenu(null)
-            } },
-            { label:'Reenviar',        fn: () => { setFwdMsg(ctxMenu.msg); setCtxMenu(null) } },
-            { label:'Seleccionar',     fn: () => { setSelectMode(true); toggleSelectMsg(ctxMenu.msg.id); setCtxMenu(null) } },
-            ...(ctxMenu.msg.senderUid === socialUser.uid ? [
-              { label:'Editar',            fn: () => startEdit(ctxMenu.msg) },
-              { label:'Borrar para todos', fn: () => deleteForEveryone(ctxMenu.msg.id), red: true },
-            ] : []),
-            { label:'Borrar para mí',  fn: () => deleteForMe(ctxMenu.msg.id), red: true },
-          ] as { label: string; fn: () => void; red?: boolean }[]).map(item => (
-            <button key={item.label} onClick={item.fn} style={{
-              width:'100%', padding:'9px 16px', background:'none', border:'none',
-              color: item.red ? C.red : C.text, fontSize:13, cursor:'pointer',
-              textAlign:'left', display:'flex', alignItems:'center', transition:'background .12s',
-            }}
-              onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,.06)'}
-              onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'none'}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* ── Forward modal ── */}
-      {fwdMsg && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.65)', zIndex:2000, display:'flex', alignItems:'center', justifyContent:'center' }}
-          onClick={() => setFwdMsg(null)}>
-          <div style={{ background:C.card2, border:`1px solid ${C.border}`, borderRadius:18, width:280, maxHeight:380, overflow:'hidden', display:'flex', flexDirection:'column' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ padding:'14px 16px', borderBottom:`1px solid ${C.border}` }}>
-              <p style={{ fontSize:14, fontWeight:600, color:C.text, margin:0 }}>Reenviar mensaje</p>
-              <p style={{ fontSize:11, color:C.muted, margin:'3px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>"{fwdMsg.text}"</p>
-            </div>
-            <div style={{ overflowY:'auto', flex:1 }}>
-              {conversations.filter(c => c.id !== selectedConvId).length === 0 ? (
-                <p style={{ fontSize:12, color:C.muted, textAlign:'center', padding:'20px 16px', margin:0 }}>Sin otras conversaciones</p>
-              ) : conversations.filter(c => c.id !== selectedConvId).map(conv => (
-                <button key={conv.id} onClick={() => doForward(conv.id)} style={{
-                  width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px',
-                  border:'none', borderBottom:`1px solid ${C.border}`, background:'none', cursor:'pointer', textAlign:'left',
-                }}
-                  onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'rgba(124,58,237,.1)'}
-                  onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'none'}
-                >
-                  <Avatar name={conv.otherName ?? '?'} size={28} />
-                  <span style={{ fontSize:13, color:C.text }}>{conv.otherName ?? 'Usuario'}</span>
-                </button>
-              ))}
-            </div>
-            <div style={{ padding:'10px 14px', borderTop:`1px solid ${C.border}` }}>
-              <button onClick={() => setFwdMsg(null)} style={{ width:'100%', padding:'8px', borderRadius:8, border:`1px solid ${C.border}`, background:'transparent', color:C.muted, fontSize:12, cursor:'pointer' }}>Cancelar</button>
-            </div>
-          </div>
-        </div>
+        <ChatView
+          user={socialUser}
+          myName={profile?.profileName ?? socialUser.displayName ?? 'Usuario'}
+          isFport1={profile?.usernameSlug === 'fport1'}
+          friends={friends.map(f => ({ uid: f.uid, profileName: f.profileName ?? null, usernameSlug: f.username ? f.username.replace(/^@/, '').toLowerCase() : null }))}
+          presenceLabel={(u) => {
+            const pr = resolvePresence(presenceMap[u])
+            if (!pr) return null
+            if (pr.playing) return { text: 'Jugando Minecraft', color: C.green }
+            if (pr.online) return { text: 'En línea', color: C.green }
+            return null
+          }}
+          openWith={chatOpenWith}
+          onOpened={() => setChatOpenWith(null)}
+          openCid={pendingChatCid}
+          onOpenedCid={() => setPendingChatCid(null)}
+        />
       )}
     </div>
   )

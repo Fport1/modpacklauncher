@@ -9,9 +9,15 @@ export interface MinecraftAccount {
   type: AccountType
   refreshToken?: string
   expiresAt?: number
+  /** Microsoft rechazó el refresh token: hay que volver a iniciar sesión. */
+  needsLogin?: boolean
 }
 
 export interface Instance {
+  /** Regenerar el contexto para IAs al cambiar los mods. */
+  aiAutoContext?: boolean
+  /** Qué puede hacer una IA en el launcher: nada, preguntando o sola. */
+  aiControl?: 'off' | 'ask' | 'auto'
   id: string
   name: string
   dirName?: string
@@ -149,6 +155,10 @@ export interface ModMeta {
   name?: string
   author?: string
   iconBase64?: string
+  /** Ids de mod que declara el jar (incluye los que «provee»). */
+  modIds?: string[]
+  /** Ids de mod que necesita obligatoriamente (sin minecraft, java ni el loader). */
+  requires?: string[]
 }
 
 export interface ModFile {
@@ -410,6 +420,12 @@ export interface NbtTag {
 
 /** Lo que Modrinth sabe de un .jar del servidor, identificado por su sha1. */
 export interface ServerJarMeta {
+  /** De dónde se identificó (sin valor = Modrinth). */
+  source?: 'modrinth' | 'curseforge' | 'fport1'
+  cfModId?: number
+  cfFileId?: number
+  f1ProjectId?: string
+  f1VersionId?: string
   projectId: string
   versionId: string
   title: string
@@ -419,3 +435,8 @@ export interface ServerJarMeta {
   serverSide: string
   hasUpdate: boolean
 }
+
+/** Algo que ha hecho (o intentado) una IA en una instancia, a través del launcher. */
+export interface AiActivity { instanceId: string; text: string; at: number; kind: 'info' | 'change' | 'denied' | 'error' }
+/** Petición de permiso de una IA en modo «preguntar». */
+export interface AiApprovalRequest { id: string; instanceId: string; instanceName: string; action: string; detail: string }

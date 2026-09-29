@@ -7,6 +7,10 @@ import { installConsoleCapture, setLoggerWindow } from './logger'
 import { checkForUpdates } from './updater'
 import { closeAllPaneWindows } from './popout'
 import { nativeTitleBar } from './titleBar'
+import { registerSocialSession } from './socialSession'
+import { registerSocialBridge } from './social'
+
+let socialSessionRegistered = false
 
 /** Cada cuánto se mira si hay versión nueva, con la app abierta. */
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
@@ -81,6 +85,7 @@ function createWindow(): void {
   }
 
   registerIpcHandlers(mainWindow)
+  if (!socialSessionRegistered) { registerSocialSession(); registerSocialBridge(); socialSessionRegistered = true }
   if (getSettings().devTools) mainWindow.webContents.openDevTools({ mode: 'detach' })
   setLoggerWindow(mainWindow)
 

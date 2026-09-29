@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Instance } from '../../../shared/types'
 import ContextMenu, { type MenuEntry } from './ui/ContextMenu'
+import { cachedInstanceIcon, loadInstanceIcon } from '../lib/instanceIcons'
 import {
   IconPlay, IconStop, IconInfo, IconEdit, IconImage, IconCopy, IconFolder, IconPackage, IconSave,
   IconHelp, IconWrench, IconTrash, IconMore, IconClock, IconRefresh
@@ -65,10 +66,10 @@ export default function InstanceCard({
 }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [showExtraConfirm, setShowExtraConfirm] = useState(false)
-  const [iconSrc, setIconSrc] = useState<string | null>(null)
+  const [iconSrc, setIconSrc] = useState<string | null>(() => cachedInstanceIcon(instance) ?? null)
 
   useEffect(() => {
-    window.api.instances.getIcon(instance.id).then(setIconSrc).catch(() => setIconSrc(null))
+    loadInstanceIcon(instance).then(setIconSrc)
   }, [instance.id, instance.icon])
 
   const loaderStyle = MODLOADER_STYLE[instance.modloader] ?? 'text-text-secondary bg-bg-hover border-border'

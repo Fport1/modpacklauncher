@@ -7,6 +7,8 @@ import type { RemoteEntry, ServerInfo, ServerJarMeta, ServerOverride } from '../
 import { ftpList, ftpMkdir, ftpReadBytes, ftpReadHead, ftpState, ftpWriteBytes } from './ftp'
 import { detectServer, serverInfoFor } from './serverDetect'
 import { identifyByHashes } from './modrinth'
+import { identifyExtra } from './contentIdentify'
+import { cfFingerprint } from './curseforge'
 
 // Mods y plugins de un servidor remoto: qué software es, qué hay instalado y
 // cómo añadir más desde Modrinth.
@@ -19,6 +21,8 @@ interface SiteData {
   override?: ServerOverride
   /** `${ruta remota}|${tamaño}` → sha1 */
   hashes: Record<string, string>
+  /** Misma clave → huella de CurseForge (solo de los que Modrinth no conoce) */
+  fps?: Record<string, number>
 }
 
 const HEADERS = { 'User-Agent': 'ModpackLauncher/1.0.1 (franciscomanuelportoperez@gmail.com)' }
@@ -120,7 +124,11 @@ export async function serverIdentifyJars(
 ): Promise<Record<string, ServerJarMeta>> {
   const siteId = currentSite()
   const entries = await serverListJars(folder)
-  const cached = (await readAll())[siteId]?.hashes ?? {}
+  const site = (await readAll())[siteId]
+  const cached = site?.hashes ?? {}
+  const cachedFps = site?.fps ?? {}
+  const fps: Record<string, number> = {}
+  const freshFps: Record<string, number> = {}
 
   const hashes: Record<string, string> = {}
   const fresh: Record<string, string> = {}
@@ -141,6 +149,10 @@ export async function serverIdentifyJars(
       const sha1 = crypto.createHash('sha1').update(data).digest('hex')
       hashes[e.name] = sha1
       fresh[hashKey(remoteJoin(folder, e.name), e.size)] = sha1
+      // La huella de CurseForge sale de los mismos bytes: se guarda por si Modrinth no lo conoce
+      const fp = cfFingerprint(data)
+      fps[e.name] = fp
+      freshFps[hashKey(remoteJoin(folder, e.name), e.size)] = fp
     } catch { /* ilegible: se queda sin identificar */ }
     onProgress(++done, pending.length)
   })
@@ -153,12 +165,38 @@ export async function serverIdentifyJars(
       if (key.startsWith(prefix) && !key.slice(prefix.length).includes('/') && !present.has(key)) delete d.hashes[key]
     }
     Object.assign(d.hashes, fresh)
+    d.fps = { ...(d.fps ?? {}), ...freshFps }
   })
 
   const byHash = await identifyByHashes([...new Set(Object.values(hashes))], minecraft, loaders).catch(() => ({} as Record<string, ServerJarMeta>))
   const result: Record<string, ServerJarMeta> = {}
   for (const [name, sha1] of Object.entries(hashes)) {
-    if (byHash[sha1]) result[name] = byHash[sha1]
+    if (byHash[sha1]) result[name] = { ...byHash[sha1], source: 'modrinth' }
+  }
+
+  // Lo que Modrinth no conoce: Fport1 (por sha1) y CurseForge (por huella)
+  const unknown = entries.filter((e) => hashes[e.name] && !result[e.name] && e.size <= MAX_IDENTIFY_BYTES)
+  const needFp = unknown.filter((e) => fps[e.name] === undefined && cachedFps[hashKey(remoteJoin(folder, e.name), e.size)] === undefined)
+  await pool(needFp, 4, async (e) => {
+    try {
+      const fp = cfFingerprint(await ftpReadBytes(remoteJoin(folder, e.name)))
+      fps[e.name] = fp
+      freshFps[hashKey(remoteJoin(folder, e.name), e.size)] = fp
+    } catch { /* ilegible */ }
+  })
+  if (needFp.length) await updateSite(siteId, (d) => { d.fps = { ...(d.fps ?? {}), ...freshFps } })
+  if (unknown.length) {
+    const isPlugin = loaders.split(',').some((l) => ['paper', 'spigot', 'bukkit', 'purpur', 'folia', 'velocity', 'bungeecord', 'waterfall'].includes(l.trim()))
+    const extra = await identifyExtra(unknown.map((e) => ({
+      name: e.name, sha1: hashes[e.name], fingerprint: fps[e.name] ?? cachedFps[hashKey(remoteJoin(folder, e.name), e.size)]
+    })), minecraft, isPlugin ? '' : loaders.split(',')[0]).catch(() => ({}))
+    for (const [name, x] of Object.entries(extra)) {
+      result[name] = {
+        source: x.source, cfModId: x.cfModId, cfFileId: x.cfFileId, f1ProjectId: x.f1ProjectId, f1VersionId: x.f1VersionId,
+        projectId: '', versionId: '', title: x.title ?? name, versionNumber: '', iconUrl: x.iconUrl ?? null,
+        clientSide: x.clientSide ?? '', serverSide: x.serverSide ?? '', hasUpdate: !!x.hasUpdate
+      }
+    }
   }
   return result
 }

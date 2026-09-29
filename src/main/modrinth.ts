@@ -4,6 +4,7 @@ import fs from 'fs-extra'
 import crypto from 'crypto'
 import { getInstanceGameDir } from './instances'
 import { safeJoin } from './paths'
+import { identifyExtra, type ExtraMeta } from './contentIdentify'
 import { app } from 'electron'
 
 // ── Huellas (sha1) de los archivos, guardadas ──────────────────────────────
@@ -333,6 +334,15 @@ export interface InstalledModMeta {
   projectId?: string
   installedVersionId?: string
   hasUpdate?: boolean
+  /** De dónde se identificó: Modrinth, CurseForge o las creaciones de Fport1. */
+  source?: 'modrinth' | 'curseforge' | 'fport1'
+  title?: string
+  pageUrl?: string
+  update?: ExtraMeta['update']
+  cfModId?: number
+  cfFileId?: number
+  f1ProjectId?: string
+  f1VersionId?: string
 }
 
 type MetaCacheEntry = { mcVersion: string; loader: string } & InstalledModMeta
@@ -346,6 +356,8 @@ function saveMetaCache(cacheFile: string, cache: MetaCache): void {
   fs.writeJson(cacheFile, cache, { spaces: 2 }).catch(() => {})
 }
 
+const extraCache = new Map<string, { at: number; data: ExtraMeta | null }>()
+
 export async function getInstalledModsMeta(
   instanceId: string,
   mcVersion: string,
@@ -354,6 +366,39 @@ export async function getInstalledModsMeta(
   extensions = ['.jar', '.jar.disabled'],
   /** true = no usar la respuesta guardada de actualizaciones (botón de buscar). */
   force = false
+): Promise<Record<string, InstalledModMeta>> {
+  const meta = await getModrinthMeta(instanceId, mcVersion, loader, subFolder, extensions, force)
+  for (const m of Object.values(meta)) if (m.projectId) m.source = 'modrinth'
+
+  // Lo que Modrinth no conoce se busca en Fport1 y en CurseForge
+  const gameDir = await getInstanceGameDir(instanceId)
+  const dir = path.join(gameDir, subFolder)
+  if (!(await fs.pathExists(dir))) return meta
+  const files = (await fs.readdir(dir)).filter(f => extensions.some(ext => f.endsWith(ext)) && !meta[f]?.projectId)
+  if (!files.length) return meta
+  const list = (await Promise.all(files.map(async f => ({ name: f, path: path.join(dir, f), sha1: await sha1Cached(path.join(dir, f)) }))))
+    .filter((x): x is { name: string; path: string; sha1: string } => !!x.sha1)
+  // Guardado por sha1 (no por nombre): activar o desactivar un mod cambia su nombre de archivo
+  const ctxKey = `${mcVersion}|${loader}`
+  const now = Date.now()
+  const todo = list.filter(x => { const c = extraCache.get(`${ctxKey}|${x.sha1}`); return force || !c || now - c.at > UPDATE_TTL })
+  if (todo.length) {
+    const found = await identifyExtra(todo, mcVersion, loader === 'vanilla' ? '' : loader).catch(() => ({} as Record<string, ExtraMeta>))
+    for (const x of todo) extraCache.set(`${ctxKey}|${x.sha1}`, { at: now, data: found[x.name] ?? null })
+  }
+  const extra: Record<string, ExtraMeta> = {}
+  for (const x of list) { const c = extraCache.get(`${ctxKey}|${x.sha1}`); if (c?.data) extra[x.name] = c.data }
+  for (const [file, e] of Object.entries(extra)) meta[file] = { ...meta[file], ...e }
+  return meta
+}
+
+async function getModrinthMeta(
+  instanceId: string,
+  mcVersion: string,
+  loader: string,
+  subFolder: string,
+  extensions: string[],
+  force: boolean
 ): Promise<Record<string, InstalledModMeta>> {
   const gameDir = await getInstanceGameDir(instanceId)
   const dir = path.join(gameDir, subFolder)
@@ -474,6 +519,14 @@ export async function getProjectVersionForInstall(projectId: string, mcVersion: 
   } catch {
     return null
   }
+}
+
+/** Autores de un proyecto de Modrinth. */
+export async function getProjectMembers(projectId: string): Promise<{ username: string; avatarUrl: string | null; role: string }[]> {
+  try {
+    const { data } = await axios.get<{ user: { username: string; avatar_url?: string | null }; role: string }[]>(`${BASE}/project/${projectId}/members`, { headers: HEADERS, timeout: 15_000 })
+    return data.map((m) => ({ username: m.user.username, avatarUrl: m.user.avatar_url ?? null, role: m.role }))
+  } catch { return [] }
 }
 
 export async function installModFromUrl(

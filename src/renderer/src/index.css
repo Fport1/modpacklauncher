@@ -71,3 +71,91 @@
 .modrinth-body .yt-card .yt-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .modrinth-body .yt-card .yt-play svg { filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7)); transition: transform 0.15s; }
 .modrinth-body .yt-card:hover .yt-play svg { transform: scale(1.12); }
+
+/* ── Instancia recién creada ─────────────────────────────────────────────── */
+@keyframes new-instance-pop {
+  0%   { transform: scale(0.6) translateY(24px); opacity: 0; }
+  55%  { transform: scale(1.06) translateY(-4px); opacity: 1; }
+  75%  { transform: scale(0.98); }
+  100% { transform: scale(1); }
+}
+@keyframes new-instance-glow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.9), 0 0 0 0 rgba(34, 197, 94, 0.55); }
+  50%      { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.9), 0 0 28px 10px rgba(34, 197, 94, 0.35); }
+}
+.new-instance {
+  position: relative;
+  animation: new-instance-pop 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.2) both,
+             new-instance-glow 1.2s ease-in-out 0.5s 3;
+  border-radius: 1rem;
+}
+.new-instance-badge {
+  animation: new-badge-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.4s both;
+}
+@keyframes new-badge-in {
+  from { transform: scale(0) rotate(-20deg); opacity: 0; }
+  to   { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+/* Confeti que sale de la tarjeta */
+@keyframes confetti-burst {
+  0%   { transform: translate(0, 0) rotate(0) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.6); opacity: 0; }
+}
+.confetti-piece {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  pointer-events: none;
+  animation: confetti-burst 1.3s cubic-bezier(0.1, 0.7, 0.3, 1) forwards;
+  z-index: 30;
+}
+
+/* Aviso grande arriba */
+@keyframes created-banner-in {
+  0%   { transform: translate(-50%, -120%); opacity: 0; }
+  60%  { transform: translate(-50%, 8px); opacity: 1; }
+  100% { transform: translate(-50%, 0); }
+}
+@keyframes created-banner-out {
+  to { transform: translate(-50%, -120%); opacity: 0; }
+}
+.created-banner { animation: created-banner-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.created-banner.leaving { animation: created-banner-out 0.35s ease-in forwards; }
+@keyframes created-check {
+  from { stroke-dashoffset: 24; }
+  to   { stroke-dashoffset: 0; }
+}
+.created-check path { stroke-dasharray: 24; animation: created-check 0.45s ease-out 0.35s both; }
+@keyframes created-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.created-progress { transform-origin: left; animation: created-progress linear forwards; }
+
+/* ── Chat de fport1social ────────────────────────────────────────────────── */
+@keyframes chat-pop { 0% { transform: scale(0.85); opacity: 0; } 60% { transform: scale(1.04); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes chat-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chat-zoom { from { transform: scale(0.94); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes chat-slide-up { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes chat-slide-left { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes chat-msg-in { from { transform: translateY(6px) scale(0.98); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes chat-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes chat-heart { 0% { opacity: 1; transform: scale(1) translateY(0) rotate(-10deg); } 40% { opacity: 1; transform: scale(1.6) translateY(-40px) rotate(8deg); } 100% { opacity: 0; transform: scale(0.8) translateY(-90px) rotate(-5deg); } }
+@keyframes chat-rec { 0%, 100% { height: 20%; } 50% { height: 100%; } }
+@keyframes chat-ring { 0% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.6); } 100% { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); } }
+.chat-pop { animation: chat-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3) both; }
+.chat-fade { animation: chat-fade 0.2s ease both; }
+.chat-zoom { animation: chat-zoom 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; }
+.chat-slide-up { animation: chat-slide-up 0.22s ease both; }
+.chat-slide-left { animation: chat-slide-left 0.25s ease both; }
+.chat-msg-in { animation: chat-msg-in 0.22s ease-out both; }
+.chat-float { animation: chat-float 3s ease-in-out infinite; }
+.chat-float-heart { position: absolute; font-size: 28px; pointer-events: none; z-index: 30; animation: chat-heart 0.8s ease-out forwards; }
+.chat-rec-bar { height: 40%; animation: chat-rec 0.9s ease-in-out infinite; }
+.chat-pulse-ring { animation: chat-ring 1.4s ease-out infinite; }
+.chat-bg {
+  background-color: #09090b;
+  background-image: radial-gradient(rgba(124, 58, 237, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+}

@@ -22,6 +22,8 @@ import FtpPage from './pages/FtpPage'
 import BedrockPage from './pages/BedrockPage'
 import AssistHostPanel from './components/assist/AssistHostPanel'
 import { useStore } from './store'
+import ChatNotifier from './components/chat/ChatNotifier'
+import AiAgentHost from './components/AiAgentHost'
 
 function FpackOpenHandler() {
   const navigate = useNavigate()
@@ -45,10 +47,12 @@ export function MouseNavHandler() {
     // solo si no, el historial del router, que incluye también las pestañas de
     // cada página (ver lib/urlState).
     const goBack = (): void => {
+      if (nav.interceptOverlay('back')) return
       if (nav.size() > 0) nav.pop()
       else if (!nav.intercept('back')) navigate(-1)
     }
     const goForward = (): void => {
+      if (nav.interceptOverlay('forward')) return
       if (!nav.intercept('forward')) navigate(1)
     }
 
@@ -175,6 +179,9 @@ export default function App() {
       upsertOperation(update as Parameters<typeof upsertOperation>[0])
     })
 
+    // Renovaciones de Microsoft hechas en segundo plano por el proceso principal
+    const unsubAccount = window.api.auth.onAccountUpdated((a) => useStore.getState().replaceAccount(a))
+
     const unsubStarted = window.api.onGameStarted((id) => {
       clearGameLog(id)
       setInstanceRunning(id, true)
@@ -248,6 +255,7 @@ export default function App() {
 
     return () => {
       unsubOps()
+      unsubAccount()
       unsubStarted()
       unsubLog()
       unsubExit()
@@ -280,6 +288,8 @@ export default function App() {
   return (
     <HashRouter>
       <FpackOpenHandler />
+      <ChatNotifier />
+      <AiAgentHost />
       <MouseNavHandler />
       <div className="flex flex-col h-screen overflow-hidden">
         <TitleBar />
