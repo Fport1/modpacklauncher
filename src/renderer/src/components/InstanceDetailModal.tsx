@@ -803,11 +803,24 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     if (tab === 'worlds') { setBackupsLoaded(false); setBackups([]) }
     if (restoringView.current) { const v = restoringView.current; restoringView.current = null; restoreFolders(v) }
   }, [tab])
+  // La consola en vivo sigue el final solo si ya estás abajo: si subes para leer, no te baja
+  const [logFollow, setLogFollow] = useState(true)
+  const logFollowRef = useRef(true)
   useEffect(() => {
-    if (tab === 'console' && consoleView === 'live' && logRef.current) {
+    if (tab === 'console' && consoleView === 'live' && logRef.current && logFollowRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
     }
   }, [gameLogs, tab, consoleView])
+  function onLogScroll(): void {
+    const el = logRef.current
+    if (!el) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+    if (atBottom !== logFollowRef.current) { logFollowRef.current = atBottom; setLogFollow(atBottom) }
+  }
+  function logToBottom(): void {
+    logFollowRef.current = true; setLogFollow(true)
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' })
+  }
 
   const modsReady = useRef(false)
   useEffect(() => { if (modsReady.current) modsSnapshot.set(instance.id, mods) }, [mods])
@@ -1464,11 +1477,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         {onChangeVersion && (
           <button onClick={e => { e.stopPropagation(); onChangeVersion() }}
             title="Cambiar versión"
-            className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent hover:bg-accent/10 transition-colors">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/>
-              <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/>
-            </svg>
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg opacity-0 group-hover:opacity-100 text-text-muted hover:text-accent hover:bg-accent/10 transition-colors">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
           </button>
         )}
 
@@ -1486,8 +1496,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
         {/* Delete */}
         <button onClick={e => { e.stopPropagation(); onDelete() }}
           title="Eliminar"
-          className="flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
-          <TrashIcon />
+          className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg>
         </button>
       </div>
     )
@@ -1566,9 +1576,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             </p>
           </div>
           <button onClick={() => setAiOpen(true)}
-            title="Claude Code, Codex, Gemini u otra IA trabajando en esta instancia: arreglar crashes, mods, packs y configs"
+            title="Claude Code, Codex, Gemini, Grok u otra IA trabajando en esta instancia: arreglar crashes, mods, packs y configs"
             className="flex items-center gap-1.5 px-3.5 py-2 bg-[#d97757]/10 hover:bg-[#d97757]/20 border border-[#d97757]/30 text-[#e8a488] text-sm rounded-lg transition-colors">
-            ✳ IA
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M10 2.5c.4 3.9 2.1 5.6 6 6-3.9.4-5.6 2.1-6 6-.4-3.9-2.1-5.6-6-6 3.9-.4 5.6-2.1 6-6Z" /><path d="M18 12.5c.25 2.3 1.2 3.25 3.5 3.5-2.3.25-3.25 1.2-3.5 3.5-.25-2.3-1.2-3.25-3.5-3.5 2.3-.25 3.25-1.2 3.5-3.5Z" /></svg>
+            IA
           </button>
           <button onClick={() => { startHosting(instance.id).catch(() => {}) }}
             title="Genera un código para que un amigo vea y arregle los archivos de esta instancia desde su launcher"
@@ -2451,12 +2462,20 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
               </div>
 
               {consoleView === 'live' && (
-                <div ref={logRef} className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-[13px] text-text-secondary leading-5 min-h-0">
-                  {gameLogs.length === 0
-                    ? <p className="text-text-muted">Los logs aparecerán aquí al lanzar el juego.</p>
-                    : gameLogs.map((line, i) => (
-                      <div key={i} className={line.includes('ERROR') || line.includes('FATAL') ? 'text-red-400' : line.includes('WARN') ? 'text-amber-400' : ''}>{line}</div>
-                    ))}
+                <div className="relative flex-1 flex flex-col min-h-0">
+                  <div ref={logRef} onScroll={onLogScroll} className="flex-1 overflow-y-auto bg-bg-primary border border-border rounded-lg p-3 font-mono text-[13px] text-text-secondary leading-5 min-h-0">
+                    {gameLogs.length === 0
+                      ? <p className="text-text-muted">Los logs aparecerán aquí al lanzar el juego.</p>
+                      : gameLogs.map((line, i) => (
+                        <div key={i} data-no-translate className={line.includes('ERROR') || line.includes('FATAL') ? 'text-red-400' : line.includes('WARN') ? 'text-amber-400' : ''}>{line}</div>
+                      ))}
+                  </div>
+                  {!logFollow && gameLogs.length > 0 && (
+                    <button onClick={logToBottom}
+                      className="absolute bottom-3 right-5 px-3 py-1.5 rounded-full bg-accent text-white text-xs font-semibold shadow-lg shadow-black/40 hover:bg-accent-hover">
+                      ↓ Ir al final
+                    </button>
+                  )}
                 </div>
               )}
 

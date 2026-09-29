@@ -214,8 +214,6 @@ export async function publishVersion(projectId: string, input: VersionInput, fil
     downloads: 0,
     publishedAt: serverTimestamp()
   })
-  // Índice por sha1: así el launcher reconoce el archivo ya instalado en una instancia
-  await setDoc(doc(socialDb, 'fport1_files', sha1), { projectId, versionId: vref.id }).catch(() => {})
   await refreshProjectMeta(projectId)
   return vref.id
 }
@@ -228,7 +226,6 @@ export async function updateVersion(projectId: string, versionId: string, patch:
 export async function deleteVersion(projectId: string, v: Fport1Version): Promise<void> {
   for (const f of v.files) {
     await removeFile(f.path)
-    if (f.sha1) await deleteDoc(doc(socialDb, 'fport1_files', f.sha1)).catch(() => {})
   }
   await deleteDoc(doc(socialDb, PROJECTS, projectId, 'versions', v.id))
   await refreshProjectMeta(projectId)

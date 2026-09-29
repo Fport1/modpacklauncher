@@ -103,7 +103,10 @@ import { cfGet as cfFetch, cfPost } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled, deleteWorldDatapack, addWorldDatapacks } from './worldDatapacks'
 import { hasRunningInstances } from './launcher'
 import { aiContextStatus, prepareAiContext, writeToolConfigs } from './aiContext'
-import { setAiControl, startAiBridge } from './aiBridge'
+import { startAiBridge } from './aiBridge'
+import { setTelemetryEnabled, startTelemetry } from './telemetry'
+import { setAiLearningEnabled, startAiCommunity } from './aiCommunity'
+import { hasSocialSession } from './socialSession'
 import { listAssetSources, listAssetDir, readAssetFile } from './assets'
 import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
@@ -338,6 +341,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('launcher:launch', (_e, instanceId: string) => launchById(instanceId))
   // La IA arranca el juego por el mismo camino que el botón Jugar
   startAiBridge(launchById)
+  // Estadísticas anónimas y aprendizaje colectivo de la IA (Ajustes › Privacidad)
+  {
+    const st = { ...DEFAULT_SETTINGS, ...settingsStore.getAll() }
+    startTelemetry({
+      enabled: st.telemetry,
+      socialLinked: hasSocialSession,
+      premium: () => accountsStore.getAll().accounts.some((a) => a.type === 'microsoft'),
+      language: () => settingsStore.getAll().language ?? 'es',
+    })
+    startAiCommunity({ enabled: st.aiLearning, playerNames: () => accountsStore.getAll().accounts.map((a) => a.username) })
+  }
 
   async function launchById(instanceId: string): Promise<void> {
     const instances = await loadInstances()
@@ -676,6 +690,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (typeof data.launchAtStartup === 'boolean') {
       app.setLoginItemSettings({ openAtLogin: data.launchAtStartup })
     }
+    if (typeof data.telemetry === 'boolean') setTelemetryEnabled(data.telemetry)
+    if (typeof data.aiLearning === 'boolean') setAiLearningEnabled(data.aiLearning)
     if (typeof data.devTools === 'boolean') {
       // Se aplica al momento en todas las ventanas
       for (const w of BrowserWindow.getAllWindows()) {
@@ -1257,7 +1273,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // Buscadores de plugins sin cabeceras CORS: se consultan desde aquí
   ipcMain.handle('content:get-json', async (_e, url: string) => {
-    if (!/^https:\/\/(hangar\.papermc\.io\/api\/v1\/|api\.spiget\.org\/v2\/)/.test(url)) throw new Error('Origen no permitido')
+    if (!/^https:\/\/(hangar\.papermc\.io\/api\/v1\/|api\.spiget\.org\/v2\/|api\.github\.com\/repos\/Fport1\/)/.test(url)) throw new Error('Origen no permitido')
     const res = await axios.get(url, { timeout: 20_000, headers: { 'User-Agent': 'ModpackLauncher/1.9 (contact@fport1.dev)' } })
     return res.data
   })
@@ -1537,23 +1553,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
 
-  // Qué puede hacer una IA en la instancia (desactivado / preguntar / automático)
-  ipcMain.handle('ai:set-control', async (_e, instanceId: string, mode: 'off' | 'ask' | 'auto') => {
-    const inst = await setAiControl(instanceId, mode)
-    if ((await aiContextStatus(instanceId)).exists) await writeToolConfigs(inst, await getInstanceGameDir(instanceId))
-    return inst
-  })
   // Abre una IA de terminal (Claude Code, Codex, Gemini) ya conectada al launcher en la carpeta del juego
-  ipcMain.handle('ai:open-terminal', async (_e, instanceId: string, tool: 'claude' | 'codex' | 'gemini') => {
+  ipcMain.handle('ai:open-terminal', async (_e, instanceId: string, tool: 'claude' | 'codex' | 'gemini' | 'grok') => {
     const inst = (await loadInstances()).find((i) => i.id === instanceId)
     if (!inst) throw new Error('Instancia no encontrada')
     const gameDir = await getInstanceGameDir(instanceId)
     await writeToolConfigs(inst, gameDir)
     const { execFile, spawn } = await import('child_process')
-    const cmd = tool === 'codex' ? 'codex' : tool === 'gemini' ? 'gemini' : 'claude'
+    const cmd = tool === 'codex' ? 'codex' : tool === 'gemini' ? 'gemini' : tool === 'grok' ? 'grok' : 'claude'
     const found = await new Promise<boolean>((res) => execFile(process.platform === 'win32' ? 'where' : 'which', [cmd], (err) => res(!err)))
     if (!found) {
-      const how = cmd === 'claude' ? 'https://claude.com/claude-code' : cmd === 'codex' ? 'npm i -g @openai/codex' : 'npm i -g @google/gemini-cli'
+      const how = cmd === 'claude' ? 'https://claude.com/claude-code' : cmd === 'codex' ? 'npm i -g @openai/codex' : cmd === 'grok' ? 'npm i -g @vibe-kit/grok-cli, y guarda tu clave de xAI' : 'npm i -g @google/gemini-cli'
       throw new Error(`No se encontró «${cmd}» en este equipo. Instálalo (${how}) y vuelve a intentarlo.`)
     }
     const title = `${inst.name} · ${cmd}`.replace(/[&|<>^"%]/g, '')

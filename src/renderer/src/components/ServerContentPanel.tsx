@@ -296,8 +296,8 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
                   {m && refOf(m, entry.name) && (
                     <button type="button" title="Ver ficha y cambiar de versión"
                       onClick={(e) => { e.stopPropagation(); setBrowser({ detail: refOf(m, entry.name)!, tab: 'versions' }) }}
-                      className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs rounded border border-border text-text-muted hover:text-text-primary">
-                      Versiones
+                      className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-accent hover:bg-accent/10 shrink-0 transition-colors">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
                     </button>
                   )}
                   <button type="button" onClick={(e) => { e.stopPropagation(); toggle(entry.name) }}
@@ -306,7 +306,7 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
                     <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${enabled ? 'left-[22px]' : 'left-0.5'}`} />
                   </button>
                   <button type="button" onClick={(e) => { e.stopPropagation(); setConfirmDelete([entry.name]) }} title="Borrar"
-                    className="w-7 h-7 flex items-center justify-center rounded text-text-muted hover:text-red-400 hover:bg-red-500/10 shrink-0">🗑</button>
+                    className="opacity-0 group-hover:opacity-100 w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-red-400 hover:bg-red-500/10 shrink-0 transition-colors"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2" /><line x1="10" y1="11" x2="10" y2="17" /><line x1="14" y1="11" x2="14" y2="17" /></svg></button>
                 </div>
               )
             })}

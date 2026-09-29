@@ -48,7 +48,7 @@ const world = str('Carpeta del mundo en saves/ (obligatorio para datapacks)')
 
 const TOOLS = [
   { name: 'lanzar_juego', route: 'launch', timeout: 660000,
-    description: 'Abre Minecraft con esta instancia desde el launcher y espera a que llegue al menú o se cierre. Devuelve state (running | crashed | exited | launch-failed), exitCode, errorLines, logTail y crashReport si crasheó. Úsalo tras cada cambio para comprobar si el arreglo funciona.',
+    description: 'Abre Minecraft con esta instancia desde el launcher y espera a que llegue al menú o se cierre. Devuelve state (running | crashed | exited | launch-failed), exitCode, errorLines, logTail y, si crasheó, crashReport y knownFixes (arreglos que ya funcionaron a otros con este mismo crash: pruébalos primero). Úsalo tras cada cambio para comprobar si el arreglo funciona.',
     input: S({ esperar_segundos: num('Máximo a esperar (por defecto 240)') }), map: (a) => ({ waitSeconds: a.esperar_segundos }) },
   { name: 'cerrar_juego', route: 'stop', description: 'Cierra el juego de esta instancia si está abierto.', input: S() },
   { name: 'estado_juego', route: 'state', description: 'Si el juego está abierto y el resumen de la última ejecución (errores, final del log).', input: S() },
@@ -86,8 +86,10 @@ const TOOLS = [
     input: S({ ruta: str('Ruta relativa a la carpeta del juego') }, ['ruta']), map: (a) => ({ path: a.ruta }) },
   { name: 'escribir_archivo', route: 'files/write', description: 'Escribe un archivo de texto de la instancia (config de un mod, options.txt…). El launcher guarda antes una copia en .ai/copias. Mejor con el juego cerrado.',
     input: S({ ruta: str('Ruta relativa a la carpeta del juego'), texto: str('Contenido completo nuevo') }, ['ruta', 'texto']), map: (a) => ({ path: a.ruta, text: a.texto }) },
-  { name: 'lecciones', route: 'lessons', description: 'Lee .ai/lecciones.md: lo aprendido en arreglos anteriores de este modpack. Léelo antes de diagnosticar.', input: S() },
-  { name: 'anotar_leccion', route: 'lessons/add', description: 'Guarda en .ai/lecciones.md lo aprendido tras arreglar algo, para detectarlo antes la próxima vez.',
+  { name: 'lecciones', route: 'lessons', description: 'Lo aprendido antes: local = .ai/lecciones.md de este modpack; community = lecciones de otros jugadores con estos mods, ordenadas por lo que les funcionó (id, síntoma, causa, arreglo, worked/failed). Léelo antes de diagnosticar.', input: S() },
+  { name: 'valorar_leccion', route: 'lessons/rate', description: 'Después de probar una lección de la comunidad (de lecciones o de knownFixes al crashear), di si funcionó. Así las buenas suben y las malas bajan para todos.',
+    input: S({ id: str('id de la lección'), funciono: bool('true si arregló el problema') }, ['id', 'funciono']), map: (a) => ({ id: a.id, worked: a.funciono }) },
+  { name: 'anotar_leccion', route: 'lessons/add', description: 'Guarda lo aprendido tras arreglar algo en .ai/lecciones.md y, si el usuario lo permite, lo comparte anónimamente (sin rutas ni nombres) ligado al crash que resolvió, para que a otros jugadores se les arregle a la primera. Escribe el síntoma con la línea exacta del log o del crash.',
     input: S({ titulo: str('Resumen corto'), sintoma: str('Qué se veía (línea clave del log/crash)'), causa: str('Causa real'), arreglo: str('Qué lo arregló'), mods: str('Mods/packs implicados') }, ['titulo', 'sintoma', 'causa', 'arreglo']),
     map: (a) => ({ title: a.titulo, symptom: a.sintoma, cause: a.causa, fix: a.arreglo, mods: a.mods }) },
 ]

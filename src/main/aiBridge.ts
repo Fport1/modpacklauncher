@@ -4,20 +4,23 @@ import crypto from 'crypto'
 import fs from 'fs-extra'
 import path from 'path'
 import { gameEvents, isInstanceRunning, killInstance } from './launcher'
-import { getInstance, getInstanceGameDir, listMods, listResourcepacks, listShaderpacks, loadInstances, updateInstance } from './instances'
+import { getInstance, getInstanceGameDir, listMods, listResourcepacks, listShaderpacks, loadInstances } from './instances'
 import { getInstalledModsMeta, getModVersions, installModFromUrl, searchMods } from './modrinth'
 import { cfGet, CF_CLASS, CF_GAME_MINECRAFT, CF_LOADER } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled } from './worldDatapacks'
-import type { AiActivity, AiApprovalRequest, Instance } from '../shared/types'
+import type { AiActivity, Instance } from '../shared/types'
 import { MCP_SCRIPT } from './aiMcpScript'
+import { crashSignature, findLessons, rateLesson, shareLesson, aiLearningEnabled } from './aiCommunity'
+import { countEvent } from './telemetry'
 
 // Puente local para IAs (Claude Code, Codex, Gemini, Cursor…).
 //
 // Todo lo que hace una IA sobre una instancia pasa por aquí, dentro del
 // launcher: arrancar el juego y esperar a ver si crashea, leer registros,
 // activar/desactivar/instalar/quitar mods, resource packs, shaders y datapacks,
-// editar configs y anotar lo aprendido. El launcher muestra cada acción y, en
-// modo «preguntar», pide permiso en su propia ventana.
+// editar configs y anotar lo aprendido. El launcher muestra cada acción.
+// Los permisos (preguntar antes de cada cambio, o no) los lleva la propia IA:
+// Claude Code, Codex, Gemini… piden aprobación para cada herramienta MCP.
 //
 // Es un servidor HTTP solo en 127.0.0.1 con una clave aleatoria guardada en
 // userData/ai-bridge.json; lo usa el servidor MCP de aiMcpScript.ts.
@@ -56,11 +59,9 @@ gameEvents.on('exit', (id: string, code: number | null) => {
   if (r) { r.exitCode = code; r.exitedAt = Date.now() }
 })
 
-// ── Actividad y permisos (se ven en el launcher) ─────────────────────────────
+// ── Actividad (se ve en el launcher) ─────────────────────────────────────────
 
 const activity: AiActivity[] = []
-const pending = new Map<string, (d: 'allow' | 'always' | 'deny') => void>()
-const alwaysAllowed = new Set<string>() // `${instanceId}|${acción}` durante esta sesión
 
 function broadcast(channel: string, payload: unknown): void {
   for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send(channel, payload)
@@ -70,24 +71,8 @@ function logActivity(instanceId: string, text: string, kind: AiActivity['kind'] 
   const a = { instanceId, text, at: Date.now(), kind }
   activity.push(a)
   if (activity.length > 300) activity.shift()
+  if (kind === 'change') countEvent('aiActions')
   broadcast('ai:activity', a)
-}
-
-async function askUser(inst: Instance, action: string, detail: string): Promise<boolean> {
-  if ((inst.aiControl ?? 'off') === 'auto' || alwaysAllowed.has(`${inst.id}|${action}`)) return true
-  const id = crypto.randomUUID()
-  const req: AiApprovalRequest = { id, instanceId: inst.id, instanceName: inst.name, action, detail }
-  const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
-  if (win) { if (win.isMinimized()) win.restore(); win.flashFrame(true) }
-  broadcast('ai:approval', req)
-  const decision = await new Promise<'allow' | 'always' | 'deny'>((resolve) => {
-    pending.set(id, resolve)
-    setTimeout(() => { if (pending.delete(id)) resolve('deny') }, 5 * 60_000)
-  })
-  broadcast('ai:approval-done', id)
-  if (decision === 'always') alwaysAllowed.add(`${inst.id}|${action}`)
-  if (decision === 'deny') logActivity(inst.id, `Denegado: ${detail}`, 'denied')
-  return decision !== 'deny'
 }
 
 // ── Utilidades ──────────────────────────────────────────────────────────────
@@ -219,19 +204,12 @@ async function listContent(inst: Instance, kind: Kind, world?: string): Promise<
 
 // ── Servidor ────────────────────────────────────────────────────────────────
 
-const READ_ONLY = new Set(['state', 'log', 'crashes', 'content', 'search', 'versions', 'lessons', 'lessons/add', 'files', 'files/read'])
-
 export function startAiBridge(launch: LaunchFn): void {
   const token = crypto.randomBytes(24).toString('hex')
   // Se reescribe en cada arranque para que las instancias usen siempre la versión del launcher instalado
   fs.outputFile(MCP_SCRIPT_FILE(), MCP_SCRIPT).catch(() => {})
 
   ipcMain.handle('ai:activity', (_e, instanceId?: string) => activity.filter((a) => !instanceId || a.instanceId === instanceId).slice(-100))
-  ipcMain.handle('ai:approve', (_e, id: string, decision: 'allow' | 'always' | 'deny') => {
-    const r = pending.get(id)
-    if (r) { pending.delete(id); r(decision) }
-  })
-
   const server = http.createServer(async (req, res) => {
     const send = (status: number, body: unknown): void => {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
@@ -251,7 +229,7 @@ export function startAiBridge(launch: LaunchFn): void {
       const parts = url.pathname.split('/').filter(Boolean)
       if (parts[0] === 'status') {
         const list = await loadInstances()
-        return send(200, { launcher: app.getVersion(), instances: list.map((i) => ({ id: i.id, name: i.name, minecraft: i.minecraft, loader: i.modloader, aiControl: i.aiControl ?? 'off', running: isInstanceRunning(i.id) })) })
+        return send(200, { launcher: app.getVersion(), instances: list.map((i) => ({ id: i.id, name: i.name, minecraft: i.minecraft, loader: i.modloader, running: isInstanceRunning(i.id) })) })
       }
       if (parts[0] !== 'instance' || !parts[1]) return send(404, { error: 'Ruta desconocida' })
       const inst = await getInstance(decodeURIComponent(parts[1]))
@@ -261,16 +239,6 @@ export function startAiBridge(launch: LaunchFn): void {
       const action = parts.slice(2).join('/')
       const kind = parseKind(body.kind)
       const world = body.world ? String(body.world) : undefined
-
-      // Permisos: desactivado → solo lectura; preguntar → el launcher pide permiso; automático → libre
-      if (!READ_ONLY.has(action)) {
-        if ((inst.aiControl ?? 'off') === 'off') {
-          logActivity(inst.id, `Bloqueado (IA en «Solo mirar»): ${describe(action, body, kind)}`, 'denied')
-          return send(403, { error: 'El control por IA está desactivado para esta instancia. Pide al usuario que lo active en el launcher: detalle de la instancia › IA › «Qué puede hacer la IA».' })
-        }
-        const detail = describe(action, body, kind)
-        if (!(await askUser(inst, action, detail))) return send(403, { error: `El usuario no ha dado permiso para: ${detail}. No lo repitas sin preguntarle.` })
-      }
 
       switch (action) {
         case 'launch': {
@@ -286,7 +254,17 @@ export function startAiBridge(launch: LaunchFn): void {
           await waitForOutcome(inst.id, t0, Math.min(Number(body.waitSeconds ?? 240), 600) * 1000)
           const r = runs.get(inst.id)
           const out = summarizeRun(r && r.startedAt >= t0 ? r : undefined)
-          if (r && r.exitCode !== undefined && r.exitCode !== 0) out.crashReport = await latestCrash(gameDir, t0)
+          if (r && r.exitCode !== undefined && r.exitCode !== 0) {
+            const crash = await latestCrash(gameDir, t0)
+            out.crashReport = crash
+            // Lo que ya les funcionó a otros con este mismo crash (o con estos mods)
+            if (crash?.text) {
+              const s = crashSignature(crash.text)
+              out.crashSignature = { hash: s.hash, mods: s.mods }
+              const known = await findLessons(inst, { sig: s.hash, mods: s.mods })
+              if (known.length) out.knownFixes = known
+            }
+          }
           logActivity(inst.id, out.state === 'running' ? 'El juego llegó al menú' : out.state === 'crashed' ? `El juego crasheó (código ${out.exitCode})` : `Estado del juego: ${out.state}`, out.state === 'crashed' ? 'error' : 'info')
           return send(200, out)
         }
@@ -430,15 +408,25 @@ export function startAiBridge(launch: LaunchFn): void {
         }
         case 'lessons': {
           const text = await fs.readFile(path.join(gameDir, '.ai', 'lecciones.md'), 'utf8').catch(() => '')
-          return send(200, { text })
+          // Además de lo aprendido aquí, lo que otros jugadores aprendieron con estos mods
+          const modIds = (await listMods(inst.id).catch(() => [])).flatMap((m) => m.meta?.modIds ?? [])
+          const community = await findLessons(inst, { mods: modIds })
+          return send(200, { local: text, community, communityEnabled: aiLearningEnabled() })
+        }
+        case 'lessons/rate': {
+          await rateLesson(String(body.id), !!body.worked)
+          return send(200, { ok: true })
         }
         case 'lessons/add': {
           const file = path.join(gameDir, '.ai', 'lecciones.md')
           const entry = `\n## ${new Date().toISOString().slice(0, 10)} · ${String(body.title ?? 'Lección').slice(0, 120)}\n- Síntoma: ${body.symptom ?? '—'}\n- Causa: ${body.cause ?? '—'}\n- Arreglo: ${body.fix ?? '—'}\n${body.mods ? `- Implicados: ${body.mods}\n` : ''}`
           if (!(await fs.pathExists(file))) await fs.outputFile(file, '# Lecciones aprendidas\n\nLo que la IA ha ido descubriendo al arreglar crashes y problemas de este modpack. Se lee antes de diagnosticar.\n')
           await fs.appendFile(file, entry)
+          // Se comparte anónimamente (saneado) si el usuario lo permite en Ajustes › Privacidad
+          const shared = await shareLesson(inst, { title: String(body.title ?? ''), symptom: String(body.symptom ?? ''), cause: String(body.cause ?? ''), fix: String(body.fix ?? ''), mods: body.mods ? String(body.mods) : undefined })
+          if (shared) countEvent('aiLessonsShared')
           logActivity(inst.id, `Aprendido: ${String(body.title ?? '').slice(0, 80)}`, 'info')
-          return send(200, { ok: true })
+          return send(200, { ok: true, sharedWithCommunity: !!shared })
         }
         default:
           return send(404, { error: `Acción desconocida: ${action}` })
@@ -457,31 +445,4 @@ export function startAiBridge(launch: LaunchFn): void {
     }
   })
   app.on('before-quit', () => { fs.removeSync(BRIDGE_FILE()); server.close() })
-}
-
-function describe(action: string, b: any, kind: Kind): string {
-  const k = KIND_NAME[kind]
-  switch (action) {
-    case 'launch': return 'Abrir el juego para probar'
-    case 'stop': return 'Cerrar el juego'
-    case 'toggle': return `${b.enabled === false ? 'Desactivar' : 'Activar'} ${k} ${b.filename}${b.world ? ` en ${b.world}` : ''}`
-    case 'remove': return `Quitar ${k} ${b.filename} (a la papelera)`
-    case 'restore': return `Restaurar ${k} ${b.filename}`
-    case 'install': return `Instalar ${k} ${b.project} de ${b.source ?? 'modrinth'}${b.version ? ` (versión ${b.version})` : ''}${b.replaceFilename ? `, sustituyendo ${b.replaceFilename}` : ''}`
-    case 'install-file': return `Copiar ${path.basename(String(b.path))} a la instancia`
-    case 'link': return `Enlazar el proyecto ${b.projectDir}`
-    case 'files/write': return `Editar ${b.path}`
-    default: return action
-  }
-}
-
-/** Cambia qué puede hacer la IA en una instancia. */
-export async function setAiControl(instanceId: string, mode: 'off' | 'ask' | 'auto'): Promise<Instance> {
-  const inst = await getInstance(instanceId)
-  if (!inst) throw new Error('Instancia no encontrada')
-  const next = { ...inst, aiControl: mode }
-  await updateInstance(next)
-  if (mode !== 'auto') for (const k of [...alwaysAllowed]) if (k.startsWith(`${instanceId}|`)) alwaysAllowed.delete(k)
-  logActivity(instanceId, `Control por IA: ${mode === 'off' ? 'desactivado' : mode === 'ask' ? 'preguntar' : 'automático'}`, 'info')
-  return next
 }

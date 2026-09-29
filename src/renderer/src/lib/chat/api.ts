@@ -76,14 +76,13 @@ export const tsMs = (t: unknown): number => {
 }
 
 /**
- * Texto de un mensaje. La web lee `textCipher` (el cifrado aún es de paso)
- * pero al editar escribe `text`: si está editado manda `text`.
+ * Texto de un mensaje. Igual que la web: el mensaje vive solo en `textCipher`
+ * (también al editarlo; el cifrado de lib/crypto.js de la web aún pasa el texto
+ * tal cual). `text` solo se usa si no hay `textCipher`.
  */
 export function messageText(d: Record<string, unknown>): string {
-  const cipher = typeof d.textCipher === 'string' ? d.textCipher : undefined
-  const text = typeof d.text === 'string' ? d.text : undefined
-  if (d.editedAt && text !== undefined) return text
-  return cipher ?? text ?? ''
+  if (typeof d.textCipher === 'string') return d.textCipher
+  return typeof d.text === 'string' ? d.text : ''
 }
 
 export function toMessage(id: string, d: Record<string, unknown>): ChatMessage {
@@ -233,8 +232,8 @@ export async function sendMessage(p: SendParams): Promise<void> {
 }
 
 export async function editMessage(cid: string, msgId: string, text: string): Promise<void> {
-  // Se escriben los dos campos: la web lee textCipher y edita text
-  await updateDoc(doc(socialDb, 'conversations', cid, 'messages', msgId), { text, textCipher: text, editedAt: serverTimestamp() })
+  // Como la web: solo textCipher, sin dejar copia en claro
+  await updateDoc(doc(socialDb, 'conversations', cid, 'messages', msgId), { textCipher: text, editedAt: serverTimestamp() })
 }
 
 export async function toggleReaction(cid: string, msg: ChatMessage, key: string, uid: string): Promise<void> {

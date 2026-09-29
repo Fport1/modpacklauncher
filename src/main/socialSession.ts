@@ -43,6 +43,11 @@ function broadcast(sender: Electron.WebContents, key: string, value: Value | nul
   }
 }
 
+/** Si hay una sesión de fport1social guardada (solo sí/no, para las estadísticas). */
+export function hasSocialSession(): boolean {
+  return Object.keys(load()).some((k) => k.startsWith('firebase:authUser'))
+}
+
 export function registerSocialSession(): void {
   ipcMain.handle('social-session:get', (_e, key: string) => load()[key] ?? null)
   ipcMain.handle('social-session:set', (e, key: string, value: Value) => {

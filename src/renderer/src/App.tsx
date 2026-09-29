@@ -24,6 +24,8 @@ import AssistHostPanel from './components/assist/AssistHostPanel'
 import { useStore } from './store'
 import ChatNotifier from './components/chat/ChatNotifier'
 import AiAgentHost from './components/AiAgentHost'
+import { PrivacyNotice } from './components/PrivacySettings'
+import { setAutoTranslate } from './i18n/autoTranslate'
 
 function FpackOpenHandler() {
   const navigate = useNavigate()
@@ -145,6 +147,10 @@ export default function App() {
       // ignore
     }
   }
+
+  // Idioma: los textos escritos en los componentes se traducen al pintarse
+  const language = useStore((st) => st.settings?.language ?? 'es')
+  useEffect(() => { setAutoTranslate(language) }, [language])
 
   useEffect(() => {
     async function init() {
@@ -290,6 +296,7 @@ export default function App() {
       <FpackOpenHandler />
       <ChatNotifier />
       <AiAgentHost />
+      <PrivacyNotice />
       <MouseNavHandler />
       <div className="flex flex-col h-screen overflow-hidden">
         <TitleBar />

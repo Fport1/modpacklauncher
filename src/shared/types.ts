@@ -16,8 +16,6 @@ export interface MinecraftAccount {
 export interface Instance {
   /** Regenerar el contexto para IAs al cambiar los mods. */
   aiAutoContext?: boolean
-  /** Qué puede hacer una IA en el launcher: nada, preguntando o sola. */
-  aiControl?: 'off' | 'ask' | 'auto'
   id: string
   name: string
   dirName?: string
@@ -119,6 +117,12 @@ export interface Settings {
   showConsole: boolean
   /** Herramientas de desarrollo de Chromium (enseñan, entre otras cosas, el tamaño de la ventana al cambiarlo). */
   devTools: boolean
+  /** Estadísticas de uso anónimas. */
+  telemetry: boolean
+  /** Compartir anónimamente huellas de crashes y lecciones de la IA para que aprenda con todos. */
+  aiLearning: boolean
+  /** Ya se enseñó el aviso de privacidad. */
+  privacyNoticeSeen: boolean
 }
 
 export interface DownloadProgress {
@@ -234,6 +238,9 @@ export const DEFAULT_SETTINGS: Settings = {
   language: 'es',
   showConsole: false,
   devTools: false,
+  telemetry: true,
+  aiLearning: true,
+  privacyNoticeSeen: false,
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/
@@ -438,5 +445,3 @@ export interface ServerJarMeta {
 
 /** Algo que ha hecho (o intentado) una IA en una instancia, a través del launcher. */
 export interface AiActivity { instanceId: string; text: string; at: number; kind: 'info' | 'change' | 'denied' | 'error' }
-/** Petición de permiso de una IA en modo «preguntar». */
-export interface AiApprovalRequest { id: string; instanceId: string; instanceName: string; action: string; detail: string }

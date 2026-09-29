@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import PrivacySettings from '../components/PrivacySettings'
 import StorageModal from '../components/StorageModal'
 import { useStore } from '../store'
 import RamSlider from '../components/RamSlider'
@@ -274,8 +275,11 @@ export default function SettingsPage() {
   }
 
   async function saveSettings() {
-    await window.api.settings.set(localSettings)
-    setSettings(localSettings)
+    // Lo de privacidad se guarda al momento desde su sección: no lo pisamos con la copia local
+    const cur = useStore.getState().settings
+    const next = cur ? { ...localSettings, telemetry: cur.telemetry, aiLearning: cur.aiLearning, privacyNoticeSeen: cur.privacyNoticeSeen } : localSettings
+    await window.api.settings.set(next)
+    setSettings(next)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -708,6 +712,14 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Privacidad */}
+      <section>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
+          Privacidad
+        </h2>
+        <PrivacySettings />
       </section>
 
       {/* Inteligencia Artificial */}

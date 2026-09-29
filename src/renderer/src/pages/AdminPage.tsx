@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
+import AdminStats from '../components/AdminStats'
 
 type AnnType = 'update' | 'info' | 'warning' | 'event' | 'sponsor'
 interface Announcement {
@@ -111,7 +112,7 @@ function AnnForm({
   )
 }
 
-export default function AdminPage() {
+function AnnouncementsAdmin() {
   const settings = useStore(s => s.settings)
   const [items, setItems] = useState<Announcement[]>([])
   const [loading, setLoading] = useState(true)
@@ -320,6 +321,24 @@ export default function AdminPage() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+export default function AdminPage() {
+  const [tab, setTab] = useState<'stats' | 'ads'>('stats')
+  return (
+    <div className="p-6 max-w-6xl">
+      <div className="flex items-center gap-4 mb-5">
+        <h1 className="text-xl font-bold text-text-primary">Panel Admin</h1>
+        <div className="flex gap-1 p-1 rounded-xl bg-bg-card border border-border">
+          {([['stats', 'Estadísticas'], ['ads', 'Anuncios']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === id ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'}`}>{label}</button>
+          ))}
+        </div>
+      </div>
+      {tab === 'stats' ? <AdminStats /> : <AnnouncementsAdmin />}
     </div>
   )
 }

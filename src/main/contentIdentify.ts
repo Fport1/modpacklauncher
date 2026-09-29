@@ -1,6 +1,7 @@
 import axios from 'axios'
 import fs from 'fs-extra'
 import { cfFingerprint, cfPost, CF_GAME_MINECRAFT, CF_LOADER } from './curseforge'
+import { fsBatchGet, fsRunQuery } from './firestoreRest'
 
 // Identificar archivos que Modrinth no conoce: primero en las creaciones de
 // Fport1 (por sha1) y después en CurseForge (por su huella). Así un mod que
@@ -27,40 +28,27 @@ export interface FileToIdentify { name: string; path?: string; sha1: string; fin
 
 // ── Fport1 (Firestore por REST, lectura pública) ──────────────────────────
 
-const FS_PROJECT = 'fport1-social'
-const FS_KEY = 'AIzaSyBbQaYFl4a1Z3Mm-klrrJ3tQdRV53Cc77M'
-const FS_ROOT = `projects/${FS_PROJECT}/databases/(default)/documents`
-
-type FsValue = { stringValue?: string; integerValue?: string; booleanValue?: boolean; nullValue?: null; arrayValue?: { values?: FsValue[] }; mapValue?: { fields?: Record<string, FsValue> } }
-
-function fsPlain(v: FsValue | undefined): unknown {
-  if (!v) return undefined
-  if ('stringValue' in v) return v.stringValue
-  if ('integerValue' in v) return Number(v.integerValue)
-  if ('booleanValue' in v) return v.booleanValue
-  if ('arrayValue' in v) return (v.arrayValue?.values ?? []).map(fsPlain)
-  if ('mapValue' in v) return Object.fromEntries(Object.entries(v.mapValue?.fields ?? {}).map(([k, x]) => [k, fsPlain(x)]))
-  return null
-}
-
-async function fsBatchGet(paths: string[]): Promise<Record<string, Record<string, any>>> {
-  if (!paths.length) return {}
-  const out: Record<string, Record<string, any>> = {}
+// sha1 → proyecto y versión. Se construye con el catálogo PUBLICADO, que es lo
+// único que las reglas de fport1web dejan leer a cualquiera (el catálogo es
+// pequeño: solo lo publica @fport1). Se renueva cada 10 minutos.
+let f1Index: { at: number; map: Map<string, { projectId: string; versionId: string }> } | null = null
+async function fport1Index(): Promise<Map<string, { projectId: string; versionId: string }>> {
+  if (f1Index && Date.now() - f1Index.at < 10 * 60_000) return f1Index.map
+  const map = new Map<string, { projectId: string; versionId: string }>()
   try {
-    const { data } = await axios.post(`https://firestore.googleapis.com/v1/${FS_ROOT}:batchGet?key=${FS_KEY}`,
-      { documents: paths.map((p) => `${FS_ROOT}/${p}`) }, { timeout: 15_000 })
-    for (const r of data as { found?: { name: string; fields?: Record<string, FsValue> } }[]) {
-      if (!r.found) continue
-      const rel = r.found.name.slice(FS_ROOT.length + 1)
-      out[rel] = Object.fromEntries(Object.entries(r.found.fields ?? {}).map(([k, v]) => [k, fsPlain(v)]))
-    }
-  } catch { /* sin reglas o sin red: nada identificado */ }
-  return out
+    const projects = await fsRunQuery('', 'fport1_projects', [{ field: 'published', op: 'EQUAL', value: { booleanValue: true } }])
+    await Promise.all(projects.map(async (pr) => {
+      const versions = await fsRunQuery(`fport1_projects/${pr.id}`, 'versions').catch(() => [])
+      for (const v of versions) for (const f of (v.data.files ?? []) as { sha1?: string }[]) if (f.sha1) map.set(f.sha1, { projectId: pr.id, versionId: v.id })
+    }))
+    f1Index = { at: Date.now(), map }
+  } catch { /* sin red: se reintenta la próxima vez */ }
+  return map
 }
 
 async function identifyFport1(files: FileToIdentify[], mcVersion: string, loader: string): Promise<Record<string, ExtraMeta>> {
-  const idx = await fsBatchGet(files.map((f) => `fport1_files/${f.sha1}`))
-  const hits = files.map((f) => ({ f, i: idx[`fport1_files/${f.sha1}`] })).filter((x) => x.i?.projectId)
+  const idx = await fport1Index()
+  const hits = files.map((f) => ({ f, i: idx.get(f.sha1) })).filter((x): x is { f: FileToIdentify; i: { projectId: string; versionId: string } } => !!x.i)
   if (!hits.length) return {}
   const projects = await fsBatchGet([...new Set(hits.map((h) => `fport1_projects/${h.i.projectId}`))])
   const out: Record<string, ExtraMeta> = {}

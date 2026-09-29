@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AiActivity, Instance } from '../../../shared/types'
 import { useStore } from '../store'
+import { CLAUDE_PATH, GEMINI_PATH, OPENAI_PATH } from './aiLogos'
 
 // Prepara la carpeta de una instancia para trabajar con Claude Code u otra IA:
 // AGENTS.md / CLAUDE.md / GEMINI.md, fichas de cada mod en .ai/ y habilidades
@@ -14,17 +15,30 @@ const GENERATED = [
   ['.ai/mods/', 'Una ficha por mod: descripción del autor (comandos, configuración), wiki, fallos conocidos, dependencias, incompatibilidades, sus configs e ids de bloques e ítems.'],
   ['.ai/worlds.md · packs.md', 'Mundos con sus datapacks, resource packs y shaders.'],
   ['.claude/skills/', 'Habilidades de Claude Code: arreglar crashes en bucle, desarrollo (mods, packs y datapacks con el juego al lado), configs y diagnóstico.'],
-  ['.mcp.json · .cursor · .gemini · .codex · .vscode', 'Conectan cada IA con el launcher (servidor MCP «modpack-launcher»): lanzar el juego, leer crashes, instalar, quitar o cambiar de versión mods y packs, editar configs.'],
+  ['.mcp.json · .codex · .gemini · .grok · .cursor · .vscode', 'Conectan cada IA con el launcher (servidor MCP «modpack-launcher»): lanzar el juego, leer crashes, instalar, quitar o cambiar de versión mods y packs, editar configs.'],
   ['.ai/lecciones.md', 'Lo que la IA aprende al arreglar fallos; lo lee antes de diagnosticar para detectarlos antes.'],
 ] as const
 
 const clean = (e: unknown): string => e instanceof Error ? e.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '') : 'Algo ha fallado'
 
-const MODES = [
-  { id: 'off', label: 'Solo mirar', desc: 'Lee logs, crashes, mods y configs, pero no cambia nada ni abre el juego.' },
-  { id: 'ask', label: 'Preguntar', desc: 'Antes de abrir el juego o cambiar mods, packs o configs, el launcher te pide permiso.' },
-  { id: 'auto', label: 'Automático', desc: 'Prueba, corrige y vuelve a probar sola hasta que funcione. Todo queda en la actividad y se puede deshacer.' },
-] as const
+type Tool = 'claude' | 'codex' | 'gemini' | 'grok'
+
+// Grok no está en simple-icons: su marca es un círculo cortado por una diagonal
+function GrokLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+      <path d="M17.5 5.2A8.5 8.5 0 1 0 19.6 16" />
+      <path d="M21 3 9.5 14.5" />
+    </svg>
+  )
+}
+
+const TOOLS: { id: Tool; label: string; logo: (c: string) => JSX.Element; className: string }[] = [
+  { id: 'claude', label: 'Claude Code', logo: (c) => <svg viewBox="0 0 24 24" className={c} fill="currentColor"><path d={CLAUDE_PATH} /></svg>, className: 'bg-[#d97757] hover:bg-[#c96747] text-white border-transparent' },
+  { id: 'codex', label: 'Codex', logo: (c) => <svg viewBox="0 0 24 24" className={c} fill="currentColor"><path d={OPENAI_PATH} /></svg>, className: 'bg-bg-card hover:bg-bg-hover text-text-primary border-border' },
+  { id: 'gemini', label: 'Gemini CLI', logo: (c) => <svg viewBox="0 0 24 24" className={c}><defs><linearGradient id="gemini-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#4796e3" /><stop offset="0.5" stopColor="#9168c0" /><stop offset="1" stopColor="#d6645d" /></linearGradient></defs><path d={GEMINI_PATH} fill="url(#gemini-g)" /></svg>, className: 'bg-bg-card hover:bg-bg-hover text-text-primary border-border' },
+  { id: 'grok', label: 'Grok', logo: (c) => <GrokLogo className={c} />, className: 'bg-bg-card hover:bg-bg-hover text-text-primary border-border' },
+]
 
 export default function AiContextModal({ instance, onClose }: { instance: Instance; onClose: () => void }) {
   const updateInstanceStore = useStore((s) => s.updateInstance)
@@ -34,7 +48,6 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
   const [dir, setDir] = useState('')
   const [copied, setCopied] = useState(false)
   const [auto, setAuto] = useState(!!instance.aiAutoContext)
-  const [control, setControl] = useState<'off' | 'ask' | 'auto'>(instance.aiControl ?? 'off')
   const [activity, setActivity] = useState<AiActivity[]>([])
   const [opening, setOpening] = useState('')
 
@@ -68,13 +81,7 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
     updateInstanceStore(updated)
   }
 
-  async function changeControl(mode: 'off' | 'ask' | 'auto'): Promise<void> {
-    setControl(mode)
-    try { updateInstanceStore(await window.api.aiAgent.setControl(instance.id, mode)) }
-    catch (e) { setError(clean(e)) }
-  }
-
-  async function openTool(tool: 'claude' | 'codex' | 'gemini'): Promise<void> {
+  async function openTool(tool: Tool): Promise<void> {
     setOpening(tool); setError('')
     try {
       if (!status?.exists) setStatus(await window.api.aiContext.prepare(instance.id))
@@ -89,41 +96,31 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
     <div className="fixed inset-0 z-[260] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6" onClick={onClose}>
       <div className="w-[720px] max-h-[90vh] flex flex-col bg-bg-secondary border border-border rounded-3xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 px-6 py-5 border-b border-border" style={{ background: 'linear-gradient(115deg, rgba(217,119,87,0.22), transparent 70%)' }}>
-          <div className="w-12 h-12 rounded-2xl bg-[#d97757]/20 text-[#e8a488] flex items-center justify-center text-2xl">✳</div>
+          <div className="w-12 h-12 rounded-2xl bg-[#d97757]/20 text-[#e8a488] flex items-center justify-center">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M10 2.5c.4 3.9 2.1 5.6 6 6-3.9.4-5.6 2.1-6 6-.4-3.9-2.1-5.6-6-6 3.9-.4 5.6-2.1 6-6Z" /><path d="M18 12.5c.25 2.3 1.2 3.25 3.5 3.5-2.3.25-3.25 1.2-3.5 3.5-.25-2.3-1.2-3.25-3.5-3.5 2.3-.25 3.25-1.2 3.5-3.5Z" /></svg>
+          </div>
           <div className="flex-1 min-w-0">
             <p className="text-lg font-bold text-text-primary">IA en esta instancia</p>
-            <p className="text-xs text-text-muted">Claude Code, Codex, Gemini, Copilot o Cursor trabajando en «{instance.name}» a través del launcher: arreglar crashes, cambiar mods y packs, configs y desarrollo</p>
+            <p className="text-xs text-text-muted">Claude Code, Codex, Gemini, Grok, Copilot o Cursor trabajando en «{instance.name}» a través del launcher: arreglar crashes, cambiar mods y packs, configs y desarrollo</p>
           </div>
           <button onClick={onClose} className="w-9 h-9 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg-hover">✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Qué puede hacer la IA</p>
-            <div className="grid grid-cols-3 gap-2">
-              {MODES.map((m) => (
-                <button key={m.id} onClick={() => changeControl(m.id)}
-                  className={`text-left px-3.5 py-3 rounded-2xl border transition-colors ${control === m.id ? 'bg-[#d97757]/15 border-[#d97757]/60' : 'bg-bg-card border-border hover:border-[#d97757]/30'}`}>
-                  <p className={`text-sm font-bold ${control === m.id ? 'text-[#e8a488]' : 'text-text-primary'}`}>{m.label}</p>
-                  <p className="text-[11px] text-text-muted mt-1 leading-snug">{m.desc}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Abrir la IA ya conectada al launcher</p>
             <div className="flex flex-wrap gap-2">
-              {([['claude', 'Claude Code'], ['codex', 'Codex'], ['gemini', 'Gemini CLI']] as const).map(([id, label]) => (
-                <button key={id} onClick={() => openTool(id)} disabled={!!opening}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-60 ${id === 'claude' ? 'bg-[#d97757] hover:bg-[#c96747] text-white' : 'border border-border text-text-secondary hover:text-text-primary hover:bg-bg-hover'}`}>
-                  {opening === id ? 'Abriendo…' : label}
+              {TOOLS.map((t) => (
+                <button key={t.id} onClick={() => openTool(t.id)} disabled={!!opening}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold transition-colors disabled:opacity-60 ${t.className}`}>
+                  {t.logo('w-[18px] h-[18px] shrink-0')}
+                  {opening === t.id ? 'Abriendo…' : t.label}
                 </button>
               ))}
               <button onClick={() => window.api.instances.openFolder(instance.id)}
                 className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover">Abrir carpeta</button>
             </div>
-            <p className="text-xs text-text-muted mt-2">Se abre en la carpeta del juego con las herramientas del launcher cargadas. Prueba a pedirle «el juego crashea, arréglalo» o «enlaza mi resource pack de C:\proyectos\mipack».</p>
+            <p className="text-xs text-text-muted mt-2">Los permisos los gestiona tu IA: antes de abrir el juego o cambiar mods, packs o configs te pedirá permiso, y puedes decirle que no vuelva a preguntar. Se abre en la carpeta del juego con las herramientas del launcher cargadas. Prueba a pedirle «el juego crashea, arréglalo» o «enlaza mi resource pack de C:\proyectos\mipack».</p>
           </div>
 
           {activity.length > 0 && (

@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, AiApprovalRequest } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -630,24 +630,12 @@ const api = {
 
   // La IA trabajando en una instancia a través del launcher
   aiAgent: {
-    setControl: (instanceId: string, mode: 'off' | 'ask' | 'auto') => ipcRenderer.invoke('ai:set-control', instanceId, mode) as Promise<Instance>,
-    openTerminal: (instanceId: string, tool: 'claude' | 'codex' | 'gemini') => ipcRenderer.invoke('ai:open-terminal', instanceId, tool) as Promise<void>,
+    openTerminal: (instanceId: string, tool: 'claude' | 'codex' | 'gemini' | 'grok') => ipcRenderer.invoke('ai:open-terminal', instanceId, tool) as Promise<void>,
     activity: (instanceId?: string) => ipcRenderer.invoke('ai:activity', instanceId) as Promise<AiActivity[]>,
-    approve: (id: string, decision: 'allow' | 'always' | 'deny') => ipcRenderer.invoke('ai:approve', id, decision) as Promise<void>,
     onActivity: (cb: (a: AiActivity) => void) => {
       const h = (_e: unknown, a: AiActivity): void => cb(a)
       ipcRenderer.on('ai:activity', h)
       return () => { ipcRenderer.removeListener('ai:activity', h) }
-    },
-    onApproval: (cb: (r: AiApprovalRequest) => void) => {
-      const h = (_e: unknown, r: AiApprovalRequest): void => cb(r)
-      ipcRenderer.on('ai:approval', h)
-      return () => { ipcRenderer.removeListener('ai:approval', h) }
-    },
-    onApprovalDone: (cb: (id: string) => void) => {
-      const h = (_e: unknown, id: string): void => cb(id)
-      ipcRenderer.on('ai:approval-done', h)
-      return () => { ipcRenderer.removeListener('ai:approval-done', h) }
     }
   },
 

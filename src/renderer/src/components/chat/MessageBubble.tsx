@@ -175,7 +175,7 @@ function MessageBubble(p: Props) {
                 {audio && (audio.url ? <AudioMessage src={audio.url} mine={mine} /> : <p className="text-sm opacity-60 py-2">🎤 Cargando audio…</p>)}
                 {files.map((f, i) => <div key={i} className={i ? 'mt-1.5' : ''}><FileAttachment att={f} mine={mine} /></div>)}
                 {msg.text && (
-                  <p className={`whitespace-pre-wrap break-words ${big && big <= 3 ? 'text-5xl leading-tight py-1' : 'text-[14px] leading-[1.4]'} ${atts.length ? 'mt-1.5 px-0.5' : ''}`}>
+                  <p data-no-translate className={`whitespace-pre-wrap break-words ${big && big <= 3 ? 'text-5xl leading-tight py-1' : 'text-[14px] leading-[1.4]'} ${atts.length ? 'mt-1.5 px-0.5' : ''}`}>
                     <Linkified text={msg.text} />
                   </p>
                 )}

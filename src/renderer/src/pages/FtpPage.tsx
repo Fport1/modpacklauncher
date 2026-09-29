@@ -57,9 +57,11 @@ export function usePaneNav(focusedRef: React.MutableRefObject<Side | null>, apis
 
 export function LogBox({ lines, className = '' }: { lines: LogLine[]; className?: string }) {
   const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => { ref.current?.scrollTo({ top: ref.current.scrollHeight }) }, [lines])
+  // Solo baja sola si ya estabas abajo (si subes a leer, no te mueve)
+  const follow = useRef(true)
+  useEffect(() => { if (follow.current) ref.current?.scrollTo({ top: ref.current.scrollHeight }) }, [lines])
   return (
-    <div ref={ref} className={`shrink-0 bg-bg-secondary border border-border rounded-xl overflow-y-auto px-3 py-2 font-mono text-xs ${className}`}>
+    <div ref={ref} onScroll={(e) => { const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40 }} className={`shrink-0 bg-bg-secondary border border-border rounded-xl overflow-y-auto px-3 py-2 font-mono text-xs ${className}`}>
       {lines.length === 0 && <p className="text-text-muted">Aquí aparece lo que va pasando con la conexión y las transferencias.</p>}
       {lines.map((l, i) => (
         <p key={i} className={l.kind === 'error' ? 'text-red-400' : l.kind === 'ok' ? 'text-green-400' : 'text-text-muted'}>
