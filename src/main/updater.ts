@@ -49,11 +49,29 @@ app.on('before-quit', () => {
   autoUpdater.autoInstallOnAppQuit = !hasRunningInstances()
 })
 
+/**
+ * GitHub entrega las notas de la release en HTML (<p>, <br />, <ul><li>…):
+ * se pasan a texto con viñetas para mostrarlas tal cual en el aviso.
+ */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<\/(p|li|h[1-6]|ul|ol|div)>/gi, '\n')
+    .replace(/<h[1-6][^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, '&')
+    .replace(/^[ \t]+|[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
 function toManifest(info: UpdateInfo): UpdateManifest {
-  const notes =
+  const raw =
     typeof info.releaseNotes === 'string'
       ? info.releaseNotes
       : info.releaseNotes?.map((n) => n.note ?? '').join('\n\n')
+  const notes = raw && /<[a-z][^>]*>/i.test(raw) ? htmlToText(raw) : raw
 
   return {
     version: info.version,

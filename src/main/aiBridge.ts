@@ -10,7 +10,11 @@ import { cfGet, CF_CLASS, CF_GAME_MINECRAFT, CF_LOADER } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled } from './worldDatapacks'
 import type { AiActivity, Instance } from '../shared/types'
 import { MCP_SCRIPT } from './aiMcpScript'
-import { crashSignature, findLessons, rateLesson, shareLesson, aiLearningEnabled } from './aiCommunity'
+import { communityExperience, crashSignature, findLessons, rateLesson, shareLesson, aiLearningEnabled } from './aiCommunity'
+import { editNbt, inspectFile } from './fileInspect'
+import { deobfuscateText, getMappings, obfuscatedClassName } from './deobf'
+import { getSharedDir } from './instances'
+import { packFormats, queryRegistry, readResource, scaffoldProject, setGameRule, validatePack, worldInfo } from './gameKnowledge'
 import { countEvent } from './telemetry'
 
 // Puente local para IAs (Claude Code, Codex, Gemini, Cursor…).
@@ -141,6 +145,26 @@ function inside(base: string, rel: string): string {
   return full
 }
 
+/** Ruta de lectura: dentro de la carpeta del juego o, con «shared:», en los archivos compartidos (jars de versiones, librerías, assets). */
+function readablePath(gameDir: string, rel: string): string {
+  if (rel.startsWith('shared:')) return inside(getSharedDir(), rel.slice(7).replace(/^[\\/]+/, ''))
+  if (path.isAbsolute(rel)) {
+    const full = path.resolve(rel)
+    for (const base of [gameDir, getSharedDir()]) if (full === base || full.startsWith(base + path.sep)) return full
+    throw new Error('Solo se leen archivos de la instancia o de «shared:» (versiones, librerías). Para otros usa tus propias herramientas.')
+  }
+  return inside(gameDir, rel)
+}
+
+/** Añade al crash el texto con nombres reales si la versión está ofuscada. */
+async function withDeobf(mc: string, crash: { file: string; text: string } | null): Promise<unknown> {
+  if (!crash) return crash
+  try {
+    const d = await deobfuscateText(mc, crash.text)
+    return d.ofuscada && d.cambios ? { ...crash, textoConNombresReales: d.texto } : crash
+  } catch { return crash }
+}
+
 /** Loader que entiende Modrinth para cada tipo. */
 function mrLoader(inst: Instance, kind: Kind): string {
   if (kind === 'mod') return inst.modloader === 'vanilla' ? '' : inst.modloader
@@ -256,7 +280,7 @@ export function startAiBridge(launch: LaunchFn): void {
           const out = summarizeRun(r && r.startedAt >= t0 ? r : undefined)
           if (r && r.exitCode !== undefined && r.exitCode !== 0) {
             const crash = await latestCrash(gameDir, t0)
-            out.crashReport = crash
+            out.crashReport = await withDeobf(inst.minecraft, crash)
             // Lo que ya les funcionó a otros con este mismo crash (o con estos mods)
             if (crash?.text) {
               const s = crashSignature(crash.text)
@@ -283,7 +307,7 @@ export function startAiBridge(launch: LaunchFn): void {
         }
         case 'crashes': {
           const names = (await fs.readdir(path.join(gameDir, 'crash-reports')).catch(() => [] as string[])).filter((n) => n.endsWith('.txt')).sort().reverse()
-          return send(200, { reports: names.slice(0, 30), latest: await latestCrash(gameDir) })
+          return send(200, { reports: names.slice(0, 30), latest: await withDeobf(inst.minecraft, await latestCrash(gameDir)) })
         }
         case 'content':
           return send(200, await listContent(inst, kind, world))
@@ -388,9 +412,41 @@ export function startAiBridge(launch: LaunchFn): void {
           return send(200, { path: rel, entries: names.slice(0, 500).map((d) => (d.isDirectory() ? `${d.name}/` : d.name)) })
         }
         case 'files/read': {
-          const file = inside(gameDir, String(body.path))
-          const text = await fs.readFile(file, 'utf8')
-          return send(200, { path: body.path, text: text.slice(0, 60_000), truncated: text.length > 60_000 })
+          const file = readablePath(gameDir, String(body.path))
+          const chunk = body.chunk && typeof body.chunk === 'object' ? { x: Number(body.chunk.x), z: Number(body.chunk.z) } : undefined
+          return send(200, await inspectFile(file, { entrada: body.entry ? String(body.entry) : undefined, filtro: body.filter ? String(body.filter) : undefined, chunk, mc: inst.minecraft, crudo: !!body.raw }))
+        }
+        case 'files/nbt': {
+          const rel = String(body.path)
+          if (isInstanceRunning(inst.id) && /(level\.dat|playerdata|players[\\/]data|\.dat$)/.test(rel)) return send(409, { error: 'Cierra el juego antes: al guardar, Minecraft sobrescribiría el cambio' })
+          const r = await editNbt(inside(gameDir, rel), String(body.nbtPath), String(body.value))
+          logActivity(inst.id, `NBT ${rel}: ${body.nbtPath} = ${r.despues}`)
+          return send(200, { ok: true, ...r, copia: rel + '.ia-bak' })
+        }
+        case 'deobf': {
+          const text = body.text ? String(body.text) : body.path ? await fs.readFile(readablePath(gameDir, String(body.path)), 'utf8') : ''
+          const d = await deobfuscateText(String(body.version ?? inst.minecraft), text)
+          return send(200, d.ofuscada ? { cambios: d.cambios, texto: d.texto.slice(0, 60_000) } : { ofuscada: false, nota: `Minecraft ${body.version ?? inst.minecraft} no está ofuscado: los nombres ya son los reales.` })
+        }
+        case 'class': {
+          // Una clase del juego (por su nombre real, aunque el jar esté ofuscado) o de un mod
+          const cname = String(body.name).replace(/\//g, '.').replace(/\.class$/, '')
+          const mc = inst.minecraft
+          const jar = path.join(getSharedDir(), 'versions', mc, `${mc}.jar`)
+          const obf = await obfuscatedClassName(mc, cname).catch(() => null)
+          const tryIn = async (zipPath: string, entry: string): Promise<unknown | null> => {
+            try { return await inspectFile(zipPath, { entrada: entry, mc }) } catch { return null }
+          }
+          if (obf) { const r = await tryIn(jar, obf.replace(/\./g, '/') + '.class'); if (r) return send(200, r) }
+          const direct = await tryIn(jar, cname.replace(/\./g, '/') + '.class')
+          if (direct) return send(200, direct)
+          for (const m of (await listMods(inst.id)).filter((x) => x.filename.endsWith('.jar'))) {
+            const r = await tryIn(path.join(gameDir, 'mods', m.filename), cname.replace(/\./g, '/') + '.class')
+            if (r) return send(200, { mod: m.filename, ...(r as object) })
+          }
+          const mp = await getMappings(mc).catch(() => null)
+          const hints = mp?.obfuscated ? [...mp.cls.values()].filter((n) => n.toLowerCase().endsWith('.' + cname.split('.').pop()!.toLowerCase())).slice(0, 10) : []
+          return send(404, { error: 'No encontré esa clase en el juego ni en los mods', parecidas: hints.length ? hints : undefined })
         }
         case 'files/write': {
           const rel = String(body.path)
@@ -410,7 +466,7 @@ export function startAiBridge(launch: LaunchFn): void {
           const text = await fs.readFile(path.join(gameDir, '.ai', 'lecciones.md'), 'utf8').catch(() => '')
           // Además de lo aprendido aquí, lo que otros jugadores aprendieron con estos mods
           const modIds = (await listMods(inst.id).catch(() => [])).flatMap((m) => m.meta?.modIds ?? [])
-          const community = await findLessons(inst, { mods: modIds })
+          const community = await findLessons(inst, { mods: modIds, kind: body.kind ? String(body.kind) : undefined, tema: body.topic ? String(body.topic) : undefined })
           return send(200, { local: text, community, communityEnabled: aiLearningEnabled() })
         }
         case 'lessons/rate': {
@@ -419,15 +475,51 @@ export function startAiBridge(launch: LaunchFn): void {
         }
         case 'lessons/add': {
           const file = path.join(gameDir, '.ai', 'lecciones.md')
-          const entry = `\n## ${new Date().toISOString().slice(0, 10)} · ${String(body.title ?? 'Lección').slice(0, 120)}\n- Síntoma: ${body.symptom ?? '—'}\n- Causa: ${body.cause ?? '—'}\n- Arreglo: ${body.fix ?? '—'}\n${body.mods ? `- Implicados: ${body.mods}\n` : ''}`
+          const entry = `\n## ${new Date().toISOString().slice(0, 10)} · ${body.kind ? `[${body.kind}] ` : ''}${String(body.title ?? 'Lección').slice(0, 120)}\n- Síntoma: ${body.symptom ?? '—'}\n- Causa: ${body.cause ?? '—'}\n- Arreglo: ${body.fix ?? '—'}\n${body.mods ? `- Implicados: ${body.mods}\n` : ''}`
           if (!(await fs.pathExists(file))) await fs.outputFile(file, '# Lecciones aprendidas\n\nLo que la IA ha ido descubriendo al arreglar crashes y problemas de este modpack. Se lee antes de diagnosticar.\n')
           await fs.appendFile(file, entry)
           // Se comparte anónimamente (saneado) si el usuario lo permite en Ajustes › Privacidad
-          const shared = await shareLesson(inst, { title: String(body.title ?? ''), symptom: String(body.symptom ?? ''), cause: String(body.cause ?? ''), fix: String(body.fix ?? ''), mods: body.mods ? String(body.mods) : undefined })
+          const shared = await shareLesson(inst, { kind: body.kind ? String(body.kind) : undefined, title: String(body.title ?? ''), symptom: String(body.symptom ?? ''), cause: String(body.cause ?? ''), fix: String(body.fix ?? ''), mods: body.mods ? String(body.mods) : undefined })
           if (shared) countEvent('aiLessonsShared')
           logActivity(inst.id, `Aprendido: ${String(body.title ?? '').slice(0, 80)}`, 'info')
           return send(200, { ok: true, sharedWithCommunity: !!shared })
         }
+        // ── Conocimiento del juego para construir ──
+        case 'registry':
+          return send(200, await queryRegistry(inst, { tipo: body.type, buscar: body.search, namespace: body.namespace, mundo: world, limite: body.limit }))
+        case 'resource':
+          return send(200, await readResource(inst, { tipo: body.type, id: body.id, ruta: body.path, mundo: world, extraer: !!body.extract }))
+        case 'world': {
+          if (!world) return send(200, { mundos: await fs.readdir(path.join(gameDir, 'saves')).catch(() => []) })
+          return send(200, await worldInfo(inst, world))
+        }
+        case 'world/rule': {
+          if (isInstanceRunning(inst.id)) return send(409, { error: 'Con el juego abierto usa /gamerule dentro del juego; al guardar el mundo se perdería el cambio' })
+          const rk = await setGameRule(inst, String(world), String(body.rule), String(body.value))
+          logActivity(inst.id, `Regla ${rk} = ${body.value} en ${world}`)
+          return send(200, { ok: true, regla: rk })
+        }
+        case 'world/copy': {
+          // Copia de un mundo para experimentar sin miedo (worldgen, mobs, mecánicas…)
+          const src = path.join(gameDir, 'saves', path.basename(String(world)))
+          const name = String(body.name ?? `${path.basename(String(world))} (prueba IA)`).replace(/[<>:"/\\|?*]/g, '_')
+          const dest = path.join(gameDir, 'saves', name)
+          if (!(await fs.pathExists(src))) return send(404, { error: 'Ese mundo no existe' })
+          if (await fs.pathExists(dest)) return send(409, { error: 'Ya hay un mundo con ese nombre' })
+          await fs.copy(src, dest, { filter: (f) => !f.endsWith('session.lock') })
+          logActivity(inst.id, `Copia del mundo ${world} → ${name}${isInstanceRunning(inst.id) ? ' (con el juego abierto: puede no estar al día)' : ''}`)
+          return send(200, { ok: true, mundo: name })
+        }
+        case 'project/create': {
+          const fmt = await packFormats(inst.minecraft)
+          const r = await scaffoldProject(inst, fmt, { tipo: String(body.kind ?? 'datapack'), nombre: String(body.name), carpeta: String(body.folder ?? path.join(gameDir, '.ai', 'proyectos')), namespace: body.namespace ? String(body.namespace) : undefined, descripcion: body.description ? String(body.description) : undefined })
+          logActivity(inst.id, `Proyecto creado: ${body.name} (${body.kind ?? 'datapack'})`)
+          return send(200, r)
+        }
+        case 'project/validate':
+          return send(200, await validatePack(inst, await packFormats(inst.minecraft), String(body.path), world))
+        case 'community':
+          return send(200, await communityExperience(inst, body.mod ? String(body.mod) : undefined))
         default:
           return send(404, { error: `Acción desconocida: ${action}` })
       }

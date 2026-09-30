@@ -7,6 +7,8 @@ import { getInstance, getInstanceGameDir, getSharedDir, listMods, listResourcepa
 import { getInstalledModsMeta, type InstalledModMeta } from './modrinth'
 import { cfGet, cfPost } from './curseforge'
 import { listWorldDatapacks } from './worldDatapacks'
+import { buildRegistry, packFormats, worldInfo } from './gameKnowledge'
+import { SKILLS } from './aiSkills'
 import type { Instance, ModFile } from '../shared/types'
 import { BRIDGE_FILE, MCP_SCRIPT_FILE } from './aiBridge'
 import { MCP_SCRIPT } from './aiMcpScript'
@@ -39,22 +41,6 @@ function htmlToText(html: string): string {
 }
 
 const clip = (s: string, n = MAX_BODY): string => (s.length > n ? s.slice(0, n) + '\n\n…(recortado; el resto en la página del proyecto)' : s)
-
-/** Formatos de pack de la versión, del version.json del jar del juego. */
-async function packFormats(mc: string): Promise<{ resource?: number; data?: number; java?: number }> {
-  try {
-    const jar = path.join(getSharedDir(), 'versions', mc, `${mc}.jar`)
-    const entry = new AdmZip(jar).getEntry('version.json')
-    if (!entry) return {}
-    const v = JSON.parse(entry.getData().toString('utf8'))
-    const pv = v.pack_version
-    return {
-      resource: typeof pv === 'number' ? pv : pv?.resource ?? pv?.resource_major,
-      data: typeof pv === 'number' ? pv : pv?.data ?? pv?.data_major,
-      java: v.java_version,
-    }
-  } catch { return {} }
-}
 
 /** Lo que el jar dice de sí mismo: versión, ids de bloques/ítems, lang de comandos. */
 function jarFacts(jarPath: string): { version?: string; namespaces: string[]; items: string[]; blocks: string[]; commandKeys: string[]; hasData: boolean } {
@@ -203,8 +189,15 @@ En Claude Code, Codex, Gemini CLI, Grok CLI, Cursor o VS Code las herramientas s
 - \`buscar\`, \`versiones\`, \`instalar\` (con \`reemplaza\` para cambiar de versión) — Modrinth y CurseForge
 - \`copiar_archivo\` — el jar de un mod que estés programando o un pack .zip
 - \`enlazar_proyecto\` — enlaza la carpeta de un proyecto de datapack, resource pack o shader para editar y recargar en el juego
-- \`listar_archivos\`, \`leer_archivo\`, \`escribir_archivo\` — configs (\`config/\`, \`options.txt\`, \`defaultconfigs/\`, serverconfig); el launcher guarda copia en \`.ai/copias\`
-- \`lecciones\`, \`anotar_leccion\`, \`valorar_leccion\` — lo aprendido aquí y por otros jugadores con estos mods; lo que funciona sube y lo que falla baja
+- \`listar_archivos\`, \`leer_archivo\`, \`escribir_archivo\` — \`leer_archivo\` entiende cualquier formato: texto, JSON, NBT/.dat (en SNBT), regiones .mca, .zip/.jar/.rar (y lo de dentro), clases Java, modelos (Java, GeckoLib, Blockbench, OBJ) y esquemáticas (.nbt, .schem, .schematic, .litematic); \`escribir_archivo\` guarda copia en \`.ai/copias\`
+- \`editar_nbt\` — cambia un valor de un NBT (level.dat, playerdata, estructuras) por su camino
+- \`desofuscar\`, \`ver_clase\` — nombres reales en crashes y logs de versiones ofuscadas (hasta 1.21.11), y campos/métodos de cualquier clase del juego o de un mod
+- \`registro\` — todo lo que existe en esta instancia (vanilla de esta versión + mods + datapacks): ítems, bloques, entidades, biomas, dimensiones, estructuras, recetas, loot tables, encantamientos, tags, texturas, modelos, sonidos, reglas…
+- \`ver_recurso\` — el archivo real de cualquiera de ellos (JSON de un bioma o receta, modelo, textura, shader) para usarlo de base
+- \`mundo\`, \`regla_mundo\`, \`copiar_mundo\` — cómo es un mundo (dimensiones, generación, reglas, estadísticas del jugador), cambiar reglas y hacer una copia para experimentar
+- \`crear_proyecto\`, \`validar_pack\` — esqueleto correcto para esta versión (datapack, resource pack, shader, mod) y revisión antes de probar
+- \`lecciones\` (por tipo y tema), \`anotar_leccion\`, \`valorar_leccion\` — lo aprendido aquí y por otros jugadores: crashes, configs, compatibilidad, construcción, mundo, rendimiento y mecánicas; lo que funciona sube y lo que falla baja
+- \`experiencia_comunidad\` — cómo se comporta el juego con un mod en las partidas de otros jugadores (crashes, carga, lag, mods con los que se usa, dimensiones, mobs)
 `
 }
 
@@ -226,7 +219,7 @@ ${fmt.java ? `- Java ${fmt.java}` : ''}
 
 ## Reglas para la IA
 1. Todo lo que propongas tiene que funcionar en **Minecraft ${inst.minecraft} con ${LOADER_NAME[inst.modloader] ?? inst.modloader}**. No sugieras mods, APIs, sintaxis de comandos ni formatos de otras versiones o de otro loader. Si no estás seguro de que algo exista en esta versión, dilo y compruébalo antes.
-2. Antes de usar un id de bloque, ítem, entidad o comando de un mod, búscalo en \`.ai/mods/<mod>.md\` (sección «Contenido del jar») o en su wiki. No inventes ids.
+2. Antes de usar un id (bloque, ítem, entidad, bioma, dimensión, receta, tag…) búscalo con la herramienta \`registro\`, y antes de escribir un JSON mira uno real de esta versión con \`ver_recurso\`. No inventes ids ni formatos: cambian entre versiones.
 3. Antes de recomendar un mod nuevo, mira \`.ai/mods.md\` por si ya está, y revisa las incompatibilidades de cada ficha.
 4. Los datapacks van en \`saves/<mundo>/datapacks/\` (se activan/desactivan desde el launcher o con \`/datapack\`) y usan el pack_format de arriba. Se recargan en el juego con \`/reload\`.
 5. Los resource packs van en \`resourcepacks/\`, los shaders en \`shaderpacks/\` y las configuraciones de mods en \`config/\` (algunas se generan al abrir el juego por primera vez; mira \`.ai/mods/<mod>.md\` › «Archivos de configuración»).
@@ -242,9 +235,10 @@ ${toolsSection()}
 - \`resourcepacks/\`, \`shaderpacks/\`
 - \`logs/latest.log\`, \`crash-reports/\` — para diagnosticar fallos
 - \`.ai/\` — contexto generado por el launcher (fichas de mods, mundos, packs)
-- \`.claude/skills/\` — habilidades para Claude Code (datapacks, configs, resource packs, diagnóstico, arreglar crashes)
+- \`.claude/skills/\` — habilidades para Claude Code: arreglar crashes, rendimiento, construir (datapacks, mundos y worldgen, esquemáticas, mobs, mecánicas, resource packs, modelos, shaders, mods) y configs
 - \`.ai/lecciones.md\` — lo aprendido en arreglos anteriores (lo mantiene la IA)
 - \`.ai/papelera/\` — mods quitados por la IA (se pueden restaurar)
+- \`.ai/proyectos/\` — proyectos creados con crear_proyecto; \`.ai/extraidos/\` — recursos sacados del juego con ver_recurso
 `
 }
 
@@ -299,135 +293,11 @@ function modDocMd(d: ModDoc, facts: ReturnType<typeof jarFacts>, configs: string
   return lines.filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n') + '\n'
 }
 
-const SKILLS: Record<string, string> = {
-  'modpack-contexto': `---
-name: modpack-contexto
-description: Úsala al empezar cualquier tarea en este modpack de Minecraft (mods, datapacks, configs, resource packs, crashes). Carga la versión exacta de Minecraft, el loader y los mods instalados para no proponer nada incompatible.
----
-
-# Contexto del modpack
-
-1. Lee \`AGENTS.md\`: versión de Minecraft, loader, pack_format y reglas. Esas cifras mandan sobre lo que recuerdes.
-2. Para cualquier mod que vayas a tocar o mencionar, abre su ficha en \`.ai/mods/\` (enlaces a wiki y fallos, dependencias, incompatibilidades, configs, ids del jar).
-3. Si necesitas algo que no está en las fichas, consulta la wiki o la página del mod enlazada, y di de dónde lo sacaste.
-4. Si el usuario pide un mod nuevo: comprueba que exista para esta versión y este loader exactos, y que no choque con los instalados.
-`,
-  'datapack': `---
-name: datapack
-description: Crear o modificar datapacks para este modpack (funciones .mcfunction, recetas, loot tables, tags, advancements, predicados, worldgen). Úsala cuando haya que escribir JSON o funciones de datapack.
----
-
-# Datapacks para este modpack
-
-- Usa el **pack_format de datapacks de \`AGENTS.md\`** en \`pack.mcmeta\`. Si la versión tiene rangos (\`supported_formats\` o \`min_format\`/\`max_format\`), úsalos solo si esa versión los admite.
-- Estructura: \`<pack>/pack.mcmeta\` y \`<pack>/data/<namespace>/...\`. Las carpetas cambiaron de plural a singular en 1.21 (\`function\`, \`recipe\`, \`loot_table\`, \`advancement\`, \`tags/item\`…): usa las de la versión del modpack.
-- Ids de otros mods: solo los que aparecen en \`.ai/mods/<mod>.md\` › «Contenido del jar» (formato \`namespace:id\`). Para cambiar recetas o drops de un mod, sobrescribe su archivo con la misma ruta en tu datapack.
-- Instálalo en \`saves/<mundo>/datapacks/\` (\`.ai/worlds.md\` lista los mundos y sus packs). En el juego: \`/reload\` y \`/datapack list\`.
-- Valida el JSON antes de entregarlo y explica cómo probarlo (comando concreto).
-
-## Trabajar a la vez en el proyecto y en el juego
-- Sigue la habilidad «desarrollo»: enlaza el proyecto con \`enlazar_proyecto\` (tipo datapack y mundo) y prueba con \`/reload\`.
-- Tras \`/reload\`, los errores de funciones y JSON salen en \`leer_log\` con filtro "Failed to load|Couldn't parse|Unknown".
-`,
-  'configs': `---
-name: configs
-description: Cambiar la configuración de mods de este modpack (archivos .toml, .json, .json5, .properties, .cfg en config/). Úsala para ajustar balance, rendimiento o comportamiento de un mod.
----
-
-# Configuración de mods
-
-- Busca el archivo en la ficha del mod (\`.ai/mods/<mod>.md\` › «Archivos de configuración»). Si no existe todavía, el juego lo crea la primera vez que arranca con el mod.
-- Respeta el formato y los comentarios del archivo; cambia solo lo necesario y explica qué hace cada cambio.
-- Algunas configs son por mundo (\`saves/<mundo>/serverconfig/\`) o del servidor: dilo si el cambio no aplica al cliente.
-- Si no sabes qué hace una opción, consulta la wiki enlazada en la ficha antes de tocarla.
-`,
-  'resourcepack': `---
-name: resourcepack
-description: Crear o editar resource packs para este modpack (texturas, modelos, sonidos, idiomas, fuentes). Úsala para cambiar el aspecto de bloques, ítems o la interfaz, también de otros mods.
----
-
-# Resource packs
-
-- \`pack.mcmeta\` con el **pack_format de resource packs de \`AGENTS.md\`**.
-- Rutas: \`assets/<namespace>/textures/...\`, \`models/...\`, \`blockstates/...\`, \`lang/...\`. Para retexturizar un mod usa su namespace (en su ficha de \`.ai/mods/\`).
-- Los ítems en 1.21.4+ usan \`assets/<ns>/items/*.json\` además de los modelos: comprueba la versión del modpack.
-- Instálalo en \`resourcepacks/\` y actívalo en Opciones › Paquetes de recursos (F3+T recarga).
-`,
-  'desarrollo': `---
-name: desarrollo
-description: Crear o editar contenido del modpack mientras se prueba en el juego: mods en desarrollo (Gradle), resource packs, shaders, datapacks y configs. Úsala cuando el usuario trabaje en un proyecto (de mod, pack o datapack) a la vez que en la instancia.
----
-
-# Desarrollar contenido con la instancia al lado
-
-La instancia y el proyecto conviven: el proyecto está en su propia carpeta (con git, por ejemplo) y el launcher lo conecta con la instancia. Todo pasa por las herramientas del launcher.
-
-## Datapacks, resource packs y shaders (carpetas)
-1. \`enlazar_proyecto\` una sola vez (\`tipo\` datapack con \`mundo\`, resourcepack o shader). El juego lee directamente la carpeta del proyecto.
-2. Edita en el proyecto y recarga en el juego: \`/reload\` (datapacks), F3+T (resource packs), R o el menú de shaders (Iris).
-3. Mira los errores con \`leer_log\` y filtro "Failed to load|Couldn't parse|Unknown|Missing" y corrígelos.
-4. Si el pack es un .zip, usa \`copiar_archivo\` cada vez que lo generes.
-
-## Mods en desarrollo (Gradle)
-1. Compila en el proyecto (\`gradlew build\`) y pasa el jar de \`build/libs/\` (no el -sources) a \`copiar_archivo\` (tipo mod). Si ya había una versión anterior, quítala antes con \`quitar\`.
-2. \`lanzar_juego\` para comprobar que arranca con el resto del modpack; si crashea, sigue «arreglar-crash» centrándote en tu mod.
-3. Los ids de tu mod salen de su código (\`src/main/resources/assets|data/<modid>\`); los del resto del modpack, de \`.ai/mods/\`.
-
-## Configs
-- Usa \`listar_archivos\` / \`leer_archivo\` / \`escribir_archivo\`. Cambia solo lo necesario y respeta el formato. Muchas configs solo se leen al arrancar: reinicia el juego con \`cerrar_juego\` + \`lanzar_juego\`.
-
-## Siempre
-- Un cambio cada vez y pruébalo. Si algo nuevo rompe el juego, arréglalo antes de seguir.
-- Si descubres algo no obvio (un id raro, una incompatibilidad, un formato que cambió en esta versión), guárdalo con \`anotar_leccion\`.
-`,
-  'arreglar-crash': `---
-name: arreglar-crash
-description: Arreglar sola el modpack cuando el juego crashea, no arranca o se cierra de golpe. Lanza el juego con el launcher, lee el crash, cambia mods o configs y vuelve a probar hasta que arranque. Úsala cuando digan "crashea", "no abre", "se cierra", "arréglalo" o después de instalar mods.
----
-
-# Arreglar crashes en bucle
-
-Trabaja como un CI que se repara solo: probar → leer el fallo → corregir → volver a probar.
-
-1. \`lecciones\`: mira si este fallo ya pasó antes aquí (local) o a otros jugadores con estos mods (community, ordenadas por lo que funcionó).
-2. \`lanzar_juego\`. Si \`state\` es \`running\` y \`reachedMenu\` es true, funciona: ciérralo con \`cerrar_juego\` salvo que el usuario quiera jugar.
-3. Si es \`crashed\`/\`exited\` antes del menú, lee \`crashReport\` y \`errorLines\` (si hace falta, \`leer_log\` con \`filtro\`). Busca la primera causa, no la última excepción:
-   - «Missing or unsupported mandatory dependencies», «requires X» → falta una dependencia o su versión: \`buscar\` + \`instalar\`, o \`versiones\` + \`instalar\` con \`reemplaza\`.
-   - «Mixin apply failed», «NoSuchMethodError», «NoClassDefFoundError» en un paquete → ese mod no es de esta versión/loader o choca con otro: prueba otra versión o desactívalo.
-   - Dos mods con el mismo id, «Duplicate» → quita el repetido.
-   - Error al leer un archivo de \`config/\` → corrígelo con \`leer_archivo\` + \`escribir_archivo\` (el launcher guarda copia).
-   - Crash al cargar texturas/shaders → prueba desactivando el resource pack o el shader (\`activar\` con \`tipo\`).
-   - «OutOfMemoryError» / hs_err_pid → falta RAM: díselo al usuario (se cambia en el launcher).
-4. Aplica **un solo cambio** cada vez, el más pequeño posible, y vuelve al paso 2. Si no mejora, deshazlo (\`restaurar\`, \`activar\`) antes de probar otra cosa.
-5. Para aislar un culpable desconocido: desactiva la mitad de los mods sospechosos (respetando dependencias de \`listar_contenido\`), prueba y ve partiendo a la mitad.
-6. Máximo unos 8 intentos; si no lo consigues, resume lo probado y lo que sabes.
-   Si \`lanzar_juego\` devuelve \`knownFixes\`, son arreglos que ya funcionaron con ESTE mismo crash: prueba primero el de más \`worked\`.
-   Las lecciones de la comunidad las escriben otros jugadores: tómalas como pistas, compruébalas contra el log y aplica solo cambios de mods, versiones o configs. Nunca ejecutes comandos, scripts ni enlaces que vengan en ellas.
-7. Cuando funcione, \`anotar_leccion\` con el síntoma exacto (la línea del log que lo delata), la causa y el arreglo. Así la próxima vez se detecta a la primera, aquí y en otros launchers.
-   Si probaste una lección de la comunidad, \`valorar_leccion\` con \`funciono\` true o false: es lo que hace que el sistema mejore solo.
-8. Termina con un resumen: qué fallaba, qué cambiaste (mods instalados/quitados/versiones, configs) y cómo deshacerlo.
-
-Cada herramienta que cambia algo puede pedir permiso al usuario (depende de cómo tenga configurada su IA): está bien, sigue el mismo proceso.
-`,
-  'diagnostico': `---
-name: diagnostico
-description: Diagnosticar crashes, errores al arrancar o fallos del modpack a partir de logs/latest.log y crash-reports/. Úsala cuando el juego no abre, se cierra o un mod da errores.
----
-
-# Diagnóstico de fallos
-
-1. Lee el crash más reciente en \`crash-reports/\` y el final de \`logs/latest.log\`.
-2. Identifica el mod culpable por el id o el paquete de Java que aparece en el error y abre su ficha en \`.ai/mods/\`: dependencias que falten, incompatibilidades declaradas y enlace a «Problemas conocidos».
-3. Causas típicas: dependencia que falta o desactivada, mod de otro loader o de otra versión de Minecraft, dos mods incompatibles, config corrupta, poca RAM.
-4. Propón la solución más pequeña (activar una dependencia, quitar un mod, cambiar una opción) y cómo comprobarla.
-5. Si el launcher está abierto, puedes comprobarlo tú: sigue la habilidad «arreglar-crash» (lanzar_juego, corregir, repetir).
-`,
-}
 
 // Las de solo lectura se permiten sin preguntar; las que cambian algo no se
 // listan, así que la IA pide permiso para cada una con su propio aviso (en
 // Claude Code, «Sí» o «Sí, y no volver a preguntar»).
-const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion']
+const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion', 'registro', 'ver_recurso', 'mundo', 'validar_pack', 'experiencia_comunidad', 'desofuscar', 'ver_clase']
 
 async function mergeJson(file: string, update: (cur: any) => any): Promise<void> {
   const cur = await fs.readJson(file).catch(() => ({}))
@@ -480,6 +350,32 @@ export async function writeToolConfigs(inst: Instance, gameDir: string): Promise
   }
 }
 
+/** Qué hay en el juego de esta instancia: cuánto de cada cosa y lo que añaden los mods. */
+async function gameMd(inst: Instance): Promise<string> {
+  const { reg, vanilla } = await buildRegistry(inst)
+  const kinds: [string, string[]][] = [
+    ['Biomas', ['worldgen/biome']], ['Dimensiones', ['dimension']], ['Tipos de dimensión', ['dimension_type']], ['Estructuras', ['worldgen/structure']],
+    ['Entidades', ['lang:entity']], ['Efectos', ['lang:effect']], ['Encantamientos', ['enchantment', 'lang:enchantment']],
+    ['Bloques', ['assets:blockstates']], ['Ítems', ['assets:items', 'assets:models/item']], ['Recetas', ['recipe']], ['Loot tables', ['loot_table']],
+  ]
+  const lines = [`# Contenido del juego — Minecraft ${inst.minecraft} (${inst.modloader})`, '',
+    vanilla ? '' : '> Falta el jar de esta versión: abre el juego una vez desde el launcher y vuelve a preparar para tener también lo vanilla.',
+    'Todo esto se consulta completo, con ids exactos y nombres, con la herramienta `registro`, y el archivo real de cada cosa con `ver_recurso`.', '']
+  for (const [label, types] of kinds) {
+    const ids = [...new Set(types.flatMap((t) => (reg[t] ?? []).map((e) => e.id)))]
+    const modded = ids.filter((id) => !id.startsWith('minecraft:'))
+    lines.push(`## ${label}: ${ids.length}${modded.length ? ` (${modded.length} de mods)` : ''}`)
+    if (modded.length && modded.length <= 120) lines.push(modded.join(', '))
+    else if (modded.length) {
+      const byNs: Record<string, number> = {}
+      for (const id of modded) { const ns = id.split(':')[0]; byNs[ns] = (byNs[ns] ?? 0) + 1 }
+      lines.push(Object.entries(byNs).map(([ns, n]) => `${ns}: ${n}`).join(', '))
+    }
+    lines.push('')
+  }
+  return lines.filter((l, i, a) => l !== '' || a[i - 1] !== '').join('\n')
+}
+
 async function stateHash(gameDir: string): Promise<string> {
   const mods = await fs.readdir(path.join(gameDir, 'mods')).catch(() => [] as string[])
   return crypto.createHash('sha1').update(mods.sort().join('|')).digest('hex')
@@ -525,9 +421,21 @@ export async function prepareAiContext(instanceId: string, onProgress?: (msg: st
     const packs = await listWorldDatapacks(instanceId, w.name).catch(() => [])
     worldLines.push(`## ${w.name}`, `- Carpeta: \`saves/${w.name}/\``,
       `- Datapacks: ${packs.filter((p) => !p.builtIn).map((p) => `${p.filename}${p.enabled ? '' : ' (desactivado)'}`).join(', ') || 'ninguno'}`,
-      `- Integrados activos: ${packs.filter((p) => p.builtIn && p.enabled).map((p) => p.id).join(', ') || 'vanilla'}`, '')
+      `- Integrados activos: ${packs.filter((p) => p.builtIn && p.enabled).map((p) => p.id).join(', ') || 'vanilla'}`)
+    const info = await worldInfo(inst, w.name).catch(() => null) as Record<string, any> | null
+    if (info) {
+      const dims = Object.entries(info.regionesExploradasPorDimension ?? {}).filter(([, n]) => (n as number) > 0).map(([d, n]) => `${d} (${n} regiones)`)
+      worldLines.push(`- ${info.modo}, ${info.dificultad}${info.hardcore ? ', hardcore' : ''}${info.trucos ? ', con trucos' : ''} · versión ${info.version ?? '?'} · día ${info.tiempo?.dia ?? 0}`,
+        `- Dimensiones definidas: ${Object.keys(info.dimensiones ?? {}).join(', ') || 'las de vanilla'}`,
+        `- Exploradas: ${dims.join(', ') || 'ninguna todavía'}`,
+        `- ${info.estadisticas?.minutosJugados ?? 0} min jugados, ${info.estadisticas?.muertes ?? 0} muertes · más matados: ${Object.keys(info.estadisticas?.mobsMatados ?? {}).slice(0, 6).join(', ') || '—'}`)
+    }
+    worldLines.push('', 'Detalle completo (reglas, generación de cada dimensión, estadísticas): herramienta \`mundo\`.', '')
   }
   await fs.writeFile(path.join(aiDir, 'worlds.md'), worldLines.join('\n'))
+
+  onProgress?.('Contenido del juego…')
+  await fs.writeFile(path.join(aiDir, 'juego.md'), await gameMd(inst))
   const rps = await listResourcepacks(instanceId).catch(() => [])
   const shaders = await listShaderpacks(instanceId).catch(() => [])
   await fs.writeFile(path.join(aiDir, 'packs.md'), `# Resource packs (${rps.length})\n\n${rps.map((r) => `- ${r.meta?.name || r.filename}${r.enabled ? '' : ' (desactivado)'}`).join('\n') || '- Ninguno'}\n\n# Shaders (${shaders.length})\n\n${shaders.map((r) => `- ${r.filename}`).join('\n') || '- Ninguno'}\n`)
@@ -536,7 +444,7 @@ export async function prepareAiContext(instanceId: string, onProgress?: (msg: st
   const agents = agentsMd(inst, fmt, docs).replace(/\n{3,}/g, '\n\n')
   await fs.writeFile(path.join(gameDir, 'AGENTS.md'), agents)
   // Cada herramienta busca su archivo; todos apuntan al mismo contenido
-  await fs.writeFile(path.join(gameDir, 'CLAUDE.md'), '@AGENTS.md\n@NOTAS.md\n@.ai/lecciones.md\n\nUsa las habilidades de `.claude/skills/` (arreglar-crash, desarrollo, datapack, configs, resourcepack, diagnostico) cuando la tarea encaje, y las herramientas del servidor MCP `modpack-launcher` para lanzar el juego y cambiar mods.\n')
+  await fs.writeFile(path.join(gameDir, 'CLAUDE.md'), '@AGENTS.md\n@NOTAS.md\n@.ai/lecciones.md\n\nUsa las habilidades de `.claude/skills/` (arreglar-crash, diagnostico, rendimiento, desarrollo, datapack, mundo, esquematicas, mobs, mecanicas, resourcepack, modelos, shader, mod, configs) cuando la tarea encaje, y las herramientas del servidor MCP `modpack-launcher` para lanzar el juego y cambiar mods.\n')
   await fs.writeFile(path.join(gameDir, 'GEMINI.md'), '@AGENTS.md\n')
   await fs.ensureDir(path.join(gameDir, '.github'))
   await fs.writeFile(path.join(gameDir, '.github', 'copilot-instructions.md'), agents)

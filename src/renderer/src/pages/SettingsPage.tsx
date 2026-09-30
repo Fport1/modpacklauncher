@@ -277,7 +277,7 @@ export default function SettingsPage() {
   async function saveSettings() {
     // Lo de privacidad se guarda al momento desde su sección: no lo pisamos con la copia local
     const cur = useStore.getState().settings
-    const next = cur ? { ...localSettings, telemetry: cur.telemetry, aiLearning: cur.aiLearning, privacyNoticeSeen: cur.privacyNoticeSeen } : localSettings
+    const next = cur ? { ...localSettings, telemetry: cur.telemetry, aiLearning: cur.aiLearning } : localSettings
     await window.api.settings.set(next)
     setSettings(next)
     setSaved(true)

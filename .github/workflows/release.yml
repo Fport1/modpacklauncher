@@ -139,11 +139,25 @@ jobs:
           name: dist-linux
           path: dist
 
+      # Notas para el usuario (las enseña el aviso de actualización del launcher):
+      # release-notes/v<versión>.md si existe; si no, un texto genérico.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: release-notes
+          path: repo
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.build-windows.outputs.version }}
+        run: |
+          if [ -f "repo/release-notes/v${VERSION}.md" ]; then cp "repo/release-notes/v${VERSION}.md" notes.md
+          else echo "Nueva versión disponible." > notes.md; fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ModpackLauncher ${{ needs.build-windows.outputs.version }}
           files: dist/*
+          body_path: notes.md
           generate_release_notes: false
 
       - name: Update update.json

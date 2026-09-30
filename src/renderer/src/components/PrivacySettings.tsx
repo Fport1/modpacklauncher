@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 
-// Qué comparte el launcher y cómo desactivarlo. Se usa en Ajustes › Privacidad
-// y en el aviso que sale la primera vez.
+// Qué comparte el launcher y cómo desactivarlo (Ajustes › Privacidad).
+// Viene activado; no se enseña ningún aviso al abrir el launcher.
 
 export const PRIVACY_ITEMS = {
   telemetry: {
@@ -12,12 +12,12 @@ export const PRIVACY_ITEMS = {
   },
   aiLearning: {
     title: 'Ayudar a que la IA aprenda',
-    desc: 'Cuando el juego crashea se guarda la huella del error (tipo de fallo y mods implicados) y, cuando una IA lo arregla, la lección. Así, a quien le pase lo mismo, la IA se lo arregla a la primera.',
-    sample: '{ "sig": "Mixin apply failed | NoSuchMethodError…", "mods": ["sodium", "iris"], "mc": "1.21.1", "fix": "Actualizar iris a 1.8" }',
+    desc: 'Al cerrar el juego se guarda un resumen de la partida: mods activos, cómo es el mundo (dimensiones, cómo se genera, modo, dificultad, reglas), qué pasó (mobs matados, causas de muerte, minutos) y cómo fue (carga, lag, errores, crashes). También lo que aprende la IA al arreglar o construir algo. Así la IA sabe cómo se comporta el juego con cada combinación de mods y a quien le pase lo mismo se lo resuelve a la primera.',
+    sample: '{ "mods": ["sodium", "iris", "terralith"], "mc": "1.21.1", "world": { "dims": ["minecraft:overworld", "minecraft:the_nether"], "difficulty": "difícil", "killed": { "zombie": 14 }, "deaths": 2 }, "loadSeconds": 41, "lagWarnings": 3, "crashed": false }',
   },
 } as const
 
-export const PRIVACY_NEVER = 'Nunca se envían nombres, correos, contraseñas, rutas de tu equipo, IPs, mundos, capturas ni mensajes del chat: antes de salir, el texto se limpia de todo eso.'
+export const PRIVACY_NEVER = 'Nunca se envían nombres (el tuyo, el de tus mundos o el de otros jugadores), correos, contraseñas, rutas de tu equipo, IPs, semillas, coordenadas, capturas, carteles, libros ni mensajes del chat: antes de salir, el texto se limpia de todo eso.'
 
 export default function PrivacySettings({ compact = false }: { compact?: boolean }) {
   const settings = useStore((s) => s.settings)
@@ -56,29 +56,6 @@ export default function PrivacySettings({ compact = false }: { compact?: boolean
         )
       })}
       <p className="text-[11px] text-text-muted leading-relaxed">🔒 {PRIVACY_NEVER}</p>
-    </div>
-  )
-}
-
-/** Aviso de la primera vez: informa y deja elegir, sin bloquear el launcher. */
-export function PrivacyNotice() {
-  const settings = useStore((s) => s.settings)
-  const setSettings = useStore((s) => s.setSettings)
-  if (!settings || settings.privacyNoticeSeen !== false) return null
-
-  async function done(): Promise<void> {
-    await window.api.settings.set({ privacyNoticeSeen: true })
-    setSettings({ ...settings!, privacyNoticeSeen: true })
-  }
-
-  return (
-    <div className="fixed bottom-4 left-4 z-[380] w-[420px] max-w-[calc(100vw-2rem)] bg-bg-secondary border border-border rounded-2xl shadow-2xl p-5">
-      <p className="font-bold text-text-primary">Tu privacidad en el launcher</p>
-      <p className="text-xs text-text-muted mt-1 mb-4">Para mejorar el launcher y la IA se comparte información anónima. Puedes cambiarlo cuando quieras en Ajustes › Privacidad.</p>
-      <PrivacySettings compact />
-      <div className="flex justify-end mt-4">
-        <button onClick={done} className="px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-semibold">Entendido</button>
-      </div>
     </div>
   )
 }

@@ -14,9 +14,9 @@ const GENERATED = [
   ['CLAUDE.md · GEMINI.md', 'Apuntan a AGENTS.md para Claude Code y Gemini CLI (más tus notas de NOTAS.md).'],
   ['.ai/mods/', 'Una ficha por mod: descripción del autor (comandos, configuración), wiki, fallos conocidos, dependencias, incompatibilidades, sus configs e ids de bloques e ítems.'],
   ['.ai/worlds.md · packs.md', 'Mundos con sus datapacks, resource packs y shaders.'],
-  ['.claude/skills/', 'Habilidades de Claude Code: arreglar crashes en bucle, desarrollo (mods, packs y datapacks con el juego al lado), configs y diagnóstico.'],
-  ['.mcp.json · .codex · .gemini · .grok · .cursor · .vscode', 'Conectan cada IA con el launcher (servidor MCP «modpack-launcher»): lanzar el juego, leer crashes, instalar, quitar o cambiar de versión mods y packs, editar configs.'],
-  ['.ai/lecciones.md', 'Lo que la IA aprende al arreglar fallos; lo lee antes de diagnosticar para detectarlos antes.'],
+  ['.claude/skills/', 'Habilidades de Claude Code: arreglar crashes y rendimiento, y construir datapacks, mundos (dimensiones, biomas, estructuras), mobs, mecánicas, resource packs, shaders y mods con el juego al lado.'],
+  ['.mcp.json · .codex · .gemini · .grok · .cursor · .vscode', 'Conectan cada IA con el launcher (servidor MCP «modpack-launcher»): lanzar el juego, leer crashes, instalar o cambiar mods y packs, editar configs, ver todo lo que existe en el juego, leer mundos y crear y validar proyectos.'],
+  ['.ai/lecciones.md', 'Lo que la IA aprende (arreglos, configs, cómo se construye cada cosa en esta versión); lo lee antes de empezar.'],
 ] as const
 
 const clean = (e: unknown): string => e instanceof Error ? e.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '') : 'Algo ha fallado'
@@ -186,7 +186,7 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
             )}
             <p className="text-xs text-text-muted mt-2">
               En VS Code, Cursor o Windsurf abre la carpeta como proyecto: cogen AGENTS.md / .cursor/rules solos. En Claude Code las habilidades
-              (arreglar-crash, desarrollo, datapack, configs, resourcepack, diagnostico) se activan solas según lo que pidas. Las herramientas del launcher necesitan que el launcher esté abierto. Tus notas para la IA van en <code>NOTAS.md</code>.
+              (arreglar-crash, rendimiento, desarrollo, datapack, mundo, mobs, mecanicas, resourcepack, shader, mod, configs…) se activan solas según lo que pidas. Las herramientas del launcher necesitan que el launcher esté abierto. Tus notas para la IA van en <code>NOTAS.md</code>.
             </p>
           </div>
         </div>

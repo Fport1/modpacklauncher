@@ -121,8 +121,6 @@ export interface Settings {
   telemetry: boolean
   /** Compartir anónimamente huellas de crashes y lecciones de la IA para que aprenda con todos. */
   aiLearning: boolean
-  /** Ya se enseñó el aviso de privacidad. */
-  privacyNoticeSeen: boolean
 }
 
 export interface DownloadProgress {
@@ -240,7 +238,6 @@ export const DEFAULT_SETTINGS: Settings = {
   devTools: false,
   telemetry: true,
   aiLearning: true,
-  privacyNoticeSeen: false,
 }
 
 export const OFFLINE_USERNAME_REGEX = /^[a-zA-Z0-9\-_!.]{1,32}$/
