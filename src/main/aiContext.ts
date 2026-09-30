@@ -9,6 +9,7 @@ import { cfGet, cfPost } from './curseforge'
 import { listWorldDatapacks } from './worldDatapacks'
 import { buildRegistry, packFormats, worldInfo } from './gameKnowledge'
 import { SKILLS } from './aiSkills'
+import { canonicalMod, ensureDocs, jarDocs, knownDocMods } from './modDocs'
 import type { Instance, ModFile } from '../shared/types'
 import { BRIDGE_FILE, MCP_SCRIPT_FILE } from './aiBridge'
 import { MCP_SCRIPT } from './aiMcpScript'
@@ -197,6 +198,7 @@ En Claude Code, Codex, Gemini CLI, Grok CLI, Cursor o VS Code las herramientas s
 - \`mundo\`, \`regla_mundo\`, \`copiar_mundo\` — cómo es un mundo (dimensiones, generación, reglas, estadísticas del jugador), cambiar reglas y hacer una copia para experimentar
 - \`crear_proyecto\`, \`validar_pack\` — esqueleto correcto para esta versión (datapack, resource pack, shader, mod) y revisión antes de probar
 - \`lecciones\` (por tipo y tema), \`anotar_leccion\`, \`valorar_leccion\` — lo aprendido aquí y por otros jugadores: crashes, configs, compatibilidad, construcción, mundo, rendimiento y mecánicas; lo que funciona sube y lo que falla baja
+- \`documentacion\` — la wiki y documentación oficial de cualquier mod (y la que trae dentro del jar), por páginas o buscando; úsala para saber a fondo cómo funciona un mod
 - \`experiencia_comunidad\` — cómo se comporta el juego con un mod en las partidas de otros jugadores (crashes, carga, lag, mods con los que se usa, dimensiones, mobs)
 `
 }
@@ -235,7 +237,8 @@ ${toolsSection()}
 - \`resourcepacks/\`, \`shaderpacks/\`
 - \`logs/latest.log\`, \`crash-reports/\` — para diagnosticar fallos
 - \`.ai/\` — contexto generado por el launcher (fichas de mods, mundos, packs)
-- \`.claude/skills/\` — habilidades para Claude Code: arreglar crashes, rendimiento, construir (datapacks, mundos y worldgen, esquemáticas, mobs, mecánicas, resource packs, modelos, shaders, mods) y configs
+- \`.claude/skills/\` — habilidades para Claude Code: arreglar crashes, rendimiento, construir (datapacks, mundos y worldgen, esquemáticas, construcción y protección, mobs, mecánicas, eventos, resource packs, modelos, visuales, shaders, voz, grabación, mods) y configs
+- \`.ai/documentacion.md\` — qué mods tienen su wiki o documentación descargada (herramienta documentacion)
 - \`.ai/lecciones.md\` — lo aprendido en arreglos anteriores (lo mantiene la IA)
 - \`.ai/papelera/\` — mods quitados por la IA (se pueden restaurar)
 - \`.ai/proyectos/\` — proyectos creados con crear_proyecto; \`.ai/extraidos/\` — recursos sacados del juego con ver_recurso
@@ -297,7 +300,7 @@ function modDocMd(d: ModDoc, facts: ReturnType<typeof jarFacts>, configs: string
 // Las de solo lectura se permiten sin preguntar; las que cambian algo no se
 // listan, así que la IA pide permiso para cada una con su propio aviso (en
 // Claude Code, «Sí» o «Sí, y no volver a preguntar»).
-const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion', 'registro', 'ver_recurso', 'mundo', 'validar_pack', 'experiencia_comunidad', 'desofuscar', 'ver_clase']
+const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion', 'registro', 'ver_recurso', 'mundo', 'validar_pack', 'experiencia_comunidad', 'desofuscar', 'ver_clase', 'documentacion']
 
 async function mergeJson(file: string, update: (cur: any) => any): Promise<void> {
   const cur = await fs.readJson(file).catch(() => ({}))
@@ -434,6 +437,26 @@ export async function prepareAiContext(instanceId: string, onProgress?: (msg: st
   }
   await fs.writeFile(path.join(aiDir, 'worlds.md'), worldLines.join('\n'))
 
+  // Documentación a fondo de los mods que la tienen (wiki oficial, sitio de docs o la que trae el jar)
+  onProgress?.('Descargando documentación de los mods…')
+  const withDocs = docs.filter((d) => {
+    const id = canonicalMod(d.file.meta?.modIds?.[0] ?? '')
+    return knownDocMods().includes(id) || d.links.some((l) => l.label === 'Wiki') || jarDocs(path.join(gameDir, 'mods', d.file.filename)).length
+  }).slice(0, 40)
+  const docLines = ['# Documentación de los mods', '', 'Wikis y documentación oficial descargadas. Consúltalas con la herramienta `documentacion` (mod=<id>, y pagina o buscar).', '']
+  await pool(withDocs, 3, async (d) => {
+    const id = canonicalMod(d.file.meta?.modIds?.[0] ?? slug(d.title))
+    try {
+      const idx = await ensureDocs(id, {
+        jar: path.join(gameDir, 'mods', d.file.filename),
+        links: { wiki: d.links.find((l) => l.label === 'Wiki')?.url, source: d.links.find((l) => l.label === 'Código fuente')?.url },
+        body: d.body,
+      })
+      if (idx.pages.length) docLines.push(`- **${d.title}** (\`${id}\`): ${idx.pages.length} páginas — ${idx.pages.slice(0, 6).map((p) => p.title).join(', ')}${idx.pages.length > 6 ? '…' : ''}`)
+    } catch { /* sin red: se descargará cuando la IA la pida */ }
+  })
+  await fs.writeFile(path.join(aiDir, 'documentacion.md'), docLines.join('\n') + '\n')
+
   onProgress?.('Contenido del juego…')
   await fs.writeFile(path.join(aiDir, 'juego.md'), await gameMd(inst))
   const rps = await listResourcepacks(instanceId).catch(() => [])
@@ -444,7 +467,7 @@ export async function prepareAiContext(instanceId: string, onProgress?: (msg: st
   const agents = agentsMd(inst, fmt, docs).replace(/\n{3,}/g, '\n\n')
   await fs.writeFile(path.join(gameDir, 'AGENTS.md'), agents)
   // Cada herramienta busca su archivo; todos apuntan al mismo contenido
-  await fs.writeFile(path.join(gameDir, 'CLAUDE.md'), '@AGENTS.md\n@NOTAS.md\n@.ai/lecciones.md\n\nUsa las habilidades de `.claude/skills/` (arreglar-crash, diagnostico, rendimiento, desarrollo, datapack, mundo, esquematicas, mobs, mecanicas, resourcepack, modelos, shader, mod, configs) cuando la tarea encaje, y las herramientas del servidor MCP `modpack-launcher` para lanzar el juego y cambiar mods.\n')
+  await fs.writeFile(path.join(gameDir, 'CLAUDE.md'), '@AGENTS.md\n@NOTAS.md\n@.ai/lecciones.md\n\nUsa las habilidades de `.claude/skills/` (arreglar-crash, diagnostico, rendimiento, desarrollo, datapack, mundo, esquematicas, construccion, mobs, mecanicas, eventos, resourcepack, modelos, visuales, shader, voz, grabacion, mod, configs) cuando la tarea encaje, y las herramientas del servidor MCP `modpack-launcher` para lanzar el juego y cambiar mods.\n')
   await fs.writeFile(path.join(gameDir, 'GEMINI.md'), '@AGENTS.md\n')
   await fs.ensureDir(path.join(gameDir, '.github'))
   await fs.writeFile(path.join(gameDir, '.github', 'copilot-instructions.md'), agents)

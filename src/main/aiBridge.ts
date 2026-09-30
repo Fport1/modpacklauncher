@@ -6,6 +6,8 @@ import path from 'path'
 import { gameEvents, isInstanceRunning, killInstance } from './launcher'
 import { getInstance, getInstanceGameDir, listMods, listResourcepacks, listShaderpacks, loadInstances } from './instances'
 import { getInstalledModsMeta, getModVersions, installModFromUrl, searchMods } from './modrinth'
+import axios from 'axios'
+import { canonicalMod, ensureDocs, readDocPage, searchDocs } from './modDocs'
 import { cfGet, CF_CLASS, CF_GAME_MINECRAFT, CF_LOADER } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled } from './worldDatapacks'
 import type { AiActivity, Instance } from '../shared/types'
@@ -518,6 +520,37 @@ export function startAiBridge(launch: LaunchFn): void {
         }
         case 'project/validate':
           return send(200, await validatePack(inst, await packFormats(inst.minecraft), String(body.path), world))
+        case 'docs': {
+          // Documentación a fondo de un mod: wiki oficial, sitio de docs, README y lo que trae el jar
+          const q = String(body.mod ?? '').toLowerCase().trim()
+          if (!q) return send(400, { error: 'Indica el mod (id, nombre o archivo)' })
+          const mods = await listMods(inst.id).catch(() => [])
+          const meta = await getInstalledModsMeta(inst.id, inst.minecraft, inst.modloader).catch(() => ({} as Record<string, any>))
+          const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+          const m = mods.find((x) => (x.meta?.modIds ?? []).some((id) => id.toLowerCase() === q))
+            ?? mods.find((x) => norm((meta as Record<string, any>)[x.filename]?.title ?? x.meta?.name ?? '') === norm(q))
+            ?? mods.find((x) => norm(x.filename).includes(norm(q)))
+          const info = m ? (meta as Record<string, any>)[m.filename] ?? {} : {}
+          const modId = canonicalMod(m?.meta?.modIds?.[0] ?? q)
+          let links: { wiki?: string; source?: string } | undefined
+          let pageBody: string | undefined
+          const slug = info.projectId ?? (m ? undefined : q)
+          if (slug) {
+            try {
+              const { data: p } = await axios.get(`https://api.modrinth.com/v2/project/${encodeURIComponent(slug)}`, { headers: { 'User-Agent': 'ModpackLauncher (contact@fport1.dev)' }, timeout: 15_000 })
+              links = { wiki: p.wiki_url ?? undefined, source: p.source_url ?? undefined }
+              pageBody = p.body
+            } catch { /* no está en Modrinth */ }
+          }
+          const idx = await ensureDocs(modId, { jar: m && m.filename.endsWith('.jar') ? path.join(gameDir, 'mods', m.filename) : undefined, links, body: pageBody, refresh: !!body.refresh })
+          if (body.search) return send(200, { mod: modId, resultados: await searchDocs(modId, String(body.search)) })
+          if (body.page) {
+            const text = await readDocPage(modId, String(body.page))
+            return send(text ? 200 : 404, text ? { mod: modId, contenido: text.slice(0, 60_000), recortado: text.length > 60_000 } : { error: 'No hay esa página', paginas: idx.pages.map((p) => p.title) })
+          }
+          return send(200, { mod: modId, instalado: !!m, paginas: idx.pages.map((p) => ({ titulo: p.title, origen: p.source })), notas: idx.notes.length ? idx.notes : undefined,
+            siguiente: 'Pide una página con pagina="título" o busca con buscar="texto".' })
+        }
         case 'community':
           return send(200, await communityExperience(inst, body.mod ? String(body.mod) : undefined))
         default:
