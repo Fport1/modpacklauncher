@@ -143,6 +143,11 @@ const TOOLS = [
 // que declarar el mod (el launcher la comprueba con LIVE_METHOD_CAPABILITIES de
 // liveBridge.ts) y cómo se traducen los argumentos.
 const EN_VIVO = ' Solo funciona con la partida abierta y el mod fport1-social instalado.'
+const pos3 = (d) => ({ type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3, description: d })
+const rot2 = (d) => ({ type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: d })
+// Desde la consola los arrays llegan como texto «1,64,2»
+const nums = (v) => Array.isArray(v) ? v.map(Number) : typeof v === 'string' ? v.split(/[ ,]+/).filter(Boolean).map(Number) : v
+const noVacios = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== '' && v !== null))
 const LIVE_TOOLS = [
   { name: 'estado_en_vivo', method: 'state.get', capability: 'state',
     description: 'Dónde está el jugador y qué está mirando ahora mismo en la partida abierta: dimensión, posición, rotación, bioma, hora, clima, vida, hambre, modo de juego y el bloque o entidad que mira (con su NBT si hay servidor integrado).' + EN_VIVO,
@@ -154,15 +159,69 @@ const LIVE_TOOLS = [
     description: 'Ejecuta un comando de Minecraft en la partida abierta y devuelve su salida. En multijugador el jugador tiene que aprobarlo en pantalla (si lo deniega devuelve el código -32005). Como servidor (permiso 4) solo en un mundo propio o en un servidor con el mod donde el jugador sea operador; como jugador lo valida el servidor con sus permisos normales.' + EN_VIVO,
     input: S({ comando: str('El comando, p. ej. "time set noon" o "give @s minecraft:diamond 3"'), como: { type: 'string', enum: ['jugador', 'servidor'], description: 'Quién lo ejecuta (por defecto jugador)' } }, ['comando']),
     map: (a) => ({ command: String(a.comando || ''), as: a.como === 'servidor' ? 'server' : 'player' }) },
+  { name: 'recargar', method: (a) => (a.que === 'resource_packs' ? 'reload.resources' : 'reload.datapacks'), capability: 'reload.datapacks | reload.resources',
+    description: 'Recarga en la partida abierta los datapacks (como /reload, también activa datapacks nuevos) o los resource packs (como F3+T) y devuelve en problems los avisos y errores que salieron (funciones, JSON, modelos, texturas). Úsalo tras cada cambio en un datapack o pack enlazado.' + EN_VIVO,
+    input: S({ que: { type: 'string', enum: ['datapacks', 'resource_packs'], description: 'Qué recargar' } }, ['que']),
+    map: () => ({}) },
+  { name: 'captura', method: 'capture.screenshot', capability: 'capture', image: true,
+    description: 'Hace una captura de pantalla de la partida abierta y te la devuelve como imagen para que veas el resultado (una construcción, un modelo, un cielo, una luz). Se guarda en screenshots/ de la instancia.' + EN_VIVO,
+    input: S({ ocultar_hud: bool('Sin la interfaz (mejor para ver el mundo)'), rotacion: rot2('Mirar antes hacia [yaw, pitch]') }),
+    map: (a) => noVacios({ hideHud: a.ocultar_hud === undefined ? undefined : !!a.ocultar_hud, rot: a.rotacion === undefined ? undefined : nums(a.rotacion) }) },
+  { name: 'camara', method: 'camera.set', capability: 'camera',
+    description: 'Gira la cámara del jugador (yaw y pitch en grados) en la partida abierta, p. ej. antes de una captura.' + EN_VIVO,
+    input: S({ yaw: num('Giro horizontal en grados'), pitch: num('Giro vertical en grados (-90 arriba, 90 abajo)') }),
+    map: (a) => noVacios({ yaw: a.yaw === undefined ? undefined : Number(a.yaw), pitch: a.pitch === undefined ? undefined : Number(a.pitch) }) },
+  { name: 'registro_en_vivo', method: (a) => (a.registro ? 'registry.dump' : 'registry.list'), capability: 'registry',
+    description: 'Los registros REALES de la partida en ejecución, incluidos los dinámicos (biomas, dimensiones, encantamientos, variantes) y lo que los mods registran por código. Sin registro: la lista de registros. Con registro: sus entradas y cuántas aporta cada mod.' + EN_VIVO,
+    input: S({ registro: str('p. ej. minecraft:worldgen/biome o minecraft:entity_type'), filtro: str('texto a buscar en los ids'), desde: num('para paginar (offset)'), cuantos: num('máximo 1000') }),
+    map: (a) => noVacios({ registry: a.registro, filter: a.filtro, offset: a.desde === undefined ? undefined : Number(a.desde), limit: a.cuantos === undefined ? undefined : Number(a.cuantos) }) },
+  { name: 'inspeccionar', method: (a) => (a.uuid && a.pos === undefined ? 'inspect.entity' : 'inspect.block'), capability: 'inspect | inspect.server',
+    description: 'Un bloque (por posición) o una entidad (por uuid) de la partida abierta: estado y NBT si hay acceso al servidor; si no, solo lo cercano y a la vista, sin NBT. Nunca jugadores.' + EN_VIVO,
+    input: S({ pos: pos3('Posición del bloque [x, y, z]'), uuid: str('uuid de la entidad'), dimension: str('dimensión, si no es la del jugador') }),
+    map: (a) => noVacios({ pos: a.pos === undefined ? undefined : nums(a.pos), uuid: a.uuid, dimension: a.dimension }) },
+  { name: 'colocar_estructura', method: 'structure.place', capability: 'structure',
+    description: 'Coloca una estructura (como /place template) en la partida abierta: por id (p. ej. minecraft:igloo/top) o un archivo .nbt de la carpeta del juego. Úsalo en una copia del mundo para probar construcciones.' + EN_VIVO,
+    input: S({ id: str('id de la estructura'), archivo: str('o archivo .nbt relativo a la carpeta del juego'), pos: pos3('Dónde [x, y, z]'), rotacion: { type: 'string', enum: ['none', 'clockwise_90', '180', 'counterclockwise_90'] }, espejo: { type: 'string', enum: ['none', 'left_right', 'front_back'] }, dimension: str('dimensión, si no es la del jugador') }, ['pos']),
+    map: (a) => noVacios({ id: a.id, file: a.archivo, pos: nums(a.pos), rotation: a.rotacion, mirror: a.espejo, dimension: a.dimension }) },
+  { name: 'ir_a', method: 'player.teleport', capability: 'teleport',
+    description: 'Teletransporta al jugador (como /tp) en la partida abierta, opcionalmente mirando hacia una rotación o en otra dimensión, p. ej. para ver algo y hacer una captura.' + EN_VIVO,
+    input: S({ pos: pos3('Destino [x, y, z]'), rotacion: rot2('Mirando a [yaw, pitch]'), dimension: str('p. ej. minecraft:the_nether') }, ['pos']),
+    map: (a) => noVacios({ pos: nums(a.pos), rot: a.rotacion === undefined ? undefined : nums(a.rotacion), dimension: a.dimension }) },
+  { name: 'spark', method: 'spark.run', capability: 'spark',
+    description: 'Ejecuta spark en la partida (si está instalado): tps, health, gc, gcmonitor, profiler (30 s) o tickmonitor. Devuelve el resultado o el enlace del perfil. Útil para encontrar qué mod causa lag.' + EN_VIVO,
+    input: S({ args: str('p. ej. "tps", "health" o "profiler"') }, ['args']),
+    map: (a) => ({ args: String(a.args || '') }) },
+  { name: 'observar_eventos', method: 'events.subscribe', capability: 'events',
+    description: 'Empieza a recibir eventos de la partida: death, dimension, load, lag_spike (tick de más de 100 ms), crash_imminent (memoria por encima del 95 %) y datapack_error. El launcher los guarda; léelos con eventos_en_vivo.' + EN_VIVO,
+    input: S({ tipos: { type: 'array', items: { type: 'string' }, description: 'Tipos a observar (por defecto todos: "*")' } }),
+    map: (a) => ({ types: a.tipos === undefined ? ['*'] : Array.isArray(a.tipos) ? a.tipos : String(a.tipos).split(/[ ,]+/).filter(Boolean) }) },
+  { name: 'medir_cambio', method: 'metrics.mark', capability: 'metrics',
+    description: 'Llámalo JUSTO ANTES de un cambio (instalar o cambiar un mod, una config, un datapack…): guarda cómo iba el juego los 10 minutos anteriores. Tras 5 minutos de juego después (aunque haya que reiniciar), el launcher recibe solo el veredicto (mejor, peor o igual) y lo muestra. Devuelve un id para comparar_cambio.' + EN_VIVO,
+    input: S({ tipo: { type: 'string', enum: ['mod', 'config', 'datapack', 'resourcepack', 'shader', 'world', 'other'] }, objetivo: str('qué se cambia, p. ej. sodium o config/sodium-options.json'), descripcion: str('nota corta para ti (no se comparte)') }, ['tipo', 'objetivo']),
+    map: (a) => noVacios({ kind: a.tipo, target: a.objetivo, label: a.descripcion }) },
+  { name: 'comparar_cambio', method: 'metrics.compare', capability: 'metrics',
+    description: 'Compara cómo iba el juego antes y después de un cambio marcado con medir_cambio: FPS, MSPT, errores, avisos, lag y carga, con un veredicto.' + EN_VIVO,
+    input: S({ id: str('id que devolvió medir_cambio') }, ['id']),
+    map: (a) => ({ id: String(a.id || '') }) },
+  { name: 'metricas_en_vivo', method: 'metrics.get', capability: 'metrics',
+    description: 'Las últimas muestras por minuto de la partida (FPS, MSPT, memoria, entidades, errores del log, picos de lag, tiempos de carga).' + EN_VIVO,
+    input: S({ minutos: num('cuántos minutos (por defecto los últimos)') }),
+    map: (a) => noVacios({ minutes: a.minutos === undefined ? undefined : Number(a.minutos) }) },
 ]
 for (const t of LIVE_TOOLS) TOOLS.push({ ...t, route: 'live/call', timeout: 75000, live: true })
+// Eventos guardados por el launcher (no pasa por el mod)
+TOOLS.push({ name: 'eventos_en_vivo', route: 'live/events',
+  description: 'Los eventos que ha mandado la partida (tras observar_eventos): muertes, cambios de dimensión, cargas, picos de lag, crash inminente y errores de datapacks, con su hora. Con desde, solo los posteriores a esa marca de tiempo (ms).',
+  input: S({ desde: num('marca de tiempo en ms (la «at» del último evento que viste)'), tipos: { type: 'array', items: { type: 'string' } } }),
+  map: (a) => noVacios({ since: a.desde === undefined ? undefined : Number(a.desde), types: a.tipos === undefined ? undefined : Array.isArray(a.tipos) ? a.tipos : String(a.tipos).split(/[ ,]+/).filter(Boolean) }) })
 
 async function run(name, args) {
   const t = TOOLS.find((x) => x.name === name)
   if (!t) return { error: 'Herramienta desconocida: ' + name }
   if (!INSTANCE) return { error: 'Falta MODPACK_INSTANCE' }
   const body = t.map ? t.map(args || {}) : {}
-  return call('/instance/' + encodeURIComponent(INSTANCE) + '/' + t.route, t.live ? { method: t.method, params: body } : body, t.timeout)
+  const method = typeof t.method === 'function' ? t.method(args || {}) : t.method
+  return call('/instance/' + encodeURIComponent(INSTANCE) + '/' + t.route, t.live ? { method, params: body } : body, t.timeout)
 }
 
 // ── Modo consola ──
@@ -209,7 +268,7 @@ if (argv.length) {
           protocolVersion: (params && params.protocolVersion) || '2025-06-18',
           capabilities: { tools: {} },
           serverInfo: { name: 'modpack-launcher', version: '1.0.0' },
-          instructions: 'Herramientas para probar, arreglar y editar esta instancia de Minecraft a través de Modpack Launcher (mods, resource packs, shaders, datapacks y configs). Todo cambio pasa por el launcher, que lo muestra al usuario y, si así está configurado, le pide permiso. Tras cada cambio usa lanzar_juego para comprobarlo. Lee lecciones antes de diagnosticar y usa anotar_leccion al terminar. Si la partida está abierta con el mod fport1-social, estado_en_vivo, rendimiento_en_vivo y ejecutar_comando ven y manejan el juego mientras se juega.',
+          instructions: 'Herramientas para probar, arreglar y editar esta instancia de Minecraft a través de Modpack Launcher (mods, resource packs, shaders, datapacks y configs). Todo cambio pasa por el launcher, que lo muestra al usuario y, si así está configurado, le pide permiso. Tras cada cambio usa lanzar_juego para comprobarlo. Lee lecciones antes de diagnosticar y usa anotar_leccion al terminar. Si la partida está abierta con el mod fport1-social, las herramientas en vivo ven y manejan el juego mientras se juega: estado_en_vivo, rendimiento_en_vivo, ejecutar_comando, recargar, captura (te devuelve la imagen), camara, ir_a, inspeccionar, registro_en_vivo, colocar_estructura, spark, observar_eventos/eventos_en_vivo y, para saber si un cambio funcionó de verdad, medir_cambio antes de cambiar algo y comparar_cambio después.',
         } })
       }
       if (method === 'ping') return out({ jsonrpc: '2.0', id, result: {} })
@@ -218,7 +277,15 @@ if (argv.length) {
       }
       if (method === 'tools/call') {
         const r = await run(params.name, params.arguments)
-        return out({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(r, null, 2) }], isError: !!(r && r.error) } })
+        const content = [{ type: 'text', text: JSON.stringify(r, null, 2) }]
+        const tool = TOOLS.find((x) => x.name === params.name)
+        if (tool && tool.image && r && r.result && typeof r.result.path === 'string') {
+          try {
+            const img = fs.readFileSync(r.result.path)
+            if (img.length <= 8 * 1024 * 1024) content.unshift({ type: 'image', data: img.toString('base64'), mimeType: 'image/png' })
+          } catch (e) { content.push({ type: 'text', text: 'No se pudo leer la captura: ' + (e && e.message) }) }
+        }
+        return out({ jsonrpc: '2.0', id, result: { content, isError: !!(r && r.error) } })
       }
       out({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Método no soportado: ' + method } })
     } catch (e) {

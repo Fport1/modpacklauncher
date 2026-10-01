@@ -5,6 +5,7 @@ import fs from 'fs-extra'
 import path from 'path'
 import { gameEvents, getInstancePid, isInstanceRunning, killInstance } from './launcher'
 import { createLiveBridge, NOT_LIVE_MESSAGE, type LiveRegistration } from './liveBridge'
+import { addOutcome, addSample, clearSession, outcomeText, type LiveOutcome } from './liveData'
 import { getInstance, getInstanceGameDir, listMods, listResourcepacks, listShaderpacks, loadInstances } from './instances'
 import { getInstalledModsMeta, getModVersions, installModFromUrl, searchMods } from './modrinth'
 import axios from 'axios'
@@ -13,7 +14,7 @@ import { cfGet, CF_CLASS, CF_GAME_MINECRAFT, CF_LOADER } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled } from './worldDatapacks'
 import type { AiActivity, Instance } from '../shared/types'
 import { MCP_SCRIPT } from './aiMcpScript'
-import { communityExperience, crashSignature, findLessons, rateLesson, shareLesson, aiLearningEnabled } from './aiCommunity'
+import { communityExperience, crashSignature, findLessons, rateLesson, shareLesson, aiLearningEnabled, uploadLiveOutcome } from './aiCommunity'
 import { editNbt, inspectFile } from './fileInspect'
 import { deobfuscateText, getMappings, obfuscatedClassName } from './deobf'
 import { getSharedDir } from './instances'
@@ -94,6 +95,8 @@ const live = createLiveBridge({
 const liveErrors = new Map<string, string>()
 
 gameEvents.on('exit', (id: string) => live.unregister(id))
+// Cada partida nueva empieza sin muestras de rendimiento
+gameEvents.on('start', (id: string) => clearSession(id))
 
 function liveRegistration(body: any): LiveRegistration {
   return { port: Number(body.port), token: String(body.token ?? ''), side: body.side, mc: body.mc, loader: body.loader, modVersion: body.modVersion, protocol: body.protocol, pid: body.pid != null ? Number(body.pid) : undefined }
@@ -603,7 +606,36 @@ export function startAiBridge(launch: LaunchFn): void {
           const params = body.params && typeof body.params === 'object' ? body.params : {}
           const r = await live.call(inst.id, method, params)
           if ('error' in r) return send(200, { error: r.error.message, code: r.error.code, motivo: r.error.hint, data: r.error.data })
+          // La captura: ruta absoluta y solo dentro de la instancia (el servidor MCP la lee y la manda como imagen)
+          if (method === 'capture.screenshot' && r.result && typeof (r.result as any).path === 'string') {
+            const shot = path.resolve(gameDir, (r.result as any).path)
+            const norm = (p: string): string => (process.platform === 'win32' ? p.toLowerCase() : p)
+            const ok = norm(shot).startsWith(norm(gameDir + path.sep)) && /\.png$/i.test(shot)
+            return send(200, { result: { ...(r.result as object), path: ok ? shot : undefined, archivo: ok ? path.relative(gameDir, shot).replace(/\\/g, '/') : undefined } })
+          }
           return send(200, { result: r.result })
+        }
+        case 'live/events': {
+          // Eventos que mandó la partida (guardados por el launcher; observar_eventos los activa)
+          const since = body.since != null ? Number(body.since) : undefined
+          const types = Array.isArray(body.types) ? body.types.map(String) : undefined
+          const evs = live.events(inst.id, since, types)
+          return send(200, { eventos: evs.slice(-100), total: evs.length, enVivo: !!live.status(inst.id),
+            nota: evs.length ? undefined : 'Sin eventos. ¿Llamaste antes a observar_eventos?' })
+        }
+        case 'live/metrics': {
+          // Muestra por minuto del mod (fase 6). Si el juego no es nuestro, el mod lo ignora y sigue en local
+          if (!isInstanceRunning(inst.id)) return send(409, { error: 'Esta instancia no está abierta desde el launcher' })
+          const n = addSample(inst.id, body && typeof body === 'object' ? body : {})
+          return send(200, { ok: true, muestras: n })
+        }
+        case 'live/outcome': {
+          // Resultado medido antes/después de un cambio de la IA (metrics.mark → 5 min de juego)
+          const o = body && typeof body === 'object' ? body as LiveOutcome : {}
+          addOutcome(inst.id, o)
+          logActivity(inst.id, outcomeText(o), o.verdict === 'peor' ? 'error' : 'info')
+          const subida = await uploadLiveOutcome(inst, o, live.status(inst.id)?.modVersion)
+          return send(200, { ok: true, subida })
         }
         default:
           return send(404, { error: `Acción desconocida: ${action}` })

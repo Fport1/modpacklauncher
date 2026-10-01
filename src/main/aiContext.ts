@@ -198,6 +198,7 @@ En Claude Code, Codex, Gemini CLI, Grok CLI, Cursor o VS Code las herramientas s
 - \`mundo\`, \`regla_mundo\`, \`copiar_mundo\` — cómo es un mundo (dimensiones, generación, reglas, estadísticas del jugador), cambiar reglas y hacer una copia para experimentar
 - \`crear_proyecto\`, \`validar_pack\` — esqueleto correcto para esta versión (datapack, resource pack, shader, mod) y revisión antes de probar
 - \`lecciones\` (por tipo y tema), \`anotar_leccion\`, \`valorar_leccion\` — lo aprendido aquí y por otros jugadores: crashes, configs, compatibilidad, construcción, mundo, rendimiento y mecánicas; lo que funciona sube y lo que falla baja
+- **En vivo** (con la partida abierta y el mod fport1-social): \`estado_en_vivo\`, \`rendimiento_en_vivo\`, \`ejecutar_comando\`, \`recargar\` (datapacks o resource packs, con sus errores), \`captura\` (te devuelve la imagen), \`camara\`, \`ir_a\`, \`inspeccionar\`, \`registro_en_vivo\`, \`colocar_estructura\`, \`spark\`, \`observar_eventos\` / \`eventos_en_vivo\`. Para saber si un cambio funcionó de verdad: \`medir_cambio\` JUSTO ANTES de cambiar algo y \`comparar_cambio\` después (el launcher muestra el veredicto medido)
 - \`documentacion\` — la wiki y documentación oficial de cualquier mod (y la que trae dentro del jar), por páginas o buscando; úsala para saber a fondo cómo funciona un mod
 - \`experiencia_comunidad\` — cómo se comporta el juego con un mod en las partidas de otros jugadores (crashes, carga, lag, mods con los que se usa, dimensiones, mobs)
 `
