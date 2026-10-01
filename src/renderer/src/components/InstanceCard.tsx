@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { Instance } from '../../../shared/types'
+import type { Instance, LiveStatus } from '../../../shared/types'
 import ContextMenu, { type MenuEntry } from './ui/ContextMenu'
 import { cachedInstanceIcon, loadInstanceIcon } from '../lib/instanceIcons'
 import {
@@ -25,6 +25,8 @@ interface Props {
   onAssist?: () => void
   isLaunching?: boolean
   isRunning?: boolean
+  /** La partida está conectada por el canal en vivo del mod fport1-social (las IAs la ven y la manejan). */
+  live?: LiveStatus
   hasUpdate?: boolean
   onUpdate?: () => void
 }
@@ -62,7 +64,7 @@ function formatPlaytime(ms?: number): string {
 
 export default function InstanceCard({
   instance, onPlay, onKill, onLaunchExtra, onEdit, onDelete, onOpenFolder, onDetails, onExport,
-  onDuplicate, onChangeIcon, onSaveFpack, onRepair, onAssist, isLaunching, isRunning, hasUpdate, onUpdate
+  onDuplicate, onChangeIcon, onSaveFpack, onRepair, onAssist, isLaunching, isRunning, live, hasUpdate, onUpdate
 }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [showExtraConfirm, setShowExtraConfirm] = useState(false)
@@ -130,10 +132,18 @@ export default function InstanceCard({
       {/* Estado: la misma línea sirve para "jugado hace…", "en juego" y el aviso de actualización */}
       <div className="mt-3 h-6 flex items-center gap-2 text-xs">
         {isRunning ? (
-          <span className="inline-flex items-center gap-1.5 bg-green-500/10 text-green-400 px-2 py-0.5 rounded-full font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-            En juego
-          </span>
+          <>
+            <span className="inline-flex items-center gap-1.5 bg-green-500/10 text-green-400 px-2 py-0.5 rounded-full font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              En juego
+            </span>
+            {live && (
+              <span className="shrink-0 bg-[#d97757]/10 text-[#e8a488] border border-[#d97757]/30 px-2 py-0.5 rounded-full font-medium"
+                title={`Las IAs ven y manejan esta partida (fport1-social${live.modVersion ? ` ${live.modVersion}` : ''} · ${live.side} · permiso ${live.permission})`}>
+                En vivo
+              </span>
+            )}
+          </>
         ) : (
           <span className="flex items-center gap-1.5 text-text-muted min-w-0 truncate">
             <IconClock size={12} />

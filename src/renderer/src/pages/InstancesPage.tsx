@@ -10,7 +10,7 @@ import RamSlider from '../components/RamSlider'
 import ExportModpackModal from '../components/ExportModpackModal'
 import FpackSaveModal from '../components/FpackSaveModal'
 import FpackImportModal from '../components/FpackImportModal'
-import type { Instance, Modloader, ModpackManifest } from '../../../shared/types'
+import type { Instance, LiveStatus, Modloader, ModpackManifest } from '../../../shared/types'
 import { useT } from '../i18n'
 
 type ModalStep = 'choose' | 'modpack' | 'manual'
@@ -390,6 +390,16 @@ export default function InstancesPage() {
   const { instances, setInstances, addInstance, updateInstance, removeInstance } = useStore()
   const account = useStore(activeAccount)
   const runningInstances = useStore(s => s.runningInstances)
+  // Partidas conectadas al launcher por el canal en vivo del mod fport1-social
+  const [liveInstances, setLiveInstances] = useState<Map<string, LiveStatus>>(new Map())
+  useEffect(() => {
+    window.api.aiAgent.live().then(list => setLiveInstances(new Map(list.map(s => [s.instanceId, s])))).catch(() => {})
+    return window.api.aiAgent.onLive((id, status) => setLiveInstances(m => {
+      const next = new Map(m)
+      status ? next.set(id, status) : next.delete(id)
+      return next
+    }))
+  }, [])
   const openDetailInstanceId = useStore(s => s.openDetailInstanceId)
   const setOpenDetailInstanceId = useStore(s => s.setOpenDetailInstanceId)
 
@@ -1069,6 +1079,7 @@ export default function InstancesPage() {
                   onAssist={() => { startHosting(inst.id).catch(() => {}) }}
                   isLaunching={launching === inst.id}
                   isRunning={runningInstances.has(inst.id)}
+                  live={liveInstances.get(inst.id)}
                   hasUpdate={updateMap.get(inst.id) === true}
                   onUpdate={() => handleModpackUpdate(inst.id)}
                 />

@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, LiveStatus } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -636,6 +636,13 @@ const api = {
       const h = (_e: unknown, a: AiActivity): void => cb(a)
       ipcRenderer.on('ai:activity', h)
       return () => { ipcRenderer.removeListener('ai:activity', h) }
+    },
+    // Partidas abiertas con el mod fport1-social conectadas por el canal en vivo
+    live: () => ipcRenderer.invoke('ai:live') as Promise<LiveStatus[]>,
+    onLive: (cb: (instanceId: string, status: LiveStatus | null) => void) => {
+      const h = (_e: unknown, m: { instanceId: string; status: LiveStatus | null }): void => cb(m.instanceId, m.status)
+      ipcRenderer.on('ai:live', h)
+      return () => { ipcRenderer.removeListener('ai:live', h) }
     }
   },
 
