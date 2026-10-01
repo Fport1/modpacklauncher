@@ -208,7 +208,13 @@ export default function ExploreDetail(p: Props) {
       {/* Cabecera con el color del icono */}
       <div className="relative flex-shrink-0 border-b border-border overflow-hidden"
         style={{ background: `linear-gradient(115deg, ${tint(0.34)} 0%, ${tint(0.1)} 50%, transparent 90%)` }}>
-        <div className="flex items-center gap-1 px-6 pt-4">
+        {data?.banner && (
+          <>
+            <img src={data.banner} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40 pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-r from-bg-primary/90 via-bg-primary/50 to-transparent pointer-events-none" />
+          </>
+        )}
+        <div className="relative flex items-center gap-1 px-6 pt-4">
           <button onClick={p.onBack} disabled={!p.canGoBack} title="Atrás (botón del ratón)"
             className="flex items-center gap-1.5 pl-2 pr-3 h-8 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-black/20 disabled:opacity-30 transition-colors">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m15 18-6-6 6-6" /></svg>
@@ -220,7 +226,7 @@ export default function ExploreDetail(p: Props) {
           </button>
           <span className="ml-2 text-[11px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md" style={{ color: accent, background: `${accent}1f` }}>{SOURCE_INFO[target.source].label}</span>
         </div>
-        <div className="flex items-center gap-5 px-6 pt-3 pb-5">
+        <div className="relative flex items-center gap-5 px-6 pt-3 pb-5">
           <div className="w-24 h-24 rounded-3xl bg-bg-hover overflow-hidden flex-shrink-0 ring-1 ring-white/10" style={{ boxShadow: `0 10px 34px ${tint(0.45)}` }}>
             {icon ? <img src={icon} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-4xl">📦</div>}
           </div>
@@ -495,8 +501,22 @@ export default function ExploreDetail(p: Props) {
               </section>
             )}
 
+            {!!data.tags?.length && (
+              <section>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Etiquetas</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {data.tags.map((t) => <span key={t} className="text-xs px-2 py-1 rounded-lg bg-[#a855f7]/10 border border-[#a855f7]/25 text-[#d8b4fe]">#{t}</span>)}
+                </div>
+              </section>
+            )}
+
             <section>
               <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Información</p>
+              {data.openSource !== undefined && (
+                <p className={`mb-2 inline-block text-[11px] px-2 py-0.5 rounded-md ${data.openSource ? 'bg-green-500/15 text-green-300' : 'bg-bg-card border border-border text-text-secondary'}`}>
+                  {data.openSource ? 'Código abierto' : 'Código cerrado'}
+                </p>
+              )}
               <dl className="text-xs space-y-1.5">
                 <div className="flex justify-between gap-2"><dt className="text-text-muted">Publicado</dt><dd className="text-text-secondary">{fmtDate(data.created)}</dd></div>
                 <div className="flex justify-between gap-2"><dt className="text-text-muted">Actualizado</dt><dd className="text-text-secondary">{fmtDate(data.updated)}</dd></div>

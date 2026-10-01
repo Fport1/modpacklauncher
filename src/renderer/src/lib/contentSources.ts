@@ -6,7 +6,7 @@
 import { marked } from 'marked'
 import {
   getProject as f1Project, listPublished as f1Published, listVersions as f1Versions,
-  projectUpdatedMs, versionPublishedMs, type Fport1Project
+  projectUpdatedMs, versionPublishedMs, licenseUrl as f1LicenseUrl, type Fport1Project
 } from './fport1Content'
 
 export type SourceId = 'modrinth' | 'curseforge' | 'fport1' | 'hangar' | 'spigot'
@@ -111,6 +111,11 @@ export interface ProjectDetail {
   body: string
   gallery: { url: string; full?: string; title?: string | null; description?: string | null }[]
   pageUrl?: string
+  /** Portada ancha (Fport1) */
+  banner?: string | null
+  /** Etiquetas libres (Fport1) */
+  tags?: string[]
+  openSource?: boolean
 }
 
 export interface ProjectRef { source: SourceId; id: string; title: string; icon: string | null; summary: string }
@@ -382,15 +387,22 @@ async function fport1VersionList(id: string): Promise<SourceVersion[]> {
   }))
 }
 
+const F1_LINKS: [keyof NonNullable<Fport1Project['links']>, string][] = [
+  ['source', 'Código fuente'], ['issues', 'Reportar errores'], ['wiki', 'Wiki'], ['discord', 'Discord'], ['website', 'Página web'], ['donate', 'Donaciones'],
+]
+
 async function fport1Detail(id: string): Promise<ProjectDetail> {
   const p = await f1Project(id)
   if (!p) throw new Error('Proyecto no encontrado')
   return {
     title: p.title, summary: p.summary, icon: p.iconUrl, authors: [{ name: 'Fport1' }],
     downloads: p.downloads, created: p.createdAt?.toMillis?.(), updated: projectUpdatedMs(p) || undefined,
-    links: [], categories: p.categories, loaders: p.loaders, gameVersions: p.gameVersions,
+    links: F1_LINKS.flatMap(([k, label]) => (p.links?.[k] && (k !== 'source' || p.openSource) ? [{ label, url: p.links[k]! }] : [])),
+    license: p.license ? { name: p.license.name || p.license.id, url: f1LicenseUrl(p.license) } : undefined,
+    categories: p.categories, loaders: p.loaders, gameVersions: p.gameVersions,
     clientSide: p.clientSide, serverSide: p.serverSide, body: md(p.description),
-    gallery: p.gallery.map((g) => ({ url: g.url, full: g.url, title: g.title })),
+    gallery: p.gallery.map((g) => ({ url: g.url, full: g.url, title: g.title, description: g.description })),
+    banner: p.bannerUrl ?? null, tags: p.tags, openSource: p.openSource,
   }
 }
 

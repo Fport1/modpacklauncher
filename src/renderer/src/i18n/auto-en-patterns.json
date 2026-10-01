@@ -97,5 +97,7 @@
 ["{0} no está instalado en este equipo", "{0} is not installed on this computer"],
 ["Se instala con su orden oficial. Pulsa «Instalar» y se abrirá una terminal que lo hace sola; cuando termine, vuelve aquí y pulsa «Abrir {0}».", "It installs with its official command. Press «Install» and a terminal will open that does it by itself; when it finishes, come back here and press «Open {0}»."],
 ["Se ha abierto una terminal instalando {0}.", "A terminal has opened installing {0}."],
-["Abrir {0}", "Open {0}"]
+["Abrir {0}", "Open {0}"],
+["GitHub · @{0} · solo repos públicos", "GitHub · @{0} · public repos only"],
+["GitHub · @{0}", "GitHub · @{0}"]
 ]

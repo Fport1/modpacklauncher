@@ -1,14 +1,17 @@
 // Fuente «Fport1» de Explorar: creaciones publicadas por @fport1 para que
 // cualquiera las instale desde el launcher, al estilo de Modrinth.
 //
-// Firestore:
+// Firestore (el catálogo, igual para el launcher y fport1web):
 //   fport1_projects/{projectId}                 ficha del proyecto
 //   fport1_projects/{projectId}/versions/{vid}  cada versión (release/beta/alpha)
-// Storage:
-//   fport1/projects/{projectId}/...             icono, galería y archivos
+// Archivos, según `hosting` del proyecto:
+//   'github'  → versiones en GitHub Releases e imágenes en el repo público de
+//               contenido servidas por jsDelivr (no cuesta nada descargarlas).
+//               `path` es «gh-release:owner/repo:releaseId:tag» o «gh:owner/repo:ruta».
+//   'storage' → Firebase Storage fport1/projects/{projectId}/... (los antiguos).
 //
 // Lectura pública solo de lo publicado; escribir solo @fport1 (reglas en
-// fport1web).
+// fport1web). El formato está documentado para la web en docs/prompt-web-creaciones.md.
 
 import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs, increment, orderBy, query, serverTimestamp,
@@ -20,18 +23,53 @@ import { socialDb, socialStorage } from './firebase'
 export type Fport1Type = 'modpack' | 'mod' | 'resourcepack' | 'datapack' | 'shader' | 'plugin'
 export type Channel = 'release' | 'beta' | 'alpha'
 
-export interface Fport1File { url: string; path: string; filename: string; size: number; sha1: string; primary: boolean }
+export interface Fport1File {
+  url: string; path: string; filename: string; size: number; sha1: string; primary: boolean
+  host?: 'github' | 'storage'
+  /** Release de GitHub donde está el archivo */
+  github?: { repo: string; tag: string; releaseId: number; assetId: number; htmlUrl: string }
+}
+
+/** Imagen de la galería (en la descripción se puede poner donde se quiera con ![título](url)). */
+export interface Fport1Image { url: string; path: string; title?: string; description?: string }
+
+export type Fport1Hosting = 'github' | 'storage'
+
+/** Licencia: SPDX (MIT, GPL-3.0…), «ARR» (todos los derechos reservados) o «custom» con su URL. */
+export interface Fport1License { id: string; name: string; url?: string }
+
+export interface Fport1Links { source?: string; issues?: string; wiki?: string; discord?: string; website?: string; donate?: string }
+
+/**
+ * Dónde está en GitHub.
+ * - sourceRepo: repo del código (puede ser privado si el código es cerrado).
+ * - releasesRepo: repo PÚBLICO donde se publican las versiones; vacío = el repo de contenido.
+ */
+export interface Fport1Github { sourceRepo?: string; sourcePrivate?: boolean; releasesRepo?: string }
 
 export interface Fport1Project {
   id: string
   title: string
   slug: string
   summary: string
+  /** Markdown. Las imágenes van con ![título](url) donde se quieran ver. */
   description: string
   type: Fport1Type
   iconUrl: string | null
-  gallery: { url: string; path: string; title?: string }[]
+  iconPath?: string
+  /** Portada ancha que se ve arriba de la ficha */
+  bannerUrl?: string | null
+  bannerPath?: string
+  gallery: Fport1Image[]
+  /** Categorías fijas (las de Explorar) */
   categories: string[]
+  /** Etiquetas libres */
+  tags: string[]
+  license?: Fport1License | null
+  openSource?: boolean
+  links?: Fport1Links
+  hosting?: Fport1Hosting
+  github?: Fport1Github | null
   loaders: string[]
   gameVersions: string[]
   clientSide: 'required' | 'optional' | 'unsupported'
@@ -83,8 +121,17 @@ function toProject(id: string, d: Record<string, any>): Fport1Project {
     description: d.description ?? '',
     type: d.type ?? 'mod',
     iconUrl: d.iconUrl ?? null,
+    iconPath: d.iconPath ?? undefined,
+    bannerUrl: d.bannerUrl ?? null,
+    bannerPath: d.bannerPath ?? undefined,
     gallery: Array.isArray(d.gallery) ? d.gallery : [],
     categories: Array.isArray(d.categories) ? d.categories : [],
+    tags: Array.isArray(d.tags) ? d.tags : [],
+    license: d.license ?? null,
+    openSource: d.openSource ?? undefined,
+    links: d.links ?? {},
+    hosting: d.hosting ?? 'storage',
+    github: d.github ?? null,
     loaders: Array.isArray(d.loaders) ? d.loaders : [],
     gameVersions: Array.isArray(d.gameVersions) ? d.gameVersions : [],
     clientSide: d.clientSide ?? 'required',
@@ -156,16 +203,39 @@ export function slugify(s: string): string {
 
 export type ProjectInput = Omit<Fport1Project, 'id' | 'downloads' | 'createdAt' | 'updatedAt' | 'latestVersion' | 'loaders' | 'gameVersions'>
 
+/** Firestore no acepta `undefined`: se quitan los campos opcionales vacíos (también dentro de mapas). */
+function noUndefined<T extends Record<string, unknown>>(o: T): T {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(o)) {
+    if (v === undefined) continue
+    out[k] = v && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype ? noUndefined(v as Record<string, unknown>) : v
+  }
+  return out as T
+}
+
 export async function createProject(input: ProjectInput): Promise<string> {
-  const ref = await addDoc(collection(socialDb, PROJECTS), {
+  const ref = await addDoc(collection(socialDb, PROJECTS), noUndefined({
     ...input, loaders: [], gameVersions: [], downloads: 0, latestVersion: null,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-  })
+  }))
   return ref.id
 }
 
 export async function updateProject(id: string, patch: Partial<ProjectInput>): Promise<void> {
-  await updateDoc(doc(socialDb, PROJECTS, id), { ...patch, updatedAt: serverTimestamp() })
+  await updateDoc(doc(socialDb, PROJECTS, id), noUndefined({ ...patch, updatedAt: serverTimestamp() }))
+}
+
+/**
+ * Sube una imagen del proyecto (icono, portada o galería) donde toque según el
+ * alojamiento: GitHub (repo de contenido, servida por jsDelivr) o Storage.
+ */
+export async function uploadImage(project: Pick<Fport1Project, 'id' | 'hosting' | 'slug'>, kind: 'icon' | 'banner' | 'gallery', file: File): Promise<{ url: string; path: string }> {
+  const name = `${kind}-${Date.now()}-${cleanName(file.name)}`
+  if (project.hosting === 'github') {
+    return window.api.github.putMedia(`media/${project.slug || project.id}/${name}`, await file.arrayBuffer(), `${project.slug}: ${kind}`)
+  }
+  const path = kind === 'gallery' ? `fport1/projects/${project.id}/gallery/${name}` : `fport1/projects/${project.id}/${kind}`
+  return { url: await uploadFile(path, file, file.type), path }
 }
 
 export async function uploadFile(path: string, file: Blob, contentType: string | undefined, onProgress?: (f: number) => void): Promise<string> {
@@ -178,7 +248,12 @@ export async function uploadFile(path: string, file: Blob, contentType: string |
   return getDownloadURL(r)
 }
 
+/** Borra un archivo esté donde esté (Storage, imagen de GitHub o release de GitHub). */
 export async function removeFile(path: string): Promise<void> {
+  if (!path) return
+  const rel = /^gh-release:([^:]+):(\d+):(.+)$/.exec(path)
+  if (rel) { await window.api.github.deleteRelease(rel[1], Number(rel[2]), rel[3]).catch(() => {}); return }
+  if (path.startsWith('gh:')) { await window.api.github.deleteMedia(path, 'Borrar imagen').catch(() => {}); return }
   await deleteObject(sRef(socialStorage, path)).catch(() => {})
 }
 
@@ -199,22 +274,41 @@ export interface VersionInput {
   dependencies?: Fport1Dependency[]
 }
 
+/** Etiqueta de la release: «v1.2.0» en el repo propio, «slug-v1.2.0» en el de contenido (compartido). */
+export function releaseTag(project: Pick<Fport1Project, 'slug' | 'github'>, versionNumber: string): string {
+  const v = versionNumber.trim().replace(/\s+/g, '-')
+  return project.github?.releasesRepo ? `v${v}` : `${project.slug}-v${v}`
+}
+
 /** Sube el archivo y crea la versión; actualiza loaders/versiones del proyecto. */
-export async function publishVersion(projectId: string, input: VersionInput, file: File, onProgress?: (f: number) => void): Promise<string> {
-  const vref = doc(collection(socialDb, PROJECTS, projectId, 'versions'))
+export async function publishVersion(project: Fport1Project, input: VersionInput, file: File, onProgress?: (f: number) => void): Promise<string> {
+  const vref = doc(collection(socialDb, PROJECTS, project.id, 'versions'))
   const filename = cleanName(file.name)
-  const path = `fport1/projects/${projectId}/versions/${vref.id}/${filename}`
-  const [sha1, url] = await Promise.all([
-    sha1Of(file),
-    uploadFile(path, file, file.type || 'application/octet-stream', onProgress)
-  ])
-  await setDoc(vref, {
-    ...input,
-    files: [{ url, path, filename, size: file.size, sha1, primary: true }],
-    downloads: 0,
-    publishedAt: serverTimestamp()
-  })
-  await refreshProjectMeta(projectId)
+  const sha1 = await sha1Of(file)
+  let entry: Fport1File
+  if (project.hosting === 'github') {
+    const off = window.api.github.onProgress((f) => onProgress?.(f))
+    try {
+      const r = await window.api.github.publishRelease({
+        repo: project.github?.releasesRepo || undefined,
+        tag: releaseTag(project, input.versionNumber),
+        name: `${project.title} ${input.name && input.name !== input.versionNumber ? `${input.name} (${input.versionNumber})` : input.versionNumber}`,
+        body: `${input.changelog || ''}\n\n---\nMinecraft ${input.gameVersions.join(', ')}${input.loaders.length ? ` · ${input.loaders.join(', ')}` : ''}\n\nPublicado con Modpack Launcher by Fport1.`.trim(),
+        prerelease: input.channel !== 'release',
+        file: { name: filename, data: await file.arrayBuffer(), contentType: file.type || 'application/octet-stream' },
+      })
+      entry = {
+        url: r.url, path: `gh-release:${r.repo}:${r.releaseId}:${r.tag}`, filename, size: file.size, sha1, primary: true,
+        host: 'github', github: { repo: r.repo, tag: r.tag, releaseId: r.releaseId, assetId: r.assetId, htmlUrl: r.htmlUrl },
+      }
+    } finally { off() }
+  } else {
+    const path = `fport1/projects/${project.id}/versions/${vref.id}/${filename}`
+    const url = await uploadFile(path, file, file.type || 'application/octet-stream', onProgress)
+    entry = { url, path, filename, size: file.size, sha1, primary: true, host: 'storage' }
+  }
+  await setDoc(vref, { ...input, files: [entry], downloads: 0, publishedAt: serverTimestamp() })
+  await refreshProjectMeta(project.id)
   return vref.id
 }
 
@@ -235,7 +329,8 @@ export async function deleteProject(p: Fport1Project): Promise<void> {
   const versions = await listVersions(p.id).catch(() => [])
   for (const v of versions) await deleteVersion(p.id, v).catch(() => {})
   for (const g of p.gallery) await removeFile(g.path)
-  if (p.iconUrl) await removeFile(`fport1/projects/${p.id}/icon`)
+  if (p.iconUrl) await removeFile(p.iconPath ?? `fport1/projects/${p.id}/icon`)
+  if (p.bannerPath) await removeFile(p.bannerPath)
   await deleteDoc(doc(socialDb, PROJECTS, p.id))
 }
 
@@ -251,4 +346,17 @@ async function refreshProjectMeta(projectId: string): Promise<void> {
     latestVersion: latest ? { id: latest.id, versionNumber: latest.versionNumber, channel: latest.channel } : null,
     updatedAt: serverTimestamp()
   })
+}
+
+/** Página de cada licencia conocida (para el enlace de la ficha). */
+export function licenseUrl(l: Fport1License | null | undefined): string | undefined {
+  if (!l) return undefined
+  if (l.url) return l.url
+  if (l.id === 'ARR' || l.id === 'custom') return undefined
+  if (l.id.startsWith('CC')) {
+    const m = /^CC-(BY(?:-[A-Z]{2})*)-(\d\.\d)$/.exec(l.id)
+    if (l.id === 'CC0-1.0') return 'https://creativecommons.org/publicdomain/zero/1.0/'
+    return m ? `https://creativecommons.org/licenses/${m[1].toLowerCase()}/${m[2]}/` : undefined
+  }
+  return `https://choosealicense.com/licenses/${l.id.toLowerCase()}/`
 }
