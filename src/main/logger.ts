@@ -9,6 +9,7 @@ export interface LogEntry {
 const MAX = 1000
 const buf: LogEntry[] = []
 let _win: BrowserWindow | null = null
+let sending = false
 
 export function setLoggerWindow(w: BrowserWindow): void {
   _win = w
@@ -26,7 +27,13 @@ function push(level: LogEntry['level'], args: unknown[]): void {
   const entry: LogEntry = { level, message: msg, at: Date.now() }
   buf.push(entry)
   if (buf.length > MAX) buf.splice(0, buf.length - MAX)
-  try { if (_win && !_win.isDestroyed()) _win.webContents.send('console:log', entry) } catch { /* ignore */ }
+  // Si la página de la ventana se está recargando o se cayó, Electron no lanza al
+  // enviar: escribe «Error sending from webFrameMain…» con console.error, que vuelve
+  // a pasar por aquí y vuelve a enviar, en bucle. Mientras se envía no se reenvía,
+  // y sin página viva no se envía (el buffer la pone al día con getLogBuffer()).
+  if (sending || !_win || _win.isDestroyed() || _win.webContents.isDestroyed() || _win.webContents.isCrashed() || _win.webContents.isLoading()) return
+  sending = true
+  try { _win.webContents.send('console:log', entry) } catch { /* ignore */ } finally { sending = false }
 }
 
 export function installConsoleCapture(): void {
