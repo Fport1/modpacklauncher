@@ -112,6 +112,10 @@ import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
 import { getLogBuffer } from './logger'
 import { installTool, openInTerminal, resolveCommand, toolMissing, type AiTool } from './aiTools'
+import {
+  githubCreateRepo, githubDeleteMedia, githubDeleteRelease, githubDeviceCancel, githubDeviceStart, githubDeviceWait, githubLogout,
+  githubPublishRelease, githubPutMedia, githubRepos, githubSetToken, githubStatus, githubUpdateRepo, type ReleaseInput, type RepoInput
+} from './github'
 
 interface AccountsStore {
   accounts: MinecraftAccount[]
@@ -1570,6 +1574,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // Abre una terminal que instala esa IA con su orden oficial (o dice que falta Node.js)
   ipcMain.handle('ai:install-tool', (_e, tool: AiTool) => installTool(tool))
+
+  // Cuenta de GitHub para publicar las creaciones (la clave no sale del proceso principal)
+  ipcMain.handle('github:status', () => githubStatus())
+  ipcMain.handle('github:set-token', (_e, token: string) => githubSetToken(token))
+  ipcMain.handle('github:logout', () => githubLogout())
+  ipcMain.handle('github:device-start', () => githubDeviceStart())
+  ipcMain.handle('github:device-wait', () => githubDeviceWait())
+  ipcMain.handle('github:device-cancel', () => githubDeviceCancel())
+  ipcMain.handle('github:repos', () => githubRepos())
+  ipcMain.handle('github:create-repo', (_e, input: RepoInput) => githubCreateRepo(input))
+  ipcMain.handle('github:update-repo', (_e, repo: string, patch: { description?: string; homepage?: string; topics?: string[] }) => githubUpdateRepo(repo, patch))
+  ipcMain.handle('github:publish-release', (e, input: ReleaseInput) =>
+    githubPublishRelease(input, (f) => { if (!e.sender.isDestroyed()) e.sender.send('github:progress', f) }))
+  ipcMain.handle('github:delete-release', (_e, repo: string, releaseId: number, tag: string) => githubDeleteRelease(repo, releaseId, tag))
+  ipcMain.handle('github:put-media', (_e, filePath: string, data: ArrayBuffer, message: string) => githubPutMedia(filePath, data, message))
+  ipcMain.handle('github:delete-media', (_e, ghPath: string, message: string) => githubDeleteMedia(ghPath, message))
 
   // Datapacks de un mundo
   ipcMain.handle('world-datapacks:list', (_e, instanceId: string, world: string) => listWorldDatapacks(instanceId, world))

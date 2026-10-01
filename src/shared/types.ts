@@ -443,6 +443,10 @@ export interface ServerJarMeta {
 /** Algo que ha hecho (o intentado) una IA en una instancia, a través del launcher. */
 export interface AiActivity { instanceId: string; text: string; at: number; kind: 'info' | 'change' | 'denied' | 'error' }
 
+/** Cuenta de GitHub conectada al launcher (la clave nunca llega a la ventana) */
+export interface GithubStatus { connected: boolean; login?: string; name?: string; avatarUrl?: string; method?: 'device' | 'token'; canPrivate?: boolean; deviceFlow: boolean }
+export interface GithubRepo { fullName: string; private: boolean; description: string; htmlUrl: string; defaultBranch: string; license?: string }
+
 /** IAs de terminal que el launcher abre en una instancia */
 export type AiToolId = 'claude' | 'codex' | 'gemini' | 'grok'
 /** Lo que falta para usar una IA que no está instalada y cómo instalarla en este sistema */

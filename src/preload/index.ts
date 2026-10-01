@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, AiToolId, AiToolMissing, LiveStatus } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -626,6 +626,30 @@ const api = {
   aiContext: {
     status: (instanceId: string) => ipcRenderer.invoke('ai-context:status', instanceId) as Promise<{ exists: boolean; generatedAt?: number; mods?: number; stale?: boolean }>,
     prepare: (instanceId: string) => ipcRenderer.invoke('ai-context:prepare', instanceId) as Promise<{ exists: boolean; generatedAt?: number; mods?: number; stale?: boolean }>
+  },
+
+  // Cuenta de GitHub para publicar creaciones (la clave se queda en el proceso principal)
+  github: {
+    status: () => ipcRenderer.invoke('github:status') as Promise<GithubStatus>,
+    setToken: (token: string) => ipcRenderer.invoke('github:set-token', token) as Promise<GithubStatus>,
+    logout: () => ipcRenderer.invoke('github:logout') as Promise<GithubStatus>,
+    deviceStart: () => ipcRenderer.invoke('github:device-start') as Promise<{ userCode: string; verificationUri: string; expiresIn: number }>,
+    deviceWait: () => ipcRenderer.invoke('github:device-wait') as Promise<GithubStatus>,
+    deviceCancel: () => ipcRenderer.invoke('github:device-cancel') as Promise<void>,
+    repos: () => ipcRenderer.invoke('github:repos') as Promise<{ repos: GithubRepo[]; owners: string[] }>,
+    createRepo: (input: { owner?: string; name: string; description?: string; private: boolean; license?: string; topics?: string[]; homepage?: string }) =>
+      ipcRenderer.invoke('github:create-repo', input) as Promise<GithubRepo>,
+    updateRepo: (repo: string, patch: { description?: string; homepage?: string; topics?: string[] }) => ipcRenderer.invoke('github:update-repo', repo, patch) as Promise<void>,
+    publishRelease: (input: { repo?: string; tag: string; name: string; body: string; prerelease: boolean; file: { name: string; data: ArrayBuffer; contentType?: string } }) =>
+      ipcRenderer.invoke('github:publish-release', input) as Promise<{ repo: string; tag: string; releaseId: number; assetId: number; url: string; htmlUrl: string }>,
+    onProgress: (cb: (f: number) => void) => {
+      const h = (_e: unknown, f: number): void => cb(f)
+      ipcRenderer.on('github:progress', h)
+      return () => { ipcRenderer.removeListener('github:progress', h) }
+    },
+    deleteRelease: (repo: string, releaseId: number, tag: string) => ipcRenderer.invoke('github:delete-release', repo, releaseId, tag) as Promise<void>,
+    putMedia: (filePath: string, data: ArrayBuffer, message: string) => ipcRenderer.invoke('github:put-media', filePath, data, message) as Promise<{ url: string; path: string }>,
+    deleteMedia: (ghPath: string, message: string) => ipcRenderer.invoke('github:delete-media', ghPath, message) as Promise<void>,
   },
 
   // La IA trabajando en una instancia a través del launcher
