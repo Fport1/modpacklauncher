@@ -443,6 +443,11 @@ export interface ServerJarMeta {
 /** Algo que ha hecho (o intentado) una IA en una instancia, a través del launcher. */
 export interface AiActivity { instanceId: string; text: string; at: number; kind: 'info' | 'change' | 'denied' | 'error' }
 
+/** IAs de terminal que el launcher abre en una instancia */
+export type AiToolId = 'claude' | 'codex' | 'gemini' | 'grok'
+/** Lo que falta para usar una IA que no está instalada y cómo instalarla en este sistema */
+export interface AiToolMissing { tool: AiToolId; name: string; docs: string; command: string; needsNode: boolean; after?: string }
+
 /**
  * Partida abierta con el mod fport1-social conectada al launcher por su canal en vivo.
  * Nunca lleva el puerto ni la clave del mod: eso se queda en el proceso principal.

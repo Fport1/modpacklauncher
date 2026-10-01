@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, LiveStatus } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, AiToolId, AiToolMissing, LiveStatus } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -630,7 +630,9 @@ const api = {
 
   // La IA trabajando en una instancia a través del launcher
   aiAgent: {
-    openTerminal: (instanceId: string, tool: 'claude' | 'codex' | 'gemini' | 'grok') => ipcRenderer.invoke('ai:open-terminal', instanceId, tool) as Promise<void>,
+    // Si la IA no está instalada devuelve { missing } con la orden para instalarla en este sistema
+    openTerminal: (instanceId: string, tool: AiToolId) => ipcRenderer.invoke('ai:open-terminal', instanceId, tool) as Promise<{ opened: true } | { missing: AiToolMissing }>,
+    installTool: (tool: AiToolId) => ipcRenderer.invoke('ai:install-tool', tool) as Promise<AiToolMissing>,
     activity: (instanceId?: string) => ipcRenderer.invoke('ai:activity', instanceId) as Promise<AiActivity[]>,
     onActivity: (cb: (a: AiActivity) => void) => {
       const h = (_e: unknown, a: AiActivity): void => cb(a)

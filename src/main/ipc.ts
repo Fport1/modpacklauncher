@@ -111,6 +111,7 @@ import { listAssetSources, listAssetDir, readAssetFile } from './assets'
 import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
 import { getLogBuffer } from './logger'
+import { installTool, openInTerminal, resolveCommand, toolMissing, type AiTool } from './aiTools'
 
 interface AccountsStore {
   accounts: MinecraftAccount[]
@@ -125,26 +126,6 @@ export function getSettings(): Settings {
 }
 let currentMainWindow: BrowserWindow | null = null
 let ipcHandlersRegistered = false
-
-/**
- * Claude Code instalado pero fuera del PATH:
- * 1. el instalador oficial lo deja en ~/.local/bin y no siempre lo añade al PATH;
- * 2. la app de escritorio de Claude trae el suyo en …/Claude/claude-code/<versión>/ (el más nuevo).
- */
-async function bundledClaudeCode(): Promise<string | null> {
-  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
-  const native = path.join(os.homedir(), '.local', 'bin', exe)
-  if (fs.existsSync(native)) return native
-  const base = path.join(app.getPath('appData'), 'Claude', 'claude-code')
-  const versions = await fs.promises.readdir(base).catch(() => [] as string[])
-  const num = (v: string): number[] => v.split('.').map((x) => parseInt(x, 10) || 0)
-  versions.sort((a, b) => { const x = num(a), y = num(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (y[i] ?? 0) - (x[i] ?? 0); return 0 })
-  for (const v of versions) {
-    const p = path.join(base, v, exe)
-    if (fs.existsSync(p)) return p
-  }
-  return null
-}
 
 function sendToWindow(window: BrowserWindow | null | undefined, channel: string, ...args: unknown[]): boolean {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false
@@ -1579,26 +1560,16 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (!inst) throw new Error('Instancia no encontrada')
     const gameDir = await getInstanceGameDir(instanceId)
     await writeToolConfigs(inst, gameDir)
-    const { execFile, spawn } = await import('child_process')
-    const cmd = tool === 'codex' ? 'codex' : tool === 'gemini' ? 'gemini' : tool === 'grok' ? 'grok' : 'claude'
-    let exe = cmd
-    const found = await new Promise<boolean>((res) => execFile(process.platform === 'win32' ? 'where' : 'which', [cmd], (err) => res(!err)))
-    // La app de escritorio de Claude trae su propio Claude Code, pero no lo pone en el PATH
-    const bundled = !found && cmd === 'claude' ? await bundledClaudeCode() : null
-    if (bundled) exe = bundled
-    if (!found && !bundled) {
-      const how = cmd === 'claude' ? 'https://claude.com/claude-code' : cmd === 'codex' ? 'npm i -g @openai/codex' : cmd === 'grok' ? 'npm i -g @vibe-kit/grok-cli, y guarda tu clave de xAI' : 'npm i -g @google/gemini-cli'
-      throw new Error(`No se encontró «${cmd}» en este equipo. Instálalo (${how}) y vuelve a intentarlo.`)
-    }
-    const title = `${inst.name} · ${cmd}`.replace(/[&|<>^"%]/g, '')
-    if (process.platform === 'win32') {
-      spawn('cmd.exe', ['/c', 'start', `"${title}"`, 'cmd.exe', '/k', exe === cmd ? cmd : `"${exe}"`], { cwd: gameDir, detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref()
-    } else if (process.platform === 'darwin') {
-      spawn('osascript', ['-e', `tell application "Terminal" to do script "cd ${JSON.stringify(gameDir).slice(1, -1)} && ${exe === cmd ? cmd : `'${exe}'`}"`], { detached: true, stdio: 'ignore' }).unref()
-    } else {
-      spawn('x-terminal-emulator', ['-e', `sh -c 'cd "${gameDir}" && ${exe === cmd ? cmd : `"${exe}"`}; exec sh'`], { detached: true, stdio: 'ignore' }).unref()
-    }
+    // Si no está instalada, el modal enseña cómo instalarla (y puede abrir una terminal que lo haga)
+    const exe = await resolveCommand(tool)
+    if (!exe) return { missing: await toolMissing(tool) }
+    const run = exe === tool ? tool : process.platform === 'win32' ? `"${exe}"` : `'${exe.replace(/'/g, `'\\''`)}'`
+    await openInTerminal({ title: `${inst.name} · ${tool}`, cwd: gameDir, win: run, unix: run })
+    return { opened: true }
   })
+
+  // Abre una terminal que instala esa IA con su orden oficial (o dice que falta Node.js)
+  ipcMain.handle('ai:install-tool', (_e, tool: AiTool) => installTool(tool))
 
   // Datapacks de un mundo
   ipcMain.handle('world-datapacks:list', (_e, instanceId: string, world: string) => listWorldDatapacks(instanceId, world))
