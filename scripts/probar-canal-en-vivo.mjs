@@ -243,7 +243,8 @@ check('datapack_error → actividad «error» con el problema', h3.activity.some
 check('datapack_error se guarda como evento', live3.events('prueba').some((e) => e.type === 'datapack_error'))
 const sub = await live3.call('prueba', 'events.subscribe', { types: ['*'] })
 check('events.subscribe', JSON.stringify(sub.result?.subscribed) === '["*"]', sub)
-await sleep(100)
+// Espera a que lleguen los eventos (con el equipo cargado pueden tardar algo más)
+for (let i = 0; i < 50 && !live3.events('prueba').some((e) => e.type === 'crash_imminent'); i++) await sleep(50)
 const evs = live3.events('prueba')
 check('eventos guardados (death, lag_spike, crash_imminent)', ['death', 'lag_spike', 'crash_imminent'].every((t) => evs.some((e) => e.type === t)), evs)
 check('audit no se guarda como evento', !evs.some((e) => e.type === 'audit'))
@@ -445,7 +446,7 @@ check('MCP captura devuelve contenido de imagen PNG', imgPart?.mimeType === 'ima
 // Eventos por MCP
 await tool('observar_eventos')
 check('MCP observar_eventos → events.subscribe ["*"]', lastCall(mod2)?.method === 'events.subscribe' && JSON.stringify(lastCall(mod2).params.types) === '["*"]', lastCall(mod2))
-await sleep(100)
+for (let i = 0; i < 50 && !live2.events('prueba').some((e) => e.type === 'crash_imminent'); i++) await sleep(50)
 const ev = await tool('eventos_en_vivo')
 check('MCP eventos_en_vivo devuelve los eventos guardados', ev.code === 0 && ['death', 'lag_spike', 'crash_imminent', 'datapack_error'].every((t) => ev.json?.eventos?.some((e) => e.type === t)), ev.json)
 const evDeath = await tool('eventos_en_vivo', { tipos: 'death' })

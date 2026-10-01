@@ -61,6 +61,27 @@ Cada una con su versión de lectura y de escritura según permisos:
 - **observar_eventos**: suscribirse a eventos (muerte, logro, cambio de dimensión, errores de funciones de datapack, avisos de lag, crash inminente) y recibirlos como notificaciones.
 - **ir_a / camara** (solo en un jugador o con permiso): teletransportar o mover la cámara para comprobar algo.
 
+## Alimentar el aprendizaje de la IA (fport1social: Firestore y Storage)
+El launcher ya tiene un **aprendizaje colectivo** en el Firebase de fport1social (proyecto `fport1-social`). Las reglas las publica el repositorio **fport1web**, y el mod se adapta a ellas, no al revés. Colecciones actuales:
+- `crash_signatures`: huella anónima de cada crash.
+- `ai_lessons`: lecciones de la IA, con tipo (crash, config, compatibilidad, construccion, mundo, rendimiento, mecanica) y votos que suben o bajan según funcionen.
+- `play_sessions`: resumen de cada partida (mods, mundo, qué pasó, rendimiento), sacado de archivos y logs.
+- `launcher_installs` / `launcher_days`: estadísticas de uso.
+
+Las reglas limitan exactamente qué campos existen (`hasOnly`) y cuánto puede subir cada contador. Cualquier dato nuevo exige cambiar las reglas en fport1web y probarlas en el emulador.
+
+El mod debe **enriquecer ese aprendizaje con datos en vivo** que desde fuera no se pueden obtener:
+- **Rendimiento en el tiempo**: FPS y TPS/MSPT por minuto, picos de lag y su causa (qué mod, tipo de entidad o dimensión consume más; con spark si está), tiempos de carga de mundos y dimensiones.
+- **Comportamiento del juego con los mods**: entidades por tipo en el tiempo, qué biomas y dimensiones se generan y cuánto cuesta cada uno, errores de funciones y JSON al recargar datapacks, avisos previos a un crash.
+- **Resultado de lo que hace la IA** (la señal más valiosa): medir antes y después de cada cambio de la IA (instalar o cambiar un mod, una config, un datapack) si mejoró el rendimiento, desaparecieron los errores o el juego arrancó. Así el aprendizaje sabe qué funciona de verdad, no solo lo que la IA cree.
+
+Cómo:
+- **Por defecto, a través del launcher**: el mod manda los datos al puente local y el launcher los limpia (su función `sanitize`), aplica la opción de privacidad del usuario (Ajustes › Privacidad › «Ayudar a que la IA aprenda», activada por defecto) y los sube a Firestore. Un solo sitio que decide qué sale del equipo.
+- **Datos grandes** (series de rendimiento, perfiles, muestras): a **Storage**. Hoy Storage solo permite el catálogo de @fport1 (`fport1/projects/**`) y los adjuntos del chat. Hay que diseñar con fport1web una ruta nueva (p. ej. `ai-data/…`) con límite de tamaño y de tipos, idealmente con subida firmada desde una API de la web (como `/api/chat-media`) o con autenticación anónima de Firebase, **nunca** con escritura libre anónima.
+- **Servidores dedicados sin launcher**: el mod del servidor puede subir directamente, solo si el administrador lo activa en `config/`, con los mismos límites y la misma limpieza, y nunca datos de jugadores concretos.
+- **Privacidad (obligatorio)**: nada de nombres de jugadores ni de mundos, UUIDs, IPs, coordenadas, semillas, chat, carteles, libros ni capturas (salvo que el usuario las envíe a propósito). Los datos se agregan (conteos, medias, picos), no se registra lo que hace cada jugador.
+- **Entregable**: una propuesta de campos y colecciones nuevas, con sus reglas de Firestore y Storage, para hacerla en fport1web antes de programar la subida.
+
 ## Integración con otros mods (fase 2, opcional)
 Detectar e interactuar, solo si están instalados:
 - voz: grupos de Plasmo Voice / Simple Voice Chat;
@@ -81,6 +102,7 @@ Esto sirve para montar y ensayar eventos desde la IA.
 3. Paquetes cliente ↔ servidor con permisos y modo solo lectura sin mod en el servidor.
 4. Canal remoto del servidor con `port = 0` automático.
 5. Resto de herramientas (captura, recargar, registro_en_vivo, colocar_estructura, observar_eventos).
-6. Especificación de lo que hay que añadir en el launcher (acciones `live/*` del puente y herramientas MCP nuevas) para hacerlo en su repositorio.
+6. Datos en vivo para el aprendizaje: medición antes y después de los cambios de la IA, series de rendimiento, y propuesta de colecciones y reglas (Firestore/Storage) para fport1web.
+7. Especificación de lo que hay que añadir en el launcher (acciones `live/*` del puente y herramientas MCP nuevas) para hacerlo en su repositorio.
 
 Antes de escribir código, propón la estructura del repositorio, el protocolo (mensajes y esquemas JSON) y el plan de ports, y espera mi confirmación.
