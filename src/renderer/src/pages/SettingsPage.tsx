@@ -6,6 +6,7 @@ import RamSlider from '../components/RamSlider'
 import type { MinecraftAccount, AIConfig } from '../../../shared/types'
 import { OFFLINE_USERNAME_REGEX, APP_VERSION } from '../../../shared/types'
 import UpdateCheckBtn from '../components/UpdateCheckBtn'
+import GithubConnect, { useGithubStatus } from '../components/fport1/GithubConnect'
 
 
 
@@ -171,6 +172,7 @@ export default function SettingsPage() {
   const { accounts, activeAccountId, settings, addAccount, removeAccount, setActiveAccountId, setSettings, sidebarCompact, setSidebarCompact } = useStore()
 
   const [storageOpen, setStorageOpen] = useState(false)
+  const [githubStatus, setGithubStatus] = useGithubStatus()
   const [loginMode, setLoginMode] = useState<'microsoft' | 'offline'>('microsoft')
   const [offlineName, setOfflineName] = useState('')
   const [offlineError, setOfflineError] = useState('')
@@ -455,6 +457,9 @@ export default function SettingsPage() {
           )}
 
           {authError && <p className="mt-2 text-xs text-red-400">{authError}</p>}
+        </div>
+        <div className="mt-4">
+          <GithubConnect status={githubStatus} onChange={setGithubStatus} />
         </div>
       </section>
 
