@@ -12,7 +12,7 @@ export const PRIVACY_ITEMS = {
   },
   aiLearning: {
     title: 'Ayudar a que la IA aprenda',
-    desc: 'Al cerrar el juego se guarda un resumen de la partida: mods activos, cómo es el mundo (dimensiones, cómo se genera, modo, dificultad, reglas), qué pasó (mobs matados, causas de muerte, minutos) y cómo fue (carga, lag, errores, crashes). También lo que aprende la IA al arreglar o construir algo. Así la IA sabe cómo se comporta el juego con cada combinación de mods y a quien le pase lo mismo se lo resuelve a la primera.',
+    desc: 'Al cerrar el juego se guarda un resumen de la partida: mods activos, cómo es el mundo (dimensiones, cómo se genera, modo, dificultad, reglas), qué pasó (mobs matados, causas de muerte, minutos) y cómo fue (carga, lag, errores, crashes). Con el mod fport1-social se añaden sus mediciones de rendimiento por minuto (FPS, MSPT, memoria, entidades) y, cuando la IA cambia algo, si el juego fue mejor o peor después. También lo que aprende la IA al arreglar o construir algo. Así la IA sabe cómo se comporta el juego con cada combinación de mods y a quien le pase lo mismo se lo resuelve a la primera.',
     sample: '{ "mods": ["sodium", "iris", "terralith"], "mc": "1.21.1", "world": { "dims": ["minecraft:overworld", "minecraft:the_nether"], "difficulty": "difícil", "killed": { "zombie": 14 }, "deaths": 2 }, "loadSeconds": 41, "lagWarnings": 3, "crashed": false }',
   },
 } as const
