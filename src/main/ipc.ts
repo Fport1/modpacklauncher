@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, app, dialog } from 'electron'
+import { ipcMain, BrowserWindow, app, dialog, shell } from 'electron'
 import os from 'os'
 import path from 'path'
 import fs from 'fs'
@@ -102,7 +102,7 @@ import { safeJoin } from './paths'
 import { cfGet as cfFetch, cfPost } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled, deleteWorldDatapack, addWorldDatapacks } from './worldDatapacks'
 import { hasRunningInstances } from './launcher'
-import { aiContextStatus, prepareAiContext, writeToolConfigs } from './aiContext'
+import { aiContextStatus, prepareAiContext, prepareLauncherWorkspace, writeToolConfigs } from './aiContext'
 import { startAiBridge } from './aiBridge'
 import { setTelemetryEnabled, startTelemetry } from './telemetry'
 import { setAiLearningEnabled, startAiCommunity } from './aiCommunity'
@@ -1575,6 +1575,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     await openInTerminal({ title: `${inst.name} · ${tool}`, cwd: gameDir, win: run, unix: run })
     return { opened: true }
   })
+
+  // La IA del launcher en general: su carpeta con AGENTS.md de todas las instancias y el MCP sin instancia
+  ipcMain.handle('ai:open-launcher-terminal', async (_e, tool: AiTool) => {
+    const dir = await prepareLauncherWorkspace()
+    const exe = await resolveCommand(tool)
+    if (!exe) return { missing: await toolMissing(tool) }
+    const run = exe === tool ? tool : process.platform === 'win32' ? `"${exe}"` : `'${exe.replace(/'/g, `'\\''`)}'`
+    await openInTerminal({ title: `Modpack Launcher · ${tool}`, cwd: dir, win: run, unix: run })
+    return { opened: true }
+  })
+  ipcMain.handle('ai:launcher-folder', async () => shell.openPath(await prepareLauncherWorkspace()))
 
   // Abre una terminal que instala esa IA con su orden oficial (o dice que falta Node.js)
   ipcMain.handle('ai:install-tool', (_e, tool: AiTool) => installTool(tool))

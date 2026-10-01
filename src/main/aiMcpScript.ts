@@ -215,13 +215,63 @@ TOOLS.push({ name: 'eventos_en_vivo', route: 'live/events',
   input: S({ desde: num('marca de tiempo en ms (la «at» del último evento que viste)'), tipos: { type: 'array', items: { type: 'string' } } }),
   map: (a) => noVacios({ since: a.desde === undefined ? undefined : Number(a.desde), types: a.tipos === undefined ? undefined : Array.isArray(a.tipos) ? a.tipos : String(a.tipos).split(/[ ,]+/).filter(Boolean) }) })
 
+// Guías y medios: valen con o sin instancia (shared). Sin instancia escriben en la carpeta de la IA del launcher.
+const MEDIA_KIND = { type: 'string', enum: ['sonido', 'textura_animada', 'imagen', 'video'], description: 'sonido = .ogg para Minecraft; textura_animada = tira PNG + .mcmeta desde un vídeo o GIF; imagen = .png; video = .mp4 H.264 para mods reproductores (WaterMedia)' }
+TOOLS.push(
+  { name: 'guia', route: 'guide', shared: true,
+    description: 'Guías para crear con o para Minecraft: modelos (bloques, ítems, entidades, CEM/EMF, Bedrock), blockbench, geckolib, blender, unity_vfx (qué equivale a cada cosa de Unity), particulas, shaders (Iris/OptiFine, core shaders, post-procesado), sonido, video y texturas. Sin tema devuelve la lista. Léela antes de explicar o construir algo de eso.',
+    input: S({ tema: str('modelos, blockbench, geckolib, blender, unity_vfx, particulas, shaders, sonido, video o texturas') }), map: (a) => ({ topic: a.tema }) },
+  { name: 'analizar_medio', route: 'media/probe', shared: true, timeout: 400000,
+    description: 'Mira un archivo de audio, vídeo o imagen (duración, códec, tamaño, canales) y dice cómo meterlo en Minecraft. La primera vez puede tardar: descarga ffmpeg si el equipo no lo tiene.',
+    input: S({ archivo: str('ruta del archivo') }, ['archivo']), map: (a) => ({ file: a.archivo }) },
+  { name: 'convertir_medio', route: 'media/convert', shared: true, timeout: 900000,
+    description: 'Convierte audio, vídeo o imágenes a lo que Minecraft o sus mods aceptan (Minecraft no carga mp3, wav, mp4 ni jpg). Sonido → .ogg (mono = suena desde una posición; estéreo = música/menús); con paquete y evento lo guarda en ese resource pack y lo registra en sounds.json. Vídeo o GIF → textura animada o .mp4. La salida va dentro de la carpeta del juego (o de la IA del launcher si no hay instancia).',
+    input: S({
+      tipo: MEDIA_KIND, entrada: str('archivo de origen'), salida: str('archivo de salida, relativo a la carpeta del juego (p. ej. resourcepacks/MiPack/assets/mi/textures/block/pantalla.png)'),
+      inicio: num('segundo desde el que empezar (opcional)'), duracion: num('segundos a convertir (opcional)'),
+      estereo: bool('sonido: estéreo en vez de mono'), normalizar: bool('sonido: igualar el volumen'),
+      tamano: num('textura_animada: lado de cada fotograma en píxeles (por defecto 64)'), fps: num('textura_animada: fotogramas por segundo (por defecto 10)'),
+      ancho: num('imagen: ancho'), alto: num('imagen: alto'), pixelado: bool('imagen: escalar sin suavizar (pixel art)'), alto_max: num('video: alto máximo (por defecto 720)'),
+      paquete: str('sonido: carpeta de un resource pack de la instancia donde guardarlo y registrarlo'), namespace: str('sonido: namespace (por defecto custom)'), evento: str('sonido: nombre del evento, p. ej. musica.jefe'), subtitulo: str('sonido: clave de subtítulo (opcional)'),
+    }, ['tipo', 'entrada']),
+    map: (a) => noVacios({
+      tipo: a.tipo, entrada: a.entrada, salida: a.salida || ('convertidos/' + String(a.entrada).split(/[\\\\/]/).pop()), inicio: a.inicio, duracion: a.duracion,
+      estereo: a.estereo, normalizar: a.normalizar, tamano: a.tamano, fps: a.fps, ancho: a.ancho, alto: a.alto, pixelado: a.pixelado, altoMax: a.alto_max,
+      register: a.paquete ? noVacios({ pack: a.paquete, namespace: a.namespace, event: a.evento, subtitle: a.subtitulo }) : undefined,
+    }) },
+)
+// Solo en la IA del launcher (sin instancia)
+const GLOBAL_TOOLS = [
+  { name: 'instancias', route: 'instances', global: true,
+    description: 'Las instancias del launcher: id, nombre, versión de Minecraft, loader y si está abierta o en vivo. Las demás herramientas piden instancia (id o nombre exacto).', input: S() },
+]
+
+// Sin MODPACK_INSTANCE es la IA del launcher en general: cada herramienta de instancia pide «instancia»
+const GLOBAL_MODE = !INSTANCE
+function listTools() {
+  if (!GLOBAL_MODE) return TOOLS
+  const inst = { type: 'string', description: 'id o nombre de la instancia (mira instancias)' }
+  return GLOBAL_TOOLS.concat(TOOLS.map((t) => {
+    const props = Object.assign({}, t.input.properties, { instancia: inst })
+    const required = t.shared ? (t.input.required || []) : (t.input.required || []).concat(['instancia'])
+    return Object.assign({}, t, { input: { type: 'object', properties: props, required } })
+  }))
+}
+
 async function run(name, args) {
-  const t = TOOLS.find((x) => x.name === name)
+  const t = listTools().find((x) => x.name === name)
   if (!t) return { error: 'Herramienta desconocida: ' + name }
-  if (!INSTANCE) return { error: 'Falta MODPACK_INSTANCE' }
-  const body = t.map ? t.map(args || {}) : {}
-  const method = typeof t.method === 'function' ? t.method(args || {}) : t.method
-  return call('/instance/' + encodeURIComponent(INSTANCE) + '/' + t.route, t.live ? { method, params: body } : body, t.timeout)
+  const a = args || {}
+  const body = t.map ? t.map(a) : {}
+  const method = typeof t.method === 'function' ? t.method(a) : t.method
+  const payload = t.live ? { method, params: body } : body
+  if (t.global) return call('/launcher/' + t.route, payload, t.timeout)
+  const target = INSTANCE || a.instancia
+  if (!target) {
+    if (t.shared) return call('/launcher/' + t.route, payload, t.timeout)
+    return { error: 'Indica la instancia (id o nombre). Usa la herramienta instancias para verlas.' }
+  }
+  return call('/instance/' + encodeURIComponent(String(target)) + '/' + t.route, payload, t.timeout)
 }
 
 // ── Modo consola ──
@@ -229,7 +279,7 @@ const argv = process.argv.slice(2)
 if (argv.length) {
   if (argv[0] === 'ayuda' || argv[0] === 'help' || argv[0] === '--help') {
     console.log('Uso: launcher <herramienta> clave=valor ...\\n')
-    for (const t of TOOLS) console.log('  ' + t.name + '  ' + Object.keys(t.input.properties).map((k) => k + '=').join(' ') + '\\n      ' + t.description)
+    for (const t of listTools()) console.log('  ' + t.name + '  ' + Object.keys(t.input.properties).map((k) => k + '=').join(' ') + '\\n      ' + t.description)
     process.exit(0)
   }
   const args = {}
@@ -268,17 +318,17 @@ if (argv.length) {
           protocolVersion: (params && params.protocolVersion) || '2025-06-18',
           capabilities: { tools: {} },
           serverInfo: { name: 'modpack-launcher', version: '1.0.0' },
-          instructions: 'Herramientas para probar, arreglar y editar esta instancia de Minecraft a través de Modpack Launcher (mods, resource packs, shaders, datapacks y configs). Todo cambio pasa por el launcher, que lo muestra al usuario y, si así está configurado, le pide permiso. Tras cada cambio usa lanzar_juego para comprobarlo. Lee lecciones antes de diagnosticar y usa anotar_leccion al terminar. Si la partida está abierta con el mod fport1-social, las herramientas en vivo ven y manejan el juego mientras se juega: estado_en_vivo, rendimiento_en_vivo, ejecutar_comando, recargar, captura (te devuelve la imagen), camara, ir_a, inspeccionar, registro_en_vivo, colocar_estructura, spark, observar_eventos/eventos_en_vivo y, para saber si un cambio funcionó de verdad, medir_cambio antes de cambiar algo y comparar_cambio después.',
+          instructions: GLOBAL_MODE ? 'Herramientas de Modpack Launcher para todo el launcher: instancias lista las instancias y cualquier otra herramienta trabaja sobre la que indiques en instancia (id o nombre). guia explica modelos, Blockbench, GeckoLib, Blender, efectos, shaders, sonido y vídeo para Minecraft; analizar_medio y convertir_medio pasan audio, vídeo e imágenes a formatos que Minecraft acepta. Los cambios pasan por el launcher, que los muestra al usuario.' : 'Herramientas para probar, arreglar y editar esta instancia de Minecraft a través de Modpack Launcher (mods, resource packs, shaders, datapacks y configs). Todo cambio pasa por el launcher, que lo muestra al usuario y, si así está configurado, le pide permiso. Tras cada cambio usa lanzar_juego para comprobarlo. Lee lecciones antes de diagnosticar y usa anotar_leccion al terminar. Si la partida está abierta con el mod fport1-social, las herramientas en vivo ven y manejan el juego mientras se juega: estado_en_vivo, rendimiento_en_vivo, ejecutar_comando, recargar, captura (te devuelve la imagen), camara, ir_a, inspeccionar, registro_en_vivo, colocar_estructura, spark, observar_eventos/eventos_en_vivo y, para saber si un cambio funcionó de verdad, medir_cambio antes de cambiar algo y comparar_cambio después.',
         } })
       }
       if (method === 'ping') return out({ jsonrpc: '2.0', id, result: {} })
       if (method === 'tools/list') {
-        return out({ jsonrpc: '2.0', id, result: { tools: TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.input })) } })
+        return out({ jsonrpc: '2.0', id, result: { tools: listTools().map((t) => ({ name: t.name, description: t.description, inputSchema: t.input })) } })
       }
       if (method === 'tools/call') {
         const r = await run(params.name, params.arguments)
         const content = [{ type: 'text', text: JSON.stringify(r, null, 2) }]
-        const tool = TOOLS.find((x) => x.name === params.name)
+        const tool = listTools().find((x) => x.name === params.name)
         if (tool && tool.image && r && r.result && typeof r.result.path === 'string') {
           try {
             const img = fs.readFileSync(r.result.path)

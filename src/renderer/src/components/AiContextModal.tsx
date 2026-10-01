@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import type { AiActivity, AiToolMissing, Instance } from '../../../shared/types'
+import type { AiActivity, Instance } from '../../../shared/types'
 import { useStore } from '../store'
-import { CLAUDE_PATH, GEMINI_PATH, OPENAI_PATH } from './aiLogos'
+import AiToolPicker from './ai/AiToolPicker'
 
 // Prepara la carpeta de una instancia para trabajar con Claude Code u otra IA:
 // AGENTS.md / CLAUDE.md / GEMINI.md, fichas de cada mod en .ai/ y habilidades
@@ -21,24 +21,6 @@ const GENERATED = [
 
 const clean = (e: unknown): string => e instanceof Error ? e.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '') : 'Algo ha fallado'
 
-type Tool = 'claude' | 'codex' | 'gemini' | 'grok'
-
-// Grok no está en simple-icons: su marca es un círculo cortado por una diagonal
-function GrokLogo({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-      <path d="M17.5 5.2A8.5 8.5 0 1 0 19.6 16" />
-      <path d="M21 3 9.5 14.5" />
-    </svg>
-  )
-}
-
-const TOOLS: { id: Tool; label: string; logo: (c: string) => JSX.Element; className: string }[] = [
-  { id: 'claude', label: 'Claude Code', logo: (c) => <svg viewBox="0 0 24 24" className={c} fill="currentColor"><path d={CLAUDE_PATH} /></svg>, className: 'bg-[#d97757] hover:bg-[#c96747] text-white border-transparent' },
-  { id: 'codex', label: 'Codex', logo: (c) => <svg viewBox="0 0 24 24" className={c} fill="currentColor"><path d={OPENAI_PATH} /></svg>, className: 'bg-bg-card hover:bg-bg-hover text-text-primary border-border' },
-  { id: 'gemini', label: 'Gemini CLI', logo: (c) => <svg viewBox="0 0 24 24" className={c}><defs><linearGradient id="gemini-g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#4796e3" /><stop offset="0.5" stopColor="#9168c0" /><stop offset="1" stopColor="#d6645d" /></linearGradient></defs><path d={GEMINI_PATH} fill="url(#gemini-g)" /></svg>, className: 'bg-bg-card hover:bg-bg-hover text-text-primary border-border' },
-  { id: 'grok', label: 'Grok', logo: (c) => <GrokLogo className={c} />, className: 'bg-bg-card hover:bg-bg-hover text-text-primary border-border' },
-]
 
 export default function AiContextModal({ instance, onClose }: { instance: Instance; onClose: () => void }) {
   const updateInstanceStore = useStore((s) => s.updateInstance)
@@ -49,11 +31,6 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
   const [copied, setCopied] = useState(false)
   const [auto, setAuto] = useState(!!instance.aiAutoContext)
   const [activity, setActivity] = useState<AiActivity[]>([])
-  const [opening, setOpening] = useState('')
-  // IA que no está instalada: cómo instalarla en este sistema
-  const [missing, setMissing] = useState<AiToolMissing | null>(null)
-  const [installStarted, setInstallStarted] = useState(false)
-  const [cmdCopied, setCmdCopied] = useState(false)
 
   useEffect(() => {
     window.api.aiContext.status(instance.id).then(setStatus).catch(() => setStatus({ exists: false }))
@@ -85,29 +62,6 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
     updateInstanceStore(updated)
   }
 
-  async function openTool(tool: Tool): Promise<void> {
-    setOpening(tool); setError('')
-    try {
-      if (!status?.exists) setStatus(await window.api.aiContext.prepare(instance.id))
-      const r = await window.api.aiAgent.openTerminal(instance.id, tool)
-      if ('missing' in r) {
-        if (missing?.tool !== tool) setInstallStarted(false)
-        setMissing(r.missing)
-      } else setMissing(null)
-    } catch (e) { setError(clean(e)) }
-    finally { setOpening('') }
-  }
-
-  async function install(): Promise<void> {
-    if (!missing) return
-    setError('')
-    try {
-      const r = await window.api.aiAgent.installTool(missing.tool)
-      setMissing(r)
-      if (!r.needsNode) setInstallStarted(true)
-    } catch (e) { setError(clean(e)) }
-  }
-
   const command = dir ? `cd "${dir}"; claude` : ''
 
   return (
@@ -127,49 +81,10 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Abrir la IA ya conectada al launcher</p>
-            <div className="flex flex-wrap gap-2">
-              {TOOLS.map((t) => (
-                <button key={t.id} onClick={() => openTool(t.id)} disabled={!!opening}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold transition-colors disabled:opacity-60 ${t.className}`}>
-                  {t.logo('w-[18px] h-[18px] shrink-0')}
-                  {opening === t.id ? 'Abriendo…' : t.label}
-                </button>
-              ))}
-              <button onClick={() => window.api.instances.openFolder(instance.id)}
-                className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover">Abrir carpeta</button>
-            </div>
-            {missing && (
-              <div className="mt-3 p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 space-y-3">
-                <div className="flex items-start gap-3">
-                  <span className="text-lg leading-none mt-0.5">⬇</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-amber-100">{`${missing.name} no está instalado en este equipo`}</p>
-                    {missing.needsNode
-                      ? <p className="text-xs text-amber-200/80 mt-1">Se instala con npm, que viene con Node.js, y no lo tienes. Descarga Node.js (la versión LTS), instálalo, cierra y vuelve a abrir el launcher, y luego pulsa «Instalar».</p>
-                      : <p className="text-xs text-amber-200/80 mt-1">{`Se instala con su orden oficial. Pulsa «Instalar» y se abrirá una terminal que lo hace sola; cuando termine, vuelve aquí y pulsa «Abrir ${missing.name}».`}</p>}
-                  </div>
-                  <button onClick={() => setMissing(null)} className="text-amber-200/60 hover:text-amber-100 text-sm" title="Cerrar">✕</button>
-                </div>
-                {!missing.needsNode && (
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 min-w-0 truncate px-3 py-2 rounded-xl bg-black/30 text-xs text-text-primary font-mono" title={missing.command}>{missing.command}</code>
-                    <button onClick={() => { window.api.clipboard.writeText(missing.command).catch(() => {}); setCmdCopied(true); setTimeout(() => setCmdCopied(false), 2000) }}
-                      className="px-3 py-2 rounded-xl border border-border text-xs text-text-secondary hover:text-text-primary shrink-0">{cmdCopied ? 'Copiado ✓' : 'Copiar'}</button>
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center gap-2">
-                  {missing.needsNode
-                    ? <button onClick={() => window.api.shell.openExternal('https://nodejs.org/')} className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold">Descargar Node.js</button>
-                    : <button onClick={install} className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-sm font-bold">{installStarted ? 'Instalar de nuevo' : 'Instalar'}</button>}
-                  <button onClick={() => openTool(missing.tool)} disabled={!!opening}
-                    className="px-4 py-2 rounded-xl border border-amber-500/40 text-amber-100 text-sm font-semibold hover:bg-amber-500/10 disabled:opacity-60">
-                    {opening === missing.tool ? 'Buscando…' : `Abrir ${missing.name}`}
-                  </button>
-                  <button onClick={() => window.api.shell.openExternal(missing.docs)} className="text-xs text-amber-200/70 hover:text-amber-100 underline underline-offset-2 ml-auto">Instrucciones oficiales</button>
-                </div>
-                {installStarted && <p className="text-xs text-amber-200/80"><span>{`Se ha abierto una terminal instalando ${missing.name}.`}</span>{missing.after && <span> {missing.after}</span>}</p>}
-              </div>
-            )}
+            <AiToolPicker onError={setError}
+              beforeOpen={async () => { if (!status?.exists) setStatus(await window.api.aiContext.prepare(instance.id)) }}
+              open={(tool) => window.api.aiAgent.openTerminal(instance.id, tool)}
+              extra={<button onClick={() => window.api.instances.openFolder(instance.id)} className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover">Abrir carpeta</button>} />
             <p className="text-xs text-text-muted mt-2">Los permisos los gestiona tu IA: antes de abrir el juego o cambiar mods, packs o configs te pedirá permiso, y puedes decirle que no vuelva a preguntar. Se abre en la carpeta del juego con las herramientas del launcher cargadas. Prueba a pedirle «el juego crashea, arréglalo» o «enlaza mi resource pack de C:\proyectos\mipack».</p>
           </div>
 

@@ -3,7 +3,7 @@ import path from 'path'
 import crypto from 'crypto'
 import AdmZip from 'adm-zip'
 import axios from 'axios'
-import { getInstance, getInstanceGameDir, getSharedDir, listMods, listResourcepacks, listShaderpacks, listWorlds } from './instances'
+import { getInstance, getInstanceGameDir, getSharedDir, listMods, listResourcepacks, listShaderpacks, listWorlds, loadInstances } from './instances'
 import { getInstalledModsMeta, type InstalledModMeta } from './modrinth'
 import { cfGet, cfPost } from './curseforge'
 import { listWorldDatapacks } from './worldDatapacks'
@@ -11,7 +11,8 @@ import { buildRegistry, packFormats, worldInfo } from './gameKnowledge'
 import { SKILLS } from './aiSkills'
 import { canonicalMod, ensureDocs, jarDocs, knownDocMods } from './modDocs'
 import type { Instance, ModFile } from '../shared/types'
-import { BRIDGE_FILE, MCP_SCRIPT_FILE } from './aiBridge'
+import { BRIDGE_FILE, MCP_SCRIPT_FILE, launcherWorkspace } from './aiBridge'
+import { GUIDES } from './aiKnowledge'
 import { MCP_SCRIPT } from './aiMcpScript'
 
 // «Preparar para IA»: deja en la carpeta del juego de una instancia todo lo que
@@ -201,6 +202,8 @@ En Claude Code, Codex, Gemini CLI, Grok CLI, Cursor o VS Code las herramientas s
 - **En vivo** (con la partida abierta y el mod fport1-social): \`estado_en_vivo\`, \`rendimiento_en_vivo\`, \`ejecutar_comando\`, \`recargar\` (datapacks o resource packs, con sus errores), \`captura\` (te devuelve la imagen), \`camara\`, \`ir_a\`, \`inspeccionar\`, \`registro_en_vivo\`, \`colocar_estructura\`, \`spark\`, \`observar_eventos\` / \`eventos_en_vivo\`. Para saber si un cambio funcionó de verdad: \`medir_cambio\` JUSTO ANTES de cambiar algo y \`comparar_cambio\` después (el launcher muestra el veredicto medido)
 - \`documentacion\` — la wiki y documentación oficial de cualquier mod (y la que trae dentro del jar), por páginas o buscando; úsala para saber a fondo cómo funciona un mod
 - \`experiencia_comunidad\` — cómo se comporta el juego con un mod en las partidas de otros jugadores (crashes, carga, lag, mods con los que se usa, dimensiones, mobs)
+- \`guia\` — guías de modelos (bloques, ítems, entidades, CEM/EMF, Bedrock), Blockbench, GeckoLib, Blender, equivalencias de Unity/VFX, partículas, shaders y post-procesado, sonido, vídeo y texturas (también en \`.ai/guias/\`)
+- \`analizar_medio\`, \`convertir_medio\` — audio, vídeo e imágenes que te pasen: Minecraft solo carga .ogg (Vorbis) y .png, y no reproduce vídeo. Sonido → .ogg (mono si sale de un punto del mundo) y, con \`paquete\` y \`evento\`, guardado en ese resource pack y registrado en sounds.json; vídeo o GIF → textura animada (tira + .mcmeta) o .mp4 para mods reproductores (WaterMedia); imagen → .png
 `
 }
 
@@ -308,17 +311,22 @@ function modDocMd(d: ModDoc, facts: ReturnType<typeof jarFacts>, configs: string
 // Las de solo lectura se permiten sin preguntar; las que cambian algo no se
 // listan, así que la IA pide permiso para cada una con su propio aviso (en
 // Claude Code, «Sí» o «Sí, y no volver a preguntar»).
-const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion', 'registro', 'ver_recurso', 'mundo', 'validar_pack', 'experiencia_comunidad', 'desofuscar', 'ver_clase', 'documentacion']
+const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion', 'registro', 'ver_recurso', 'mundo', 'validar_pack', 'experiencia_comunidad', 'desofuscar', 'ver_clase', 'documentacion', 'guia', 'analizar_medio', 'instancias']
 
 async function mergeJson(file: string, update: (cur: any) => any): Promise<void> {
   const cur = await fs.readJson(file).catch(() => ({}))
   await fs.outputFile(file, JSON.stringify(update(cur && typeof cur === 'object' ? cur : {}), null, 2) + '\n')
 }
 
-/** Conecta la carpeta del juego con el launcher para cada IA (MCP, permisos y la orden «launcher»). */
-export async function writeToolConfigs(inst: Instance, gameDir: string): Promise<void> {
+/**
+ * Conecta una carpeta con el launcher para cada IA (MCP, permisos y la orden «launcher»):
+ * la del juego de una instancia, o con inst = null la de la IA del launcher en general
+ * (sin MODPACK_INSTANCE el servidor MCP trabaja con todas las instancias).
+ */
+export async function writeToolConfigs(inst: Instance | null, gameDir: string): Promise<void> {
   const script = MCP_SCRIPT_FILE()
-  const env = { ELECTRON_RUN_AS_NODE: '1', MODPACK_BRIDGE: BRIDGE_FILE(), MODPACK_INSTANCE: inst.id }
+  const instId = inst?.id ?? ''
+  const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1', MODPACK_BRIDGE: BRIDGE_FILE(), ...(inst ? { MODPACK_INSTANCE: instId } : {}) }
   const server = { command: process.execPath, args: [script], env }
   const withServer = (cur: any, key = 'mcpServers', extra: Record<string, unknown> = {}): any => ({ ...cur, [key]: { ...(cur[key] ?? {}), 'modpack-launcher': { ...extra, ...server } } })
   await fs.outputFile(script, MCP_SCRIPT)
@@ -332,7 +340,7 @@ export async function writeToolConfigs(inst: Instance, gameDir: string): Promise
   const codexFile = path.join(gameDir, '.codex', 'config.toml')
   const q = (v: string): string => JSON.stringify(v)
   const block = ['# >>> modpack-launcher', '[mcp_servers.modpack-launcher]', `command = ${q(process.execPath)}`, `args = [${q(script)}]`,
-    `env = { ELECTRON_RUN_AS_NODE = "1", MODPACK_BRIDGE = ${q(env.MODPACK_BRIDGE)}, MODPACK_INSTANCE = ${q(inst.id)} }`, '# <<< modpack-launcher'].join('\n')
+    `env = { ELECTRON_RUN_AS_NODE = "1", MODPACK_BRIDGE = ${q(env.MODPACK_BRIDGE)}${inst ? `, MODPACK_INSTANCE = ${q(instId)}` : ''} }`, '# <<< modpack-launcher'].join('\n')
   const codexCur = (await fs.readFile(codexFile, 'utf8').catch(() => '')).replace(/# >>> modpack-launcher[\s\S]*?# <<< modpack-launcher\n?/, '')
   await fs.outputFile(codexFile, `${codexCur.trimEnd()}${codexCur.trim() ? '\n\n' : ''}${block}\n`)
 
@@ -348,12 +356,14 @@ export async function writeToolConfigs(inst: Instance, gameDir: string): Promise
 
   // Orden «launcher» para IAs sin MCP (o para el propio usuario)
   await fs.writeFile(path.join(gameDir, 'launcher.cmd'),
-    `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\nset MODPACK_BRIDGE=${env.MODPACK_BRIDGE}\r\nset MODPACK_INSTANCE=${inst.id}\r\n"${process.execPath}" "${script}" %*\r\n`)
+    `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\nset MODPACK_BRIDGE=${env.MODPACK_BRIDGE}\r\nset MODPACK_INSTANCE=${instId}\r\n"${process.execPath}" "${script}" %*\r\n`)
   await fs.writeFile(path.join(gameDir, 'launcher'),
-    `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 MODPACK_BRIDGE='${env.MODPACK_BRIDGE}' MODPACK_INSTANCE='${inst.id}' exec '${process.execPath}' '${script}' "$@"\n`, { mode: 0o755 })
+    `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 MODPACK_BRIDGE='${env.MODPACK_BRIDGE}' MODPACK_INSTANCE='${instId}' exec '${process.execPath}' '${script}' "$@"\n`, { mode: 0o755 })
 
   // Habilidades: se reescriben siempre para que sigan al launcher cuando se actualiza
   for (const [name, content] of Object.entries(SKILLS)) await fs.outputFile(path.join(gameDir, '.claude', 'skills', name, 'SKILL.md'), content)
+  // Guías (modelos, Blockbench, GeckoLib, Blender, VFX, shaders, sonido, vídeo): también por la herramienta guia
+  for (const [topic, g] of Object.entries(GUIDES)) await fs.outputFile(path.join(gameDir, '.ai', 'guias', `${topic}.md`), g.body)
 
   const lessons = path.join(gameDir, '.ai', 'lecciones.md')
   if (!(await fs.pathExists(lessons))) {
@@ -491,4 +501,53 @@ export async function prepareAiContext(instanceId: string, onProgress?: (msg: st
   const status = { generatedAt: Date.now(), hash: await stateHash(gameDir), mods: docs.length }
   await fs.writeJson(path.join(aiDir, 'state.json'), status)
   return { exists: true, generatedAt: status.generatedAt, mods: status.mods, stale: false }
+}
+
+// ── IA del launcher en general (sin instancia) ──────────────────────────────
+
+/**
+ * Prepara la carpeta de la IA del launcher: AGENTS.md con todas las
+ * instancias, guías y las herramientas MCP en modo launcher (cada una pide la
+ * instancia). Devuelve la carpeta, para abrir ahí la IA.
+ */
+export async function prepareLauncherWorkspace(): Promise<string> {
+  const dir = launcherWorkspace()
+  await fs.ensureDir(path.join(dir, 'convertidos'))
+  await writeToolConfigs(null, dir)
+  const instances = await loadInstances()
+  const rows = await Promise.all(instances.map(async (i) => `| ${i.name.replace(/\|/g, '/')} | \`${i.id}\` | ${i.minecraft} | ${LOADER_NAME[i.modloader] ?? i.modloader} | \`${await getInstanceGameDir(i.id)}\` |`))
+  const md = `# IA de Modpack Launcher (todo el launcher)
+
+> Generado por Modpack Launcher by Fport1 al abrir la IA del launcher. Se regenera cada vez; tus notas van en \`NOTAS.md\`.
+
+Trabajas con **todo el launcher**, no con una sola instancia. Sirves para:
+- ayudar con cualquier instancia (arreglar crashes, mods, packs, configs, mundos): indica siempre \`instancia\` (id o nombre) en las herramientas;
+- crear cosas para Minecraft: modelos y animaciones (Blockbench, GeckoLib, Blender), efectos, shaders, sonido, vídeo, texturas, datapacks y resource packs;
+- convertir los archivos que te pasen (audio, vídeo, imágenes) a formatos que Minecraft acepta.
+
+## Instancias (al generar este archivo)
+| Nombre | id | Minecraft | Loader | Carpeta del juego |
+|---|---|---|---|---|
+${rows.join('\n') || '| (ninguna todavía) | | | | |'}
+
+Para trabajar a fondo en una instancia concreta, su carpeta tiene su propio AGENTS.md con todo el detalle (mods, versión, pack_format): ábrela desde el launcher (detalles de la instancia › IA) o lee ese archivo.
+
+## Reglas
+1. Usa \`instancias\` para ver las que hay ahora; nunca supongas versión ni loader: cada instancia tiene los suyos y todo lo que propongas tiene que valer para esa.
+2. Antes de explicar o construir algo de modelos, efectos, shaders, sonido o vídeo, lee la guía (\`guia\` o \`.ai/guias/\`) y la documentación del mod (\`documentacion\`).
+3. Minecraft solo carga sonido .ogg (Vorbis) y texturas .png, y no reproduce vídeo: usa \`analizar_medio\` y \`convertir_medio\`. Sin instancia, lo convertido queda en \`convertidos/\` de esta carpeta.
+4. **Instalado no es activo, y el launcher no cambia una partida abierta**: los mods se aplican al reiniciar, y los resource packs y shaders los activa el jugador en el juego si está abierto (lee \`enJuego\` en la respuesta de \`activar\`).
+5. Para tocar mods, packs, configs o mundos usa las herramientas del launcher, no muevas archivos por tu cuenta: el usuario lo ve todo en el launcher y se puede deshacer.
+6. Responde en el idioma de quien te escribe.
+
+${toolsSection().replace('Todo lo que hagas sobre esta instancia', 'Todo lo que hagas sobre una instancia')}
+- \`instancias\` — las instancias del launcher (id, nombre, versión, loader, si está abierta o en vivo)
+
+## Guías
+${Object.entries(GUIDES).map(([k, g]) => `- \`.ai/guias/${k}.md\` — ${g.title}`).join('\n')}
+`
+  await fs.writeFile(path.join(dir, 'AGENTS.md'), md)
+  for (const f of ['CLAUDE.md', 'GEMINI.md']) await fs.writeFile(path.join(dir, f), '@AGENTS.md\n\n@NOTAS.md\n')
+  if (!(await fs.pathExists(path.join(dir, 'NOTAS.md')))) await fs.writeFile(path.join(dir, 'NOTAS.md'), '# Notas\n\nLo que quieras que la IA del launcher recuerde. El launcher no toca este archivo.\n')
+  return dir
 }

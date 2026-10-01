@@ -665,6 +665,9 @@ const api = {
     // Si la IA no está instalada devuelve { missing } con la orden para instalarla en este sistema
     openTerminal: (instanceId: string, tool: AiToolId) => ipcRenderer.invoke('ai:open-terminal', instanceId, tool) as Promise<{ opened: true } | { missing: AiToolMissing }>,
     installTool: (tool: AiToolId) => ipcRenderer.invoke('ai:install-tool', tool) as Promise<AiToolMissing>,
+    // IA del launcher en general (todas las instancias, guías y conversión de medios)
+    openLauncherTerminal: (tool: AiToolId) => ipcRenderer.invoke('ai:open-launcher-terminal', tool) as Promise<{ opened: true } | { missing: AiToolMissing }>,
+    openLauncherFolder: () => ipcRenderer.invoke('ai:launcher-folder') as Promise<string>,
     activity: (instanceId?: string) => ipcRenderer.invoke('ai:activity', instanceId) as Promise<AiActivity[]>,
     onActivity: (cb: (a: AiActivity) => void) => {
       const h = (_e: unknown, a: AiActivity): void => cb(a)

@@ -21,6 +21,8 @@ import { deobfuscateText, getMappings, obfuscatedClassName } from './deobf'
 import { getSharedDir } from './instances'
 import { packFormats, queryRegistry, readResource, scaffoldProject, setGameRule, validatePack, worldInfo } from './gameKnowledge'
 import { countEvent } from './telemetry'
+import { convertMedia, probeMedia, registerSound, type ConvertInput } from './mediaConvert'
+import { guide } from './aiKnowledge'
 
 // Puente local para IAs (Claude Code, Codex, Gemini, Cursor…).
 //
@@ -147,6 +149,47 @@ async function waitForOutcome(instanceId: string, since: number, timeoutMs: numb
 }
 
 const KIND_NAME: Record<Kind, string> = { mod: 'mod', resourcepack: 'resource pack', shader: 'shader', datapack: 'datapack' }
+
+/** Carpeta de trabajo de la IA del launcher en general (sin instancia): sus archivos y conversiones. */
+export const launcherWorkspace = (): string => path.join(app.getPath('userData'), 'ai', 'launcher')
+
+/**
+ * Acciones que valen con o sin instancia. `base` es donde se puede escribir:
+ * la carpeta del juego de la instancia o la carpeta de trabajo del launcher.
+ * Devuelve null si la acción no es de estas.
+ */
+async function sharedAction(action: string, base: string, body: any, inst?: Instance): Promise<{ status: number; body: unknown } | null> {
+  if (action === 'guide') return { status: 200, body: guide(body.topic) }
+  if (action === 'media/probe') {
+    try { return { status: 200, body: await probeMedia(String(body.file ?? '')) } }
+    catch (e) { return { status: 400, body: { error: (e as Error).message } } }
+  }
+  if (action !== 'media/convert') return null
+  try {
+    const input = { ...body } as ConvertInput & { register?: { pack?: string; namespace?: string; event?: string; subtitle?: string } }
+    const reg = input.register
+    // Sonido directo a un resource pack de la instancia: va a assets/<ns>/sounds/ y se registra en sounds.json
+    let packDir: string | null = null
+    if (reg?.pack && input.tipo === 'sonido') {
+      if (!inst) return { status: 400, body: { error: 'Para registrar el sonido en un resource pack, indica la instancia.' } }
+      packDir = path.join(base, 'resourcepacks', path.basename(String(reg.pack)))
+      if (!(await fs.pathExists(path.join(packDir, 'pack.mcmeta')))) {
+        return { status: 404, body: { error: `No hay un resource pack en carpeta llamado ${reg.pack} (con pack.mcmeta). Créalo con crear_proyecto tipo resourcepack y enlázalo, o elige otro.` } }
+      }
+      const ns = String(reg.namespace || 'custom').toLowerCase().replace(/[^a-z0-9_.-]/g, '_')
+      const ev = String(reg.event || path.basename(input.salida || input.entrada).replace(/\.[^.]+$/, '')).toLowerCase().replace(/[^a-z0-9_./-]/g, '_')
+      input.salida = path.relative(base, path.join(packDir, 'assets', ns, 'sounds', `${ev}.ogg`))
+      const r = await convertMedia(base, input)
+      const long = typeof r.tamanoBytes === 'number' && r.tamanoBytes > 400_000
+      const registered = await registerSound(packDir, ns, ev, ev, { subtitle: reg.subtitle, stream: long })
+      if (inst) logActivity(inst.id, `Sonido convertido y registrado: ${ns}:${ev}`, 'change')
+      return { status: 200, body: { ...r, ...registered, nota: `${String(r.nota ?? '')} Para oírlo: recarga los resource packs (F3+T o recargar) y usa ${String(registered.probar)}.` } }
+    }
+    const r = await convertMedia(base, input)
+    if (inst) logActivity(inst.id, `Convertido ${path.basename(input.entrada)} → ${path.relative(base, String(r.salida))}`, 'change')
+    return { status: 200, body: r }
+  } catch (e) { return { status: 400, body: { error: (e as Error).message } } }
+}
 
 function parseKind(v: unknown): Kind {
   const s = String(v ?? 'mod')
@@ -292,14 +335,30 @@ export function startAiBridge(launch: LaunchFn): void {
         const list = await loadInstances()
         return send(200, { launcher: app.getVersion(), instances: list.map((i) => ({ id: i.id, name: i.name, minecraft: i.minecraft, loader: i.modloader, running: isInstanceRunning(i.id) })) })
       }
+      // IA del launcher en general (sin instancia): guías, convertir medios y lista de instancias
+      if (parts[0] === 'launcher') {
+        const action = parts.slice(1).join('/')
+        if (action === 'instances') {
+          const list = await loadInstances()
+          return send(200, { instancias: list.map((i) => ({ id: i.id, nombre: i.name, minecraft: i.minecraft, loader: i.modloader, abierta: isInstanceRunning(i.id), enVivo: !!live.status(i.id) })) })
+        }
+        const shared = await sharedAction(action, launcherWorkspace(), body)
+        return shared ? send(shared.status, shared.body) : send(404, { error: 'Ruta desconocida' })
+      }
       if (parts[0] !== 'instance' || !parts[1]) return send(404, { error: 'Ruta desconocida' })
-      const inst = await getInstance(decodeURIComponent(parts[1]))
-      if (!inst) return send(404, { error: 'Instancia no encontrada' })
+      // La IA del launcher nombra la instancia por su id o por su nombre
+      const ref = decodeURIComponent(parts[1])
+      const inst = (await getInstance(ref)) ?? (await loadInstances()).find((i) => i.name.toLowerCase() === ref.toLowerCase())
+      if (!inst) return send(404, { error: `Instancia no encontrada: ${ref}. Usa instancias para ver las que hay.` })
       instId = inst.id
       const gameDir = await getInstanceGameDir(inst.id)
       const action = parts.slice(2).join('/')
       const kind = parseKind(body.kind)
       const world = body.world ? String(body.world) : undefined
+
+      // Guías y conversión de medios: igual que sin instancia, pero escribiendo en su carpeta
+      const shared = await sharedAction(action, gameDir, body, inst)
+      if (shared) return send(shared.status, shared.body)
 
       switch (action) {
         case 'launch': {

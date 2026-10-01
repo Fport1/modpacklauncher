@@ -4,6 +4,7 @@ import { useStore, activeAccount } from '../store'
 import { loadInstanceIcon } from '../lib/instanceIcons'
 import { SkinAvatar } from '../pages/SettingsPage'
 import { useT } from '../i18n'
+import LauncherAiModal from './ai/LauncherAiModal'
 
 const isMac = navigator.userAgent.toLowerCase().includes('macintosh')
 const isWindows = navigator.userAgent.toLowerCase().includes('windows')
@@ -86,6 +87,7 @@ export default function Sidebar() {
     .slice(0, 3)
 
   const [vlcInstalled, setVlcInstalled] = useState<boolean | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
   useEffect(() => {
     if (isMac) window.api.tools.checkVlc().then(setVlcInstalled).catch(() => {})
   }, [])
@@ -221,6 +223,15 @@ export default function Sidebar() {
           </>
         )}
       </nav>
+
+      {/* IA de todo el launcher */}
+      <div className="flex justify-center pb-1">
+        <button onClick={() => setAiOpen(true)} title="IA del launcher"
+          className="w-10 h-10 flex items-center justify-center rounded-xl text-[#e8a488] hover:bg-[#d97757]/15 transition-colors">
+          <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="currentColor"><path d="M10 2.5c.4 3.9 2.1 5.6 6 6-3.9.4-5.6 2.1-6 6-.4-3.9-2.1-5.6-6-6 3.9-.4 5.6-2.1 6-6Z" /><path d="M18 12.5c.25 2.3 1.2 3.25 3.5 3.5-2.3.25-3.25 1.2-3.5 3.5-.25-2.3-1.2-3.25-3.5-3.5 2.3-.25 3.25-1.2 3.5-3.5Z" /></svg>
+        </button>
+      </div>
+      {aiOpen && <LauncherAiModal onClose={() => setAiOpen(false)} />}
 
       {isAdmin && (
         <div className="flex justify-center pb-1">
