@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store'
 import type { Instance, ModpackManifest, DownloadProgress, PublishedModpack } from '../../../shared/types'
 import FpackImportModal from '../components/FpackImportModal'
@@ -11,6 +12,8 @@ interface UpdateStatus {
   hasUpdate: boolean
   latestVersion?: string
   checking?: boolean
+  /** No se pudo comprobar (sin red, enlace roto…) */
+  failed?: boolean
 }
 
 /* ── QR scanner tab ─────────────────────────────────────────── */
@@ -165,10 +168,18 @@ function QRModal({ url, name, onClose }: { url: string; name: string; onClose: (
 }
 
 /* ── Main page ───────────────────────────────────────────────── */
+/** Icono de la instancia del modpack */
+function ModpackIcon({ instanceId }: { instanceId: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+  useEffect(() => { window.api.instances.getIcon(instanceId).then(setSrc).catch(() => setSrc(null)) }, [instanceId])
+  return src ? <img src={src} alt="" className="w-full h-full object-cover" draggable={false} /> : <div className="w-full h-full bg-bg-hover" />
+}
+
 export default function ModpacksPage() {
   const instances = useStore((s) => s.instances)
   const pendingFpackFile = useStore(s => s.pendingFpackFile)
-  const { addInstance, updateInstance: updateInstanceStore, setInstances, setPendingFpackFile } = useStore()
+  const { addInstance, updateInstance: updateInstanceStore, setInstances, setPendingFpackFile, setOpenDetailInstanceId } = useStore()
+  const navigate = useNavigate()
 
   const modpackInstances = instances.filter((i) => i.modpackUrl)
 
@@ -234,7 +245,7 @@ export default function ModpacksPage() {
         )
       } catch {
         setStatuses((prev) =>
-          new Map(prev).set(inst.id, { instanceId: inst.id, hasUpdate: false, checking: false })
+          new Map(prev).set(inst.id, { instanceId: inst.id, hasUpdate: false, checking: false, failed: true })
         )
       }
     }
@@ -380,117 +391,121 @@ export default function ModpacksPage() {
     if (filePath) setFpackSaveState({ instance: inst, path: filePath, manifest })
   }
 
+  const ADD_METHODS: { tab: 0 | 1 | 2; title: string; hint: string; icon: JSX.Element }[] = [
+    { tab: 0, title: 'Con un enlace', hint: 'Pega la URL que te pasó el creador',
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg> },
+    { tab: 1, title: 'Con un archivo .fpack', hint: 'El archivo que te enviaron',
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg> },
+    { tab: 2, title: 'Con un código QR', hint: 'Escanéalo con la cámara',
+      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 20h3" /></svg> },
+  ]
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold text-text-primary">Modpacks</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={checkAllUpdates}
-            className="flex items-center gap-1.5 px-3 py-1.5 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polyline points="23 4 23 10 17 10" />
-              <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-            </svg>
-            Check Updates
-          </button>
-          <button
-            onClick={() => { setModal('addUrl'); setAddTab(0) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Añadir Modpack
-          </button>
+    <div className="h-full overflow-y-auto">
+      {/* ── Cabecera ── */}
+      <div className="relative overflow-hidden border-b border-border" style={{ background: 'linear-gradient(115deg, rgba(168,85,247,0.22), rgba(34,197,94,0.08) 55%, transparent 90%)' }}>
+        <div className="px-8 pt-7 pb-6">
+          <div className="flex items-start justify-between gap-4 mb-5">
+            <div>
+              <h1 className="text-2xl font-bold text-text-primary">Modpacks</h1>
+              <p className="text-sm text-text-secondary mt-0.5">Instala modpacks de otros y se mantienen al día solos. Para compartir el tuyo, usa «Exportar modpack» en una instancia.</p>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button onClick={checkAllUpdates} disabled={modpackInstances.length === 0}
+                className="flex items-center gap-1.5 px-3.5 py-2 border border-border bg-black/20 text-text-secondary hover:text-text-primary rounded-xl text-sm transition-colors disabled:opacity-40">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" /></svg>
+                Buscar actualizaciones
+              </button>
+              <button onClick={() => navigate('/instances')}
+                className="flex items-center gap-1.5 px-3.5 py-2 border border-border bg-black/20 text-text-secondary hover:text-text-primary rounded-xl text-sm transition-colors">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" /><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3" /></svg>
+                Compartir el mío
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {ADD_METHODS.map(m => (
+              <button key={m.tab} onClick={() => { setModal('addUrl'); setAddTab(m.tab) }}
+                className="group flex items-center gap-3 p-3.5 rounded-2xl bg-black/25 border border-white/10 hover:border-[#a855f7]/50 text-left transition-colors">
+                <span className="w-10 h-10 rounded-xl bg-[#a855f7]/20 text-[#c084fc] flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-105">{m.icon}</span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-text-primary">{m.title}</span>
+                  <span className="block text-[11px] text-text-muted truncate">{m.hint}</span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      <div className="px-8 py-6">
+      <h2 className="text-sm font-semibold text-text-primary mb-3">Instalados {modpackInstances.length > 0 && <span className="text-text-muted font-normal">· {modpackInstances.length}</span>}</h2>
       {modpackInstances.length === 0 ? (
-        <div className="text-center py-20 border border-dashed border-border rounded-xl">
-          <div className="w-14 h-14 rounded-xl bg-bg-card flex items-center justify-center mx-auto mb-4">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-text-muted">
-              <polyline points="16 16 12 12 8 16" />
-              <line x1="12" y1="12" x2="12" y2="21" />
-              <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3" />
-            </svg>
+        <div className="text-center py-14 border border-dashed border-border rounded-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-[#a855f7]/15 text-[#c084fc] flex items-center justify-center mx-auto mb-4">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><path d="M3.3 7 12 12l8.7-5M12 22V12" /></svg>
           </div>
-          <p className="text-text-muted mb-1">No hay modpacks vinculados</p>
-          <p className="text-xs text-text-muted mb-4">Añade un modpack por URL, archivo .fpack o código QR</p>
-          <button
-            onClick={() => { setModal('addUrl'); setAddTab(0) }}
-            className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Añadir Modpack
-          </button>
+          <p className="text-text-secondary mb-1">Todavía no tienes modpacks instalados</p>
+          <p className="text-xs text-text-muted">Elige arriba cómo te lo han pasado: un enlace, un archivo .fpack o un código QR.</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-3">
           {modpackInstances.map((inst) => {
             const status = statuses.get(inst.id)
+            const iconBtn = 'w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors'
             return (
-              <div key={inst.id} className="flex items-center gap-3 bg-bg-card border border-border rounded-xl px-4 py-3 hover:border-accent/30 transition-colors">
-                <div className="flex-1 overflow-hidden">
-                  <div className="flex items-center gap-2">
+              <div key={inst.id} className={`rounded-2xl bg-bg-card border p-4 transition-colors ${status?.hasUpdate ? 'border-accent/50' : 'border-border hover:border-white/20'}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0 ring-1 ring-white/10"><ModpackIcon instanceId={inst.id} /></div>
+                  <div className="flex-1 min-w-0">
                     <p className="font-semibold text-text-primary truncate">{inst.name}</p>
-                    <span className="text-[10px] bg-bg-hover text-text-muted px-1.5 py-0.5 rounded-full flex-shrink-0">v{inst.modpackVersion ?? '?'}</span>
-                    <span className="text-xs text-text-muted flex-shrink-0">MC {inst.minecraft} · {inst.modloader}</span>
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                      <span className="text-[10px] font-semibold bg-[#a855f7]/15 text-[#d8b4fe] px-1.5 py-0.5 rounded-md">v{inst.modpackVersion ?? '?'}</span>
+                      <span className="text-[11px] text-text-muted">MC {inst.minecraft} · {inst.modloader}</span>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-text-muted mt-0.5 truncate font-mono">
-                    {revealedInstId === inst.id ? inst.modpackUrl : '••••••••••••••••••••••••••••••••••••'}
-                  </p>
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {/* Show/hide URL */}
-                  <button onClick={() => setRevealedInstId(prev => prev === inst.id ? '' : inst.id)} className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title={revealedInstId === inst.id ? 'Ocultar' : 'Mostrar URL'}>
+
+                <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs ${status?.hasUpdate ? 'bg-accent/10 text-accent' : status?.checking || !status ? 'bg-bg-hover text-text-muted' : status.failed ? 'bg-amber-500/10 text-amber-300' : 'bg-green-500/10 text-green-300'}`}>
+                  {status?.checking ? (
+                    <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>Comprobando…</>
+                  ) : status?.hasUpdate ? (
+                    <>
+                      <span className="flex-1">Nueva versión disponible{status.latestVersion ? `: v${status.latestVersion}` : ''}</span>
+                      <button onClick={() => handleUpdate(inst)} className="px-3 py-1 rounded-lg bg-accent hover:bg-accent-hover text-white font-semibold">Actualizar</button>
+                    </>
+                  ) : status?.failed ? (
+                    <>No se pudo comprobar (sin conexión o el enlace ya no existe)</>
+                  ) : (
+                    <><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>{status ? 'Al día' : 'Sin comprobar todavía'}</>
+                  )}
+                </div>
+
+                <div className="mt-2 flex items-center gap-0.5">
+                  <p className="flex-1 min-w-0 text-[11px] text-text-muted truncate font-mono pr-2">
+                    {revealedInstId === inst.id ? inst.modpackUrl : '•••••••••••••••••••••••••'}
+                  </p>
+                  <button onClick={() => setRevealedInstId(prev => prev === inst.id ? '' : inst.id)} className={iconBtn} title={revealedInstId === inst.id ? 'Ocultar enlace' : 'Mostrar enlace'}>
                     {revealedInstId === inst.id
-                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    }
+                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
+                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>}
                   </button>
-                  {/* Copy URL */}
-                  <button onClick={() => copyInstanceUrl(inst)} className="w-7 h-7 flex items-center justify-center transition-colors" title="Copiar URL">
+                  <button onClick={() => copyInstanceUrl(inst)} className={iconBtn} title="Copiar enlace">
                     {copiedInstId === inst.id
-                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400"><polyline points="20 6 9 17 4 12"/></svg>
-                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted hover:text-text-primary"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                    }
+                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400"><polyline points="20 6 9 17 4 12" /></svg>
+                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>}
                   </button>
-                  {/* QR */}
                   {inst.modpackUrl && (
-                    <button onClick={() => setQrTarget({ url: inst.modpackUrl!, name: inst.name })} className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Ver QR">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-                        <rect x="5" y="5" width="3" height="3" fill="currentColor" stroke="none"/><rect x="16" y="5" width="3" height="3" fill="currentColor" stroke="none"/><rect x="5" y="16" width="3" height="3" fill="currentColor" stroke="none"/>
-                        <path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 20h3"/>
-                      </svg>
+                    <button onClick={() => setQrTarget({ url: inst.modpackUrl!, name: inst.name })} className={iconBtn} title="Ver QR para compartir">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><path d="M14 14h3v3h-3zM17 17h3v3h-3zM14 20h3" /></svg>
                     </button>
                   )}
-                  {/* Save as .fpack */}
-                  <button onClick={() => saveFpackForInst(inst)} className="w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors" title="Guardar como .fpack">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                      <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
-                    </svg>
+                  <button onClick={() => saveFpackForInst(inst)} className={iconBtn} title="Guardar como .fpack">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="12" y1="18" x2="12" y2="12" /><line x1="9" y1="15" x2="15" y2="15" /></svg>
                   </button>
-                  {/* Update status */}
-                  <div className="w-8 flex items-center justify-center">
-                    {status?.checking ? (
-                      <svg className="animate-spin w-4 h-4 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-                    ) : status?.hasUpdate ? (
-                      <button onClick={() => handleUpdate(inst)} title={`Actualizar a v${status.latestVersion}`}
-                        className="w-8 h-8 flex items-center justify-center rounded-lg bg-accent hover:bg-accent-hover text-white transition-colors">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
-                        </svg>
-                      </button>
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    )}
-                  </div>
+                  <button onClick={() => { setOpenDetailInstanceId(inst.id); navigate('/instances') }} className={iconBtn} title="Abrir la instancia">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                  </button>
                 </div>
               </div>
             )
@@ -501,7 +516,7 @@ export default function ModpacksPage() {
       {/* Published modpacks */}
       {published.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-sm font-semibold text-text-secondary mb-3">Mis Modpacks Publicados</h2>
+          <h2 className="text-sm font-semibold text-text-primary mb-3">Mis modpacks publicados</h2>
           <div className="space-y-3">
             {Object.entries(
               published.reduce<Record<string, PublishedModpack[]>>((acc, mp) => {
@@ -857,6 +872,7 @@ export default function ModpacksPage() {
           onClose={() => setFpackSaveState(null)}
         />
       )}
+      </div>
     </div>
   )
 }

@@ -99,5 +99,12 @@
 ["Se ha abierto una terminal instalando {0}.", "A terminal has opened installing {0}."],
 ["Abrir {0}", "Open {0}"],
 ["GitHub · @{0} · solo repos públicos", "GitHub · @{0} · public repos only"],
-["GitHub · @{0}", "GitHub · @{0}"]
+["GitHub · @{0}", "GitHub · @{0}"],
+["Hace {0} min", "{0} min ago"],
+["Hace {0} h", "{0} h ago"],
+["Hace {0} días", "{0} days ago"],
+["{0} min jugados", "{0} min played"],
+["{0} h jugadas", "{0} h played"],
+["Tus {0} teclas, también las de los mods", "Your {0} keys, including mod ones"],
+["Nueva versión disponible: v{0}", "New version available: v{0}"]
 ]
