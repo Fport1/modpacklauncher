@@ -987,7 +987,7 @@ export default function InstancesPage() {
           instance={fullDetailInstance}
           fullPage
           onClose={() => setFullDetailInstance(null)}
-          onPlay={() => { setFullDetailInstance(null); handlePlay(fullDetailInstance.id) }}
+          onPlay={() => handlePlay(fullDetailInstance.id)}
           onEdit={() => { setFullDetailInstance(null); openEdit(fullDetailInstance) }}
           onExport={() => { setExportInstance(fullDetailInstance) }}
           onDuplicate={() => { setDuplicateSource(fullDetailInstance) }}
@@ -1164,7 +1164,8 @@ export default function InstancesPage() {
         <InstanceDetailModal
           instance={detailInstance}
           onClose={() => setDetailInstance(null)}
-          onPlay={() => { setDetailInstance(null); handlePlay(detailInstance.id) }}
+          // Jugar desde los detalles no los cierra: se sigue viendo la instancia (y sus logs en vivo)
+          onPlay={() => handlePlay(detailInstance.id)}
         />
       )}
 
