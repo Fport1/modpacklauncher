@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
 import FpackSaveModal from './FpackSaveModal'
 import QRDisplay from './QRDisplay'
+import { ExportContentPicker, ExportStartOptions, ExportStartPicker, presetFor, type ExportPlanData, type ExportStart, type StartOptions } from './export/ExportEasy'
 
 interface Props {
   instance: Instance
@@ -193,6 +194,14 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loadingRoot, setLoadingRoot] = useState(true)
 
+  // Modo fácil: preguntas en vez del árbol de carpetas
+  const [mode, setMode] = useState<'easy' | 'advanced'>('easy')
+  const [plan, setPlan] = useState<ExportPlanData | null>(null)
+  const [start, setStart] = useState<ExportStart>('fresh')
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
+  const [worlds, setWorlds] = useState<Set<string>>(new Set())
+  const [startOpts, setStartOpts] = useState<StartOptions>({ controls: 'default', settings: 'default', activePacks: false, serverList: false })
+
   // Export state
   const [accessKey, setAccessKey] = useState('')
   const [showKey, setShowKey] = useState(false)
@@ -203,7 +212,9 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const [fpackSavePath, setFpackSavePath] = useState<string | null>(null)
   const unsubRef = useRef<(() => void) | null>(null)
 
-  const hasToken = !!settings.githubToken
+  const [ghConnected, setGhConnected] = useState(false)
+  useEffect(() => { window.api.github.status().then(s => setGhConnected(s.connected)).catch(() => {}) }, [])
+  const hasToken = !!settings.githubToken || ghConnected
   const isExporting = !!progress
 
   const EXPORT_STEPS = [
@@ -221,8 +232,19 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
       setRootEntries(entries)
       setLoadingRoot(false)
     }).catch(() => setLoadingRoot(false))
+    window.api.modpacks.exportPlan(instance.id).then(p => {
+      setPlan(p)
+      setChosen(new Set(p.categories.filter(c => c.group === 'content').map(c => c.path)))
+      setStartOpts(presetFor('fresh', p))
+    }).catch(() => setMode('advanced'))
     return () => { unsubRef.current?.() }
   }, [instance.id])
+
+  function pickStart(s: ExportStart): void {
+    setStart(s)
+    setStartOpts(presetFor(s, plan))
+    setWorlds(s === 'world' && plan?.worlds[0] ? new Set([plan.worlds[0].path]) : new Set())
+  }
 
   const handleExpand = useCallback(async (dirPath: string) => {
     // Toggle collapse
@@ -298,9 +320,10 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   }
 
   async function handleExport() {
-    if (!settings.githubToken) { setError('Configura tu token de GitHub en Ajustes primero.'); return }
+    if (!hasToken) { setError('Conecta tu cuenta de GitHub en Ajustes › Cuentas primero.'); return }
     if (!name.trim() || !version.trim() || !repoName.trim()) { setError('Rellena todos los campos obligatorios.'); return }
-    if (selected.size === 0) { setError('Selecciona al menos un archivo o carpeta.'); return }
+    const paths = mode === 'easy' ? [...chosen, ...worlds] : [...selected]
+    if (paths.length === 0) { setError('Elige al menos qué incluir.'); return }
 
     setError('')
     setResultUrl('')
@@ -317,12 +340,14 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
         description: description.trim(),
         changelog: changelog.trim(),
         repoName: repoName.trim(),
-        githubToken: settings.githubToken,
+        githubToken: settings.githubToken || '',
         minecraft: instance.minecraft,
         modloader: instance.modloader,
         modloaderVersion: instance.modloaderVersion,
-        selectedPaths: [...selected],
-        accessKey: accessKey.trim() || undefined
+        selectedPaths: paths,
+        accessKey: accessKey.trim() || undefined,
+        gameOptions: { controls: startOpts.controls, settings: startOpts.settings, activePacks: startOpts.activePacks || startOpts.settings === 'mine' },
+        serverList: startOpts.serverList
       })
       setResultUrl(url)
       setProgress(null)
@@ -340,12 +365,12 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const selectedCount = selected.size
+  const selectedCount = mode === 'easy' ? chosen.size + worlds.size : selected.size
 
   return (
     <>
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-bg-secondary border border-border rounded-2xl w-[640px] max-h-[90vh] flex flex-col shadow-2xl">
+      <div className="bg-bg-secondary border border-border rounded-2xl w-[720px] max-h-[92vh] flex flex-col shadow-2xl">
 
         {/* Header */}
         <div className="flex items-center justify-between p-5 pb-4 flex-shrink-0">
@@ -371,7 +396,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                 <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
               </svg>
               <p className="text-xs text-amber-300">
-                Necesitas un token de GitHub en <span className="font-semibold">Ajustes → Creación de Modpacks</span> para publicar.
+                Para publicar, conecta tu cuenta de GitHub en <span className="font-semibold">Ajustes › Cuentas</span>.
               </p>
             </div>
           )}
@@ -470,6 +495,32 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
 
           {!isExporting && !resultUrl && (
             <>
+              {/* Modo fácil / avanzado */}
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-bg-primary border border-border w-fit">
+                {([['easy', 'Fácil'], ['advanced', 'Avanzado (elegir archivos)']] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setMode(k)} disabled={k === 'easy' && !plan}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 ${mode === k ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'}`}>{l}</button>
+                ))}
+              </div>
+
+              {mode === 'easy' && plan && (
+                <>
+                  <section className="space-y-2">
+                    <p className="text-xs font-semibold text-text-primary">1. ¿Cómo empiezan quienes lo instalen?</p>
+                    <ExportStartPicker value={start} onChange={pickStart} />
+                  </section>
+                  <section className="space-y-2">
+                    <p className="text-xs font-semibold text-text-primary">2. Qué incluye</p>
+                    <ExportContentPicker plan={plan} chosen={chosen} onChange={setChosen} worlds={worlds} onWorlds={setWorlds} showWorlds={start === 'world'} />
+                  </section>
+                  <section className="space-y-2">
+                    <p className="text-xs font-semibold text-text-primary">3. Controles y ajustes</p>
+                    <ExportStartOptions plan={plan} value={startOpts} onChange={setStartOpts} />
+                  </section>
+                  <p className="text-xs font-semibold text-text-primary pt-1">4. Datos del modpack</p>
+                </>
+              )}
+
               {/* Metadata fields */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -533,8 +584,8 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                 )}
               </div>
 
-              {/* File picker */}
-              <div>
+              {/* File picker (modo avanzado) */}
+              {mode === 'advanced' && <div>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <label className="text-xs font-medium text-text-secondary">Archivos a incluir</label>
@@ -590,7 +641,17 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                   <span className="font-medium">☐ izquierdo</span> = incluir carpeta/archivo completo ·{' '}
                   <span className="font-medium">▶ derecho</span> = expandir y seleccionar archivos individuales
                 </p>
-              </div>
+                <p className="text-[11px] text-text-muted mt-1">
+                  <span className="font-medium">options.txt</span> y <span className="font-medium">servers.dat</span> no se copian tal cual: se usan las opciones de abajo como valores iniciales.
+                </p>
+              </div>}
+
+              {mode === 'advanced' && (
+                <section className="space-y-2">
+                  <p className="text-xs font-semibold text-text-primary">Controles y ajustes</p>
+                  <ExportStartOptions plan={plan} value={startOpts} onChange={setStartOpts} />
+                </section>
+              )}
             </>
           )}
 

@@ -191,7 +191,15 @@ const api = {
       changelog: string; repoName: string; githubToken: string
       minecraft: string; modloader: string; modloaderVersion?: string
       selectedPaths: string[]; accessKey?: string
+      gameOptions?: { controls: 'default' | 'mine'; settings: 'default' | 'mine'; activePacks: boolean }; serverList?: boolean
     }) => ipcRenderer.invoke('modpacks:export', params) as Promise<string>,
+    // Qué se puede exportar, explicado (modo fácil)
+    exportPlan: (instanceId: string) => ipcRenderer.invoke('modpacks:export-plan', instanceId) as Promise<{
+      categories: { path: string; label: string; hint: string; size: number; files: number; group: 'content' | 'world' | 'personal' }[]
+      worlds: { name: string; path: string; size: number }[]
+      options: { exists: boolean; keybinds: number; activePacks: number }
+      hasServerList: boolean
+    }>,
     onExportProgress: (cb: (p: { message: string; current: number; total: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, p: { message: string; current: number; total: number }) => cb(p)
       ipcRenderer.on('modpacks:export-progress', handler)

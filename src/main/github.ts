@@ -110,6 +110,9 @@ async function adopt(token: string, method: Stored['method']): Promise<GithubSta
 }
 
 export const githubSetToken = (token: string): Promise<GithubStatus> => adopt(token.trim(), 'token')
+
+/** Clave de la cuenta conectada, solo para otros módulos del proceso principal (exportar modpacks). */
+export function githubTokenForMain(): string | null { return load()?.token ?? null }
 export function githubLogout(): GithubStatus { save(null); return githubStatus() }
 
 // ── Flujo de dispositivo (OAuth App) ────────────────────────────────────────

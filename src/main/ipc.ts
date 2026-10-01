@@ -11,7 +11,7 @@ import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
 import { checkJavaStatus, ensureJava } from './java'
 import { checkForUpdates, openDownloadPage, downloadAndInstall } from './updater'
-import { exportModpack, getPublishedModpacks, savePublishedModpack, deletePublishedModpack, readFpackManifest, readFpackUrlFormat, fetchManifest, importFpack, installModpack, saveFpackLocally, updateModpack, compareVersions, installMrpackFiles } from './modpacks'
+import { exportModpack, exportPlan, getPublishedModpacks, savePublishedModpack, deletePublishedModpack, readFpackManifest, readFpackUrlFormat, fetchManifest, importFpack, installModpack, saveFpackLocally, updateModpack, compareVersions, installMrpackFiles } from './modpacks'
 import type { ExportParams } from './modpacks'
 import type { PublishedModpack } from '../shared/types'
 import type { UpdateManifest } from './updater'
@@ -114,7 +114,7 @@ import { getLogBuffer } from './logger'
 import { installTool, openInTerminal, resolveCommand, toolMissing, type AiTool } from './aiTools'
 import {
   githubCreateRepo, githubDeleteMedia, githubDeleteRelease, githubDeviceCancel, githubDeviceStart, githubDeviceWait, githubLogout,
-  githubPublishRelease, githubPutMedia, githubRepos, githubSetToken, githubStatus, githubUpdateRepo, type ReleaseInput, type RepoInput
+  githubPublishRelease, githubPutMedia, githubRepos, githubSetToken, githubStatus, githubTokenForMain, githubUpdateRepo, type ReleaseInput, type RepoInput
 } from './github'
 
 interface AccountsStore {
@@ -504,7 +504,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
 
+  ipcMain.handle('modpacks:export-plan', (_e, instanceId: string) => exportPlan(instanceId))
   ipcMain.handle('modpacks:export', async (e, params: ExportParams) => {
+    // Sin token antiguo en Ajustes se usa la cuenta de GitHub conectada (la clave no pasa por la ventana)
+    if (!params.githubToken) params = { ...params, githubToken: githubTokenForMain() ?? '' }
+    if (!params.githubToken) throw new Error('Conecta tu cuenta de GitHub en Ajustes › Cuentas para publicar.')
     const op = makeOpEmitter(`Exportando ${params.name}`, 'export-modpack')
     try {
       const url = await exportModpack(params, (message, current, total) => {

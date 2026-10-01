@@ -192,6 +192,7 @@ export async function installModpack(
     }
   }
 
+  await applyFirstRunDefaults(gameDir)
   await saveLocalManifest(instanceId, manifest)
 
   if (manifest.thumbnail) {
@@ -228,7 +229,7 @@ export async function updateModpack(
     const newPaths = new Set(newFiles.map(f => f.path))
     const removed: string[] = []
     for (const old of oldFiles) {
-      if (!newPaths.has(old.path)) {
+      if (!newPaths.has(old.path) && !keepOnUpdate(old.path)) {
         const target = trySafeJoin(gameDir, old.path)
         if (target) {
           await fs.remove(target).catch(() => {})
@@ -259,6 +260,7 @@ export async function updateModpack(
       await fs.remove(tmpZip).catch(() => {})
     }
 
+    await applyFirstRunDefaults(gameDir)
     await saveLocalManifest(instanceId, manifest)
     onProgress?.(2, 2, '¡Actualización completada!')
     return { added: newFiles.map(f => f.path), removed, updated: [] }
@@ -270,7 +272,7 @@ export async function updateModpack(
 
   const removed: string[] = []
   for (const old of oldFiles) {
-    if (!newPaths.has(old.path)) {
+    if (!newPaths.has(old.path) && !keepOnUpdate(old.path)) {
       await fs.remove(path.join(gameDir, old.path)).catch(() => {})
       removed.push(old.path)
     }
@@ -296,6 +298,7 @@ export async function updateModpack(
     }
   }
 
+  await applyFirstRunDefaults(gameDir)
   await saveLocalManifest(instanceId, manifest)
   onProgress?.(newFiles.length, newFiles.length, '¡Actualización completada!')
   return { added, removed, updated }
@@ -349,9 +352,168 @@ export interface ExportParams {
   modloader: string
   modloaderVersion?: string
   accessKey?: string
+  /**
+   * Ajustes y controles del creador como VALORES INICIALES: se aplican solo si
+   * el jugador aún no tiene los suyos (nunca pisan su configuración al actualizar).
+   * Sin esto, si options.txt está seleccionado se exporta entero como valores iniciales.
+   */
+  gameOptions?: GameOptionsExport
+  /** La lista de servidores del creador, también solo como valor inicial */
+  serverList?: boolean
+}
+
+export interface GameOptionsExport {
+  /** Controles: los de Minecraft por defecto o los del creador */
+  controls: 'default' | 'mine'
+  /** Vídeo, sonido, idioma, accesibilidad…: por defecto o los del creador */
+  settings: 'default' | 'mine'
+  /** Que los resource packs del creador empiecen activos */
+  activePacks: boolean
+}
+
+// ── Valores iniciales (primer arranque) ─────────────────────────────────────
+//
+// Van en la carpeta fport1-defaults/ del modpack. Al instalar o actualizar, cada
+// archivo se copia a su sitio SOLO si el jugador no lo tiene: así empieza con
+// los controles o ajustes que quiso el creador, y lo que cambie después se
+// respeta en cada actualización (igual que el mod YOSBR).
+
+export const DEFAULTS_DIR = 'fport1-defaults'
+/** Archivos que nunca se exportan tal cual: solo como valores iniciales */
+const FIRST_RUN_FILES = new Set(['options.txt', 'servers.dat'])
+/** Datos de la persona o del equipo que no tienen sentido en otro ordenador */
+const PERSONAL_FILES = new Set(['usercache.json', 'usernamecache.json', 'realms_persistence.json', 'launcher_profiles.json', 'command_history.txt'])
+const PERSONAL_DIRS = new Set(['.ai', '.fabric', 'fport1social', DEFAULTS_DIR])
+/** Líneas de options.txt que son del creador y no deben viajar (último servidor, tutorial, avisos ya vistos) */
+const PERSONAL_OPTIONS = /^(lastServer|joinedFirstServer|tutorialStep|onboardAccessibility|skipMultiplayerWarning|skipRealms32bitWarning|hideServerAddress|realmsNotifications|narratorHotkey|telemetryOptInExtra):/
+
+/** options.txt reducido a lo que el creador quiere dar como valor inicial; null si nada. */
+export function buildDefaultOptions(text: string, opt: GameOptionsExport): string | null {
+  const lines = text.split(/\r?\n/).filter(Boolean)
+  const version = lines.find((l) => l.startsWith('version:'))
+  const keep = lines.filter((l) => {
+    if (l.startsWith('version:')) return false
+    if (l.startsWith('key_')) return opt.controls === 'mine'
+    if (/^(resourcePacks|incompatibleResourcePacks):/.test(l)) return opt.activePacks || opt.settings === 'mine'
+    if (PERSONAL_OPTIONS.test(l)) return false
+    return opt.settings === 'mine'
+  })
+  if (!keep.length) return null
+  // Sin «version» el juego cree que es un options.txt antiquísimo e intenta convertirlo
+  return [version ?? '', ...keep].filter(Boolean).join('\n') + '\n'
+}
+
+/**
+ * Lo que una actualización nunca borra aunque la versión nueva ya no lo traiga:
+ * los ajustes y servidores del jugador (modpacks antiguos los exportaban tal
+ * cual) y sus mundos.
+ */
+function keepOnUpdate(relPath: string): boolean {
+  return FIRST_RUN_FILES.has(relPath) || relPath.startsWith('saves/')
+}
+
+/** Copia los valores iniciales que el jugador todavía no tiene. */
+export async function applyFirstRunDefaults(gameDir: string): Promise<string[]> {
+  const dir = path.join(gameDir, DEFAULTS_DIR)
+  const applied: string[] = []
+  for (const name of await fs.readdir(dir).catch(() => [] as string[])) {
+    if (!FIRST_RUN_FILES.has(name)) continue
+    const target = path.join(gameDir, name)
+    if (await fs.pathExists(target)) continue
+    await fs.copy(path.join(dir, name), target)
+    applied.push(name)
+  }
+  return applied
+}
+
+export interface ExportCategory {
+  /** Ruta relativa a la carpeta del juego */
+  path: string
+  label: string
+  hint: string
+  size: number
+  files: number
+  group: 'content' | 'world' | 'personal'
+}
+
+export interface ExportPlan {
+  categories: ExportCategory[]
+  worlds: { name: string; path: string; size: number }[]
+  options: { exists: boolean; keybinds: number; activePacks: number }
+  hasServerList: boolean
+}
+
+const KNOWN_CATEGORIES: Record<string, { label: string; hint: string }> = {
+  mods: { label: 'Mods', hint: 'Los mods del modpack' },
+  config: { label: 'Configuración de los mods', hint: 'Cómo está ajustado cada mod' },
+  defaultconfigs: { label: 'Configuración por defecto de mundos', hint: 'Ajustes que los mods copian a cada mundo nuevo' },
+  kubejs: { label: 'Scripts de KubeJS', hint: 'Recetas y cambios hechos con KubeJS' },
+  scripts: { label: 'Scripts de CraftTweaker', hint: 'Recetas y cambios hechos con CraftTweaker' },
+  resourcepacks: { label: 'Resource packs', hint: 'Texturas, sonidos y modelos' },
+  shaderpacks: { label: 'Shaders', hint: 'Efectos de luz y sombras (Iris u OptiFine)' },
+  datapacks: { label: 'Datapacks globales', hint: 'Datapacks que se ponen en todos los mundos (OpenLoader, Paxi…)' },
+  global_packs: { label: 'Packs globales', hint: 'Datapacks y resource packs para todos los mundos' },
+  openloader: { label: 'OpenLoader', hint: 'Datapacks y resource packs que carga OpenLoader' },
+  schematics: { label: 'Schematics', hint: 'Construcciones guardadas (Litematica, WorldEdit…)' },
+  emotes: { label: 'Emotes', hint: 'Animaciones del mod de emotes' },
+  patchouli_books: { label: 'Libros de Patchouli', hint: 'Guías dentro del juego' },
+}
+/** Carpetas que son datos del jugador o cachés aunque las creen los mods */
+const PERSONAL_CATEGORY_DIRS = new Set(['journeymap', 'XaeroWorldMap', 'XaerosMinimap', 'xaero', 'saves', 'stats', 'replay_videos', 'flashback', 'voicechat', 'moonlight-global-datapacks', 'local'])
+
+async function dirSize(abs: string): Promise<{ size: number; files: number }> {
+  let size = 0, files = 0
+  async function walk(d: string): Promise<void> {
+    for (const e of await fs.readdir(d, { withFileTypes: true }).catch(() => [])) {
+      if (EXPORT_EXCLUDED_DIRS.has(e.name)) continue
+      const p = path.join(d, e.name)
+      if (e.isDirectory()) await walk(p)
+      else if (e.isFile()) { files++; size += (await fs.stat(p).catch(() => null))?.size ?? 0 }
+    }
+  }
+  const st = await fs.stat(abs).catch(() => null)
+  if (st?.isFile()) return { size: st.size, files: 1 }
+  if (st?.isDirectory()) await walk(abs)
+  return { size, files }
+}
+
+/** Qué se puede exportar de una instancia, explicado para quien no sabe qué es cada carpeta. */
+export async function exportPlan(instanceId: string): Promise<ExportPlan> {
+  const gameDir = await getInstanceGameDir(instanceId)
+  const categories: ExportCategory[] = []
+  for (const e of await fs.readdir(gameDir, { withFileTypes: true }).catch(() => [])) {
+    if (!e.isDirectory() || EXPORT_EXCLUDED_DIRS.has(e.name) || PERSONAL_DIRS.has(e.name) || e.name === 'saves' || e.name.startsWith('.')) continue
+    const { size, files } = await dirSize(path.join(gameDir, e.name))
+    if (!files) continue
+    const known = KNOWN_CATEGORIES[e.name]
+    categories.push({
+      path: e.name, size, files,
+      label: known?.label ?? e.name,
+      hint: known?.hint ?? (PERSONAL_CATEGORY_DIRS.has(e.name) ? 'Datos de tu partida (mapas, grabaciones…): normalmente no se comparten' : 'Carpeta de algún mod'),
+      group: known ? 'content' : PERSONAL_CATEGORY_DIRS.has(e.name) ? 'personal' : 'content',
+    })
+  }
+  const order = Object.keys(KNOWN_CATEGORIES)
+  categories.sort((a, b) => (order.indexOf(a.path) + 1 || 99) - (order.indexOf(b.path) + 1 || 99) || a.path.localeCompare(b.path))
+  const worlds: ExportPlan['worlds'] = []
+  for (const w of await fs.readdir(path.join(gameDir, 'saves'), { withFileTypes: true }).catch(() => [])) {
+    if (!w.isDirectory() || !(await fs.pathExists(path.join(gameDir, 'saves', w.name, 'level.dat')))) continue
+    worlds.push({ name: w.name, path: `saves/${w.name}`, size: (await dirSize(path.join(gameDir, 'saves', w.name))).size })
+  }
+  const opts = await fs.readFile(path.join(gameDir, 'options.txt'), 'utf8').catch(() => '')
+  const packs = opts.match(/^resourcePacks:(.*)$/m)?.[1]
+  let activePacks = 0
+  try { activePacks = (JSON.parse(packs ?? '[]') as string[]).filter((p) => p.startsWith('file/')).length } catch { /* vacío */ }
+  return {
+    categories, worlds,
+    options: { exists: !!opts, keybinds: opts.split(/\r?\n/).filter((l) => l.startsWith('key_')).length, activePacks },
+    hasServerList: await fs.pathExists(path.join(gameDir, 'servers.dat')),
+  }
 }
 
 interface FileEntry {
+  /** Contenido ya en memoria (valores iniciales generados al exportar) */
+  buf?: Buffer
   localPath: string
   relativePath: string
   sha256: string
@@ -499,20 +661,41 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
   // Step 0 — collect files (report per-file as discovered)
   onProgress('Analizando archivos...', 0, EXPORT_TOTAL_STEPS)
   const gameDir = await getInstanceGameDir(instanceId)
-  const files = await collectFilesFromPaths(gameDir, selectedPaths, (count, lastName) => {
+  const collected = await collectFilesFromPaths(gameDir, selectedPaths, (count, lastName) => {
     onProgress(`Analizando... (${count.toLocaleString()} encontrados: ${lastName})`, 0, EXPORT_TOTAL_STEPS)
   })
+  // Ajustes, controles y servidores nunca van tal cual (pisarían los del jugador
+  // en cada actualización): van a fport1-defaults/ como valores iniciales.
+  // Los datos personales (caché de usuarios, carpeta de la IA…) no viajan.
+  const isFirstRun = (p: string): boolean => FIRST_RUN_FILES.has(p)
+  const isPersonal = (p: string): boolean => PERSONAL_FILES.has(p) || PERSONAL_DIRS.has(p.split('/')[0])
+  const files = collected.filter((f) => !isFirstRun(f.relativePath) && !isPersonal(f.relativePath))
+  const defaults: { relativePath: string; buf: Buffer }[] = []
+  const optionsSelected = collected.some((f) => f.relativePath === 'options.txt')
+  const gameOptions = params.gameOptions ?? (optionsSelected ? { controls: 'mine', settings: 'mine', activePacks: true } as GameOptionsExport : null)
+  if (gameOptions) {
+    const text = await fs.readFile(path.join(gameDir, 'options.txt'), 'utf8').catch(() => '')
+    const reduced = text ? buildDefaultOptions(text, gameOptions) : null
+    if (reduced) defaults.push({ relativePath: `${DEFAULTS_DIR}/options.txt`, buf: Buffer.from(reduced, 'utf8') })
+  }
+  if (params.serverList ?? collected.some((f) => f.relativePath === 'servers.dat')) {
+    const buf = await fs.readFile(path.join(gameDir, 'servers.dat')).catch(() => null)
+    if (buf?.length) defaults.push({ relativePath: `${DEFAULTS_DIR}/servers.dat`, buf })
+  }
+  for (const d of defaults) {
+    files.push({ localPath: '', relativePath: d.relativePath, sha256: crypto.createHash('sha256').update(d.buf).digest('hex'), buf: d.buf })
+  }
   if (files.length === 0) throw new Error('No se encontraron archivos en las categorías seleccionadas')
 
   // Step 1 — build zip (report per-file while packing)
-  const sizeMB = (files.reduce((s, f) => s + (fs.statSync(f.localPath).size ?? 0), 0) / 1024 / 1024).toFixed(1)
+  const sizeMB = (files.reduce((s, f) => s + (f.buf ? f.buf.length : fs.statSync(f.localPath).size ?? 0), 0) / 1024 / 1024).toFixed(1)
   onProgress(`Empaquetando ${files.length.toLocaleString()} archivos (~${sizeMB} MB)...`, 1, EXPORT_TOTAL_STEPS)
   const zip = new AdmZip()
   const packFiles: PackFile[] = []
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
     onProgress(`Empaquetando ${i + 1}/${files.length}: ${path.basename(file.relativePath)}`, 1, EXPORT_TOTAL_STEPS)
-    const buf = await fs.readFile(file.localPath)
+    const buf = file.buf ?? await fs.readFile(file.localPath)
     zip.addFile(file.relativePath, buf)
     packFiles.push({ path: file.relativePath, sha256: file.sha256, url: '' })
   }
@@ -788,6 +971,7 @@ export async function importFpack(
     }
   }
 
+  await applyFirstRunDefaults(gameDir)
   await saveLocalManifest(instanceId, activeManifest)
 }
 
