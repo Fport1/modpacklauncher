@@ -8,6 +8,7 @@ import { getInstance, getInstanceGameDir, listMods } from './instances'
 import { worldInfo } from './gameKnowledge'
 import { fsCommit, fsRunQuery, fsValue } from './firestoreRest'
 import type { Instance } from '../shared/types'
+import { getSamples, outcomeDoc, summarizeSamples, type LiveOutcome, type LiveSample } from './liveData'
 
 // Aprendizaje colectivo de la IA (se puede desactivar en Ajustes › Privacidad).
 //
@@ -273,6 +274,8 @@ async function reportSession(inst: Instance, t0: number, code: number | null): P
   const perf = logSignals(log)
   const crashed = code !== 0 && code !== null
   const id = crypto.randomUUID().replace(/-/g, '').slice(0, 20)
+  const liveSummary = summarizeSamples(getSamples(inst.id))
+  if (LIVE_UPLOAD_ENABLED && getSamples(inst.id).length) await uploadLiveSeries(inst, getSamples(inst.id)).catch(() => {})
   await fsCommit([{
     path: `play_sessions/${id}`,
     set: {
@@ -280,6 +283,8 @@ async function reportSession(inst: Instance, t0: number, code: number | null): P
       minutes: Math.min(1440, Math.round((Date.now() - t0) / 60_000)), crashed, sig: crashed ? lastSig.get(inst.id) ?? '' : '',
       loadSeconds: perf.loadSeconds ?? -1, lagWarnings: perf.lagWarnings, errors: perf.errors, warnings: perf.warnings, noisy: perf.noisy,
       ...(world ? { world } : {}),
+      // Resumen de las métricas en vivo del mod (solo cuando fport1web acepte el campo «live»)
+      ...(LIVE_UPLOAD_ENABLED && liveSummary ? { live: liveSummary } : {}),
     },
     now: ['at'],
     mustNotExist: true,
@@ -319,6 +324,44 @@ export async function communityExperience(inst: Instance, mod?: string): Promise
     }
   }
   return { mod: mod ?? null, minecraft: inst.minecraft, loader: inst.modloader, conEsteMod: summarize(sessions), referenciaMismaVersion: mod ? summarize(base.map((s) => s.data)) : undefined }
+}
+
+// ── Datos en vivo del mod fport1-social (fase 6) ─────────────────────────────
+//
+// PREPARADO PERO APAGADO: hasta que fport1web publique las reglas nuevas
+// (live_outcomes, el campo «live» de play_sessions y la ruta ai-data/ de Storage
+// con /api/ai-data-upload, ver docs/APRENDIZAJE.md del mod) cualquier escritura
+// sería rechazada. Para activarlo basta con poner esto a true, después de
+// comprobar las reglas publicadas.
+export const LIVE_UPLOAD_ENABLED = false
+const WEB = 'https://fport1web.vercel.app'
+
+/** Sube el resultado medido de un cambio de la IA (sin label). Devuelve por qué no se subió, si no se subió. */
+export async function uploadLiveOutcome(inst: Instance, o: LiveOutcome, modVersion?: string): Promise<'subido' | 'desactivado' | 'sin datos' | 'error'> {
+  if (!LIVE_UPLOAD_ENABLED || !enabled) return 'desactivado'
+  const mods = [...new Set((await listMods(inst.id).catch(() => [])).filter((m) => m.enabled).flatMap((m) => m.meta?.modIds ?? []))]
+  const doc = outcomeDoc(o, { mc: inst.minecraft, loader: inst.modloader, v: app.getVersion(), modVersion, mods })
+  if (!doc) return 'sin datos'
+  try {
+    await fsCommit([{ path: `live_outcomes/${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`, set: doc, now: ['at'], mustNotExist: true }])
+    // Si el cambio venía de una lección, el resultado medido la vota
+    if (doc.lessonId && (doc.verdict === 'mejor' || doc.verdict === 'peor')) await rateLesson(String(doc.lessonId), doc.verdict === 'mejor')
+    return 'subido'
+  } catch { return 'error' }
+}
+
+/** Serie completa por minuto de la partida → Storage ai-data/ con una URL firmada que da la web. */
+async function uploadLiveSeries(inst: Instance, list: LiveSample[]): Promise<void> {
+  if (!LIVE_UPLOAD_ENABLED || !enabled || !list.length) return
+  // Solo números y nombres públicos (dimensiones, tipos de entidad, loggers): las muestras del mod ya vienen así,
+  // pero se vuelve a limpiar cualquier texto por si acaso
+  const clean = list.map((s) => JSON.parse(JSON.stringify(s, (_k, v) => (typeof v === 'string' ? sanitize(v, 120) : v))))
+  const gz = (await import('zlib')).gzipSync(Buffer.from(JSON.stringify({ mc: inst.minecraft, loader: inst.modloader, v: app.getVersion(), samples: clean })))
+  if (gz.length > 262_144) return
+  const axios = (await import('axios')).default
+  const { data } = await axios.post(`${WEB}/api/ai-data-upload`, { kind: 'perf', size: gz.length }, { timeout: 15_000 })
+  if (!data?.url) return
+  await axios.put(data.url, gz, { headers: { 'Content-Type': 'application/gzip' }, timeout: 30_000, maxBodyLength: 300_000 })
 }
 
 export function startAiCommunity(opts: { enabled: boolean; playerNames: () => string[] }): void {
