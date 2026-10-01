@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import fs from 'fs-extra'
 import path from 'path'
 import { gameEvents, getInstancePid, isInstanceRunning, killInstance } from './launcher'
+import { activeResourcePacks, selectedShader, setResourcePackActive, setShaderSelected } from './packActivation'
 import { createLiveBridge, NOT_LIVE_MESSAGE, type LiveRegistration } from './liveBridge'
 import { addOutcome, addSample, clearSession, outcomeText, type LiveOutcome } from './liveData'
 import { getInstance, getInstanceGameDir, listMods, listResourcepacks, listShaderpacks, loadInstances } from './instances'
@@ -226,14 +227,26 @@ async function listContent(inst: Instance, kind: Kind, world?: string): Promise<
     if (!world) return { worlds: await fs.readdir(path.join(gameDir, 'saves')).catch(() => [] as string[]) }
     return { world, datapacks: (await listWorldDatapacks(inst.id, world)).map(({ iconBase64: _i, ...d }) => d) }
   }
+  const running = isInstanceRunning(inst.id)
   if (kind === 'resourcepack') {
-    const opts = await fs.readFile(path.join(gameDir, 'options.txt'), 'utf8').catch(() => '')
-    const active = opts.match(/^resourcePacks:(.*)$/m)?.[1] ?? '[]'
-    return { items: (await listResourcepacks(inst.id)).map((r) => ({ filename: r.filename, enabled: r.enabled })), activeInOptions: active, note: 'Además de estar en la carpeta, el pack tiene que estar en resourcePacks de options.txt (o activarse en el juego) para usarse.' }
+    const active = await activeResourcePacks(gameDir)
+    return {
+      // enCarpeta = el juego lo ofrece en su lista; activo = se usa (según options.txt)
+      items: (await listResourcepacks(inst.id)).map((r) => ({ filename: r.filename, enCarpeta: r.enabled, activo: active.includes(`file/${r.filename.replace(/\.disabled$/, '')}`) })),
+      ordenActivos: active,
+      juegoAbierto: running,
+      nota: running
+        ? 'Con el juego abierto, «activo» es lo que había al arrancar o lo último que guardó el juego: si el jugador cambió los packs en el juego, lo verás al cerrarlo. Activar o desactivar en la partida abierta lo hace el jugador en Opciones › Paquetes de recursos.'
+        : 'Estar en la carpeta no basta: solo se usan los que están activos (el último de ordenActivos tiene más prioridad).',
+    }
   }
   if (kind === 'shader') {
-    const iris = await fs.readFile(path.join(gameDir, 'config', 'iris.properties'), 'utf8').catch(() => '')
-    return { items: (await listShaderpacks(inst.id)).map((r) => ({ filename: r.filename, enabled: r.enabled })), selected: iris.match(/^shaderPack=(.*)$/m)?.[1] ?? null }
+    const sel = await selectedShader(gameDir)
+    return {
+      items: (await listShaderpacks(inst.id)).map((r) => ({ filename: r.filename, enCarpeta: r.enabled, seleccionado: sel.pack === r.filename.replace(/\.disabled$/, '') })),
+      gestor: sel.loader, seleccionado: sel.pack, shadersEncendidos: sel.enabled, juegoAbierto: running,
+      nota: sel.loader ? undefined : 'No hay Iris, Oculus ni OptiFine: los shaders no se pueden usar.',
+    }
   }
   const [mods, meta] = await Promise.all([listMods(inst.id), getInstalledModsMeta(inst.id, inst.minecraft, inst.modloader).catch(() => ({} as Record<string, any>))])
   return {
@@ -351,9 +364,48 @@ export function startAiBridge(launch: LaunchFn): void {
           if (!cur) return send(404, { error: `${KIND_NAME[kind]} no encontrado` })
           const want = body.enabled !== false
           const next = want ? base : `${base}.disabled`
-          if (cur !== next) await fs.rename(path.join(dir, cur), path.join(dir, next))
-          logActivity(inst.id, `${want ? 'Activado' : 'Desactivado'} ${base}`)
-          return send(200, { filename: next, enabled: want })
+          const running = isInstanceRunning(inst.id)
+          try {
+            if (cur !== next) await fs.rename(path.join(dir, cur), path.join(dir, next))
+          } catch (e) {
+            if (running && /EBUSY|EPERM/.test(String(e))) return send(409, { error: `El juego tiene ${base} abierto: no se puede cambiar mientras está en marcha. Ciérralo (o pide al jugador que lo cierre) y vuelve a intentarlo.` })
+            throw e
+          }
+          // Estar en la carpeta no es estar activo: para packs y shaders se activa también
+          // para el próximo arranque, y se explica qué pasa con la partida abierta.
+          let enJuego: string
+          let activoAlArrancar: boolean | undefined
+          if (kind === 'mod') {
+            enJuego = running
+              ? 'La partida abierta sigue con los mods de antes: los mods solo se cargan al arrancar. Se aplica al reiniciar el juego.'
+              : 'Se aplica la próxima vez que se abra el juego.'
+          } else if (kind === 'resourcepack') {
+            if (running) {
+              enJuego = want
+                ? 'Ya aparece en la lista del juego, pero NO está activo en la partida abierta: tiene que activarlo el jugador en Opciones › Paquetes de recursos (pasarlo a la derecha y «Hecho»). El launcher no toca options.txt con el juego abierto porque el juego lo sobrescribe al cerrar.'
+                : 'Si estaba activo, la partida abierta lo sigue usando hasta que el jugador lo quite en Opciones › Paquetes de recursos.'
+            } else {
+              await setResourcePackActive(gameDir, base, want)
+              activoAlArrancar = want
+              enJuego = want ? 'Activado en options.txt: el juego arrancará con él puesto (encima de los demás).' : 'Quitado de options.txt: el juego arrancará sin él.'
+            }
+          } else {
+            if (running) {
+              enJuego = want
+                ? 'La partida abierta no cambia de shader sola: el jugador tiene que elegirlo en Opciones › Vídeo › Shaders (con Iris, también con la tecla O). El launcher no toca la configuración con el juego abierto porque se sobrescribe.'
+                : 'La partida abierta lo sigue usando hasta que el jugador lo quite en Opciones › Vídeo › Shaders.'
+            } else {
+              const selected = await selectedShader(gameDir)
+              // Al desactivar solo se apaga si era el elegido
+              const loader = want ? await setShaderSelected(gameDir, base) : selected.pack === base ? await setShaderSelected(gameDir, null) : selected.loader
+              activoAlArrancar = want && !!loader
+              enJuego = !loader
+                ? 'No hay Iris, Oculus ni OptiFine en la instancia: el shader no se puede usar hasta instalar uno.'
+                : want ? `Seleccionado en ${loader === 'iris' ? 'Iris' : 'OptiFine'}: el juego arrancará con él.` : 'El juego arrancará sin ese shader.'
+            }
+          }
+          logActivity(inst.id, `${want ? 'Activado' : 'Desactivado'} ${base}${running && kind !== 'mod' ? ' (en la partida abierta lo cambia el jugador)' : ''}`)
+          return send(200, { filename: next, enabled: want, juegoAbierto: running, activoAlArrancar, enJuego })
         }
         case 'remove': {
           // No se borra: va a la papelera de la instancia para poder deshacerlo
