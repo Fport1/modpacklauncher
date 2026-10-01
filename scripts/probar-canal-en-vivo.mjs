@@ -2,12 +2,15 @@
 //
 // Levanta un mod fport1-social falso (WebSocket JSON-RPC en un puerto aleatorio
 // de 127.0.0.1, con su clave) y ejercita live/register, live/heartbeat,
-// live/unregister y live/call tal como los usa el puente del launcher.
+// live/unregister y live/call tal como los usa el puente del launcher, y
+// después las herramientas MCP en vivo (aiMcpScript.ts) de punta a punta.
 //
 // Uso: node scripts/probar-canal-en-vivo.mjs
 import { build } from 'esbuild'
 import { createRequire } from 'node:module'
 import { WebSocketServer } from 'ws'
+import { spawn } from 'node:child_process'
+import http from 'node:http'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -22,6 +25,10 @@ await build({
   external: ['bufferutil', 'utf-8-validate'],
 })
 const { createLiveBridge, auditText, LIVE_ERRORS } = createRequire(import.meta.url)(outFile)
+// El servidor MCP que usan las IAs (es un texto dentro de aiMcpScript.ts)
+const mcpOut = path.join(path.dirname(outFile), 'aiMcpScript.cjs')
+await build({ entryPoints: [path.join(root, 'src/main/aiMcpScript.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: mcpOut, logLevel: 'error' })
+const { MCP_SCRIPT } = createRequire(import.meta.url)(mcpOut)
 
 // ── Mod falso ───────────────────────────────────────────────────────────────
 
@@ -178,6 +185,91 @@ err = null
 await mod.close()
 try { await live.register('prueba', reg(mod)) } catch (e) { err = e }
 check('puerto cerrado: error y nada en vivo', err && live.status('prueba') === null, err?.message)
+
+// ── De punta a punta: servidor MCP → puente (live/call) → partida ────────────
+// El puente HTTP de aquí reproduce las acciones live/* de aiBridge.ts (que no se
+// puede cargar sin Electron) usando el mismo liveBridge.
+
+const mod2 = await fakeMod()
+const live2 = createLiveBridge(h.hooks, { callTimeoutMs: 2000 })
+const bridgeToken = crypto.randomBytes(24).toString('hex')
+const bridgeSrv = http.createServer(async (req, res) => {
+  const send = (status, body) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(body)) }
+  if (req.headers.authorization !== `Bearer ${bridgeToken}`) return send(401, { error: 'Clave incorrecta' })
+  const chunks = []
+  for await (const c of req) chunks.push(c)
+  const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+  const m = req.url.match(/^\/instance\/([^/]+)\/(.+)$/)
+  const id = decodeURIComponent(m?.[1] ?? '')
+  switch (m?.[2]) {
+    case 'live/register': live2.register(id, body).catch(() => {}); return send(200, { ok: true })
+    case 'live/heartbeat': return live2.heartbeat(id, body) ? send(200, { ok: true }) : send(404, { error: 'Sin registrar' })
+    case 'live/unregister': live2.unregister(id); return send(200, { ok: true })
+    case 'live/call': {
+      if (!live2.status(id)) return send(409, { error: 'La partida no está abierta con fport1-social instalado', code: -32000 })
+      const r = await live2.call(id, String(body.method), body.params ?? {})
+      return 'error' in r ? send(200, { error: r.error.message, code: r.error.code, motivo: r.error.hint }) : send(200, { result: r.result })
+    }
+    default: return send(404, { error: 'Acción desconocida' })
+  }
+})
+await new Promise((r) => bridgeSrv.listen(0, '127.0.0.1', r))
+const tmp = path.dirname(outFile)
+const bridgeFile = path.join(tmp, 'ai-bridge.json')
+fs.writeFileSync(bridgeFile, JSON.stringify({ port: bridgeSrv.address().port, token: bridgeToken, pid: process.pid, version: 'prueba' }))
+const mcpFile = path.join(tmp, 'modpack-mcp.cjs')
+fs.writeFileSync(mcpFile, MCP_SCRIPT)
+const env = { ...process.env, MODPACK_BRIDGE: bridgeFile, MODPACK_INSTANCE: 'prueba' }
+
+function tool(name, args = {}) {
+  return new Promise((resolve) => {
+    const p = spawn(process.execPath, [mcpFile, name, ...Object.entries(args).map(([k, v]) => `${k}=${v}`)], { env })
+    let out = ''
+    p.stdout.on('data', (d) => (out += d))
+    p.on('close', (code) => { try { resolve({ code, json: JSON.parse(out) }) } catch { resolve({ code, out }) } })
+  })
+}
+function mcpList() {
+  return new Promise((resolve) => {
+    const p = spawn(process.execPath, [mcpFile], { env })
+    let out = ''
+    p.stdout.on('data', (d) => {
+      out += d
+      const lines = out.split('\n').filter(Boolean)
+      if (lines.length >= 2) { p.kill(); resolve(JSON.parse(lines[1]).result.tools) }
+    })
+    p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }) + '\n')
+    p.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n')
+  })
+}
+
+const tools = await mcpList()
+const names = tools.map((t) => t.name)
+check('MCP: ofrece estado_en_vivo, rendimiento_en_vivo y ejecutar_comando', ['estado_en_vivo', 'rendimiento_en_vivo', 'ejecutar_comando'].every((n) => names.includes(n)), names)
+const ej = tools.find((t) => t.name === 'ejecutar_comando')
+check('MCP: ejecutar_comando pide comando y como (jugador|servidor)', ej.inputSchema.required.includes('comando') && ej.inputSchema.properties.como.enum.join() === 'jugador,servidor', ej.inputSchema)
+
+const before = await tool('estado_en_vivo')
+check('MCP sin partida: error claro', before.code === 1 && /no está abierta con fport1-social/.test(before.json?.error), before)
+
+await live2.register('prueba', reg(mod2))
+const beat = setInterval(() => live2.heartbeat('prueba', reg(mod2)), 10_000)
+const est = await tool('estado_en_vivo')
+check('MCP estado_en_vivo → state.get', est.code === 0 && est.json?.result?.dimension === 'minecraft:overworld', est)
+const ren = await tool('rendimiento_en_vivo')
+check('MCP rendimiento_en_vivo → perf.get', ren.code === 0 && ren.json?.result?.client?.fps === 144, ren)
+const com = await tool('ejecutar_comando', { comando: 'time set noon', como: 'servidor' })
+check('MCP ejecutar_comando como servidor → command.run as=server', com.code === 0 && com.json?.result?.command === 'time set noon', com)
+const den = await tool('ejecutar_comando', { comando: 'denegar' })
+check('MCP comando denegado: error con código y motivo', den.code === 1 && den.json?.code === -32005 && !!den.json?.motivo, den)
+mod2.capabilitiesChanged(['state', 'perf'])
+await sleep(50)
+const sinCap = await tool('ejecutar_comando', { comando: 'say hola' })
+check('MCP sin la capacidad command: -32002', sinCap.code === 1 && sinCap.json?.code === -32002, sinCap)
+clearInterval(beat)
+live2.closeAll()
+await mod2.close()
+bridgeSrv.close()
 
 // La clave del mod nunca aparece en la actividad
 check('la clave no sale en la actividad', !h.activity.some((a) => a.text.includes(mod.token)))

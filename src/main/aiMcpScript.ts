@@ -137,11 +137,32 @@ const TOOLS = [
     map: (a) => ({ kind: a.tipo, title: a.titulo, symptom: a.sintoma, cause: a.causa, fix: a.arreglo, mods: a.mods }) },
 ]
 
+// ── En vivo: la partida abierta con el mod fport1-social ──
+// Cada herramienta es un método del mod que el launcher reenvía con live/call.
+// Para añadir una basta con una fila: herramienta → método → capacidad que tiene
+// que declarar el mod (el launcher la comprueba con LIVE_METHOD_CAPABILITIES de
+// liveBridge.ts) y cómo se traducen los argumentos.
+const EN_VIVO = ' Solo funciona con la partida abierta y el mod fport1-social instalado.'
+const LIVE_TOOLS = [
+  { name: 'estado_en_vivo', method: 'state.get', capability: 'state',
+    description: 'Dónde está el jugador y qué está mirando ahora mismo en la partida abierta: dimensión, posición, rotación, bioma, hora, clima, vida, hambre, modo de juego y el bloque o entidad que mira (con su NBT si hay servidor integrado).' + EN_VIVO,
+    input: S() },
+  { name: 'rendimiento_en_vivo', method: 'perf.get', capability: 'perf',
+    description: 'FPS, TPS/MSPT, memoria y entidades por tipo de la partida abierta (chunks cargados, distancia de renderizado, entidades por dimensión).' + EN_VIVO,
+    input: S() },
+  { name: 'ejecutar_comando', method: 'command.run', capability: 'command', // y command.server con como=servidor
+    description: 'Ejecuta un comando de Minecraft en la partida abierta y devuelve su salida. En multijugador el jugador tiene que aprobarlo en pantalla (si lo deniega devuelve el código -32005). Como servidor (permiso 4) solo en un mundo propio o en un servidor con el mod donde el jugador sea operador; como jugador lo valida el servidor con sus permisos normales.' + EN_VIVO,
+    input: S({ comando: str('El comando, p. ej. "time set noon" o "give @s minecraft:diamond 3"'), como: { type: 'string', enum: ['jugador', 'servidor'], description: 'Quién lo ejecuta (por defecto jugador)' } }, ['comando']),
+    map: (a) => ({ command: String(a.comando || ''), as: a.como === 'servidor' ? 'server' : 'player' }) },
+]
+for (const t of LIVE_TOOLS) TOOLS.push({ ...t, route: 'live/call', timeout: 75000, live: true })
+
 async function run(name, args) {
   const t = TOOLS.find((x) => x.name === name)
   if (!t) return { error: 'Herramienta desconocida: ' + name }
   if (!INSTANCE) return { error: 'Falta MODPACK_INSTANCE' }
-  return call('/instance/' + encodeURIComponent(INSTANCE) + '/' + t.route, t.map ? t.map(args || {}) : {}, t.timeout)
+  const body = t.map ? t.map(args || {}) : {}
+  return call('/instance/' + encodeURIComponent(INSTANCE) + '/' + t.route, t.live ? { method: t.method, params: body } : body, t.timeout)
 }
 
 // ── Modo consola ──
@@ -188,7 +209,7 @@ if (argv.length) {
           protocolVersion: (params && params.protocolVersion) || '2025-06-18',
           capabilities: { tools: {} },
           serverInfo: { name: 'modpack-launcher', version: '1.0.0' },
-          instructions: 'Herramientas para probar, arreglar y editar esta instancia de Minecraft a través de Modpack Launcher (mods, resource packs, shaders, datapacks y configs). Todo cambio pasa por el launcher, que lo muestra al usuario y, si así está configurado, le pide permiso. Tras cada cambio usa lanzar_juego para comprobarlo. Lee lecciones antes de diagnosticar y usa anotar_leccion al terminar.',
+          instructions: 'Herramientas para probar, arreglar y editar esta instancia de Minecraft a través de Modpack Launcher (mods, resource packs, shaders, datapacks y configs). Todo cambio pasa por el launcher, que lo muestra al usuario y, si así está configurado, le pide permiso. Tras cada cambio usa lanzar_juego para comprobarlo. Lee lecciones antes de diagnosticar y usa anotar_leccion al terminar. Si la partida está abierta con el mod fport1-social, estado_en_vivo, rendimiento_en_vivo y ejecutar_comando ven y manejan el juego mientras se juega.',
         } })
       }
       if (method === 'ping') return out({ jsonrpc: '2.0', id, result: {} })
