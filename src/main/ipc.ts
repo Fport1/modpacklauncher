@@ -126,6 +126,23 @@ export function getSettings(): Settings {
 let currentMainWindow: BrowserWindow | null = null
 let ipcHandlersRegistered = false
 
+/**
+ * Claude Code que trae la app de escritorio de Claude (…/Claude/claude-code/<versión>/claude[.exe]).
+ * Quien solo tiene la app no tiene «claude» en el PATH. Devuelve el de la versión más nueva.
+ */
+async function bundledClaudeCode(): Promise<string | null> {
+  const base = path.join(app.getPath('appData'), 'Claude', 'claude-code')
+  const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
+  const versions = await fs.promises.readdir(base).catch(() => [] as string[])
+  const num = (v: string): number[] => v.split('.').map((x) => parseInt(x, 10) || 0)
+  versions.sort((a, b) => { const x = num(a), y = num(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (y[i] ?? 0) - (x[i] ?? 0); return 0 })
+  for (const v of versions) {
+    const p = path.join(base, v, exe)
+    if (fs.existsSync(p)) return p
+  }
+  return null
+}
+
 function sendToWindow(window: BrowserWindow | null | undefined, channel: string, ...args: unknown[]): boolean {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false
   window.webContents.send(channel, ...args)
@@ -1561,18 +1578,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     await writeToolConfigs(inst, gameDir)
     const { execFile, spawn } = await import('child_process')
     const cmd = tool === 'codex' ? 'codex' : tool === 'gemini' ? 'gemini' : tool === 'grok' ? 'grok' : 'claude'
+    let exe = cmd
     const found = await new Promise<boolean>((res) => execFile(process.platform === 'win32' ? 'where' : 'which', [cmd], (err) => res(!err)))
-    if (!found) {
+    // La app de escritorio de Claude trae su propio Claude Code, pero no lo pone en el PATH
+    const bundled = !found && cmd === 'claude' ? await bundledClaudeCode() : null
+    if (bundled) exe = bundled
+    if (!found && !bundled) {
       const how = cmd === 'claude' ? 'https://claude.com/claude-code' : cmd === 'codex' ? 'npm i -g @openai/codex' : cmd === 'grok' ? 'npm i -g @vibe-kit/grok-cli, y guarda tu clave de xAI' : 'npm i -g @google/gemini-cli'
       throw new Error(`No se encontró «${cmd}» en este equipo. Instálalo (${how}) y vuelve a intentarlo.`)
     }
     const title = `${inst.name} · ${cmd}`.replace(/[&|<>^"%]/g, '')
     if (process.platform === 'win32') {
-      spawn('cmd.exe', ['/c', 'start', `"${title}"`, 'cmd.exe', '/k', cmd], { cwd: gameDir, detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref()
+      spawn('cmd.exe', ['/c', 'start', `"${title}"`, 'cmd.exe', '/k', exe === cmd ? cmd : `"${exe}"`], { cwd: gameDir, detached: true, stdio: 'ignore', windowsVerbatimArguments: true }).unref()
     } else if (process.platform === 'darwin') {
-      spawn('osascript', ['-e', `tell application "Terminal" to do script "cd ${JSON.stringify(gameDir).slice(1, -1)} && ${cmd}"`], { detached: true, stdio: 'ignore' }).unref()
+      spawn('osascript', ['-e', `tell application "Terminal" to do script "cd ${JSON.stringify(gameDir).slice(1, -1)} && ${exe === cmd ? cmd : `'${exe}'`}"`], { detached: true, stdio: 'ignore' }).unref()
     } else {
-      spawn('x-terminal-emulator', ['-e', `sh -c 'cd "${gameDir}" && ${cmd}; exec sh'`], { detached: true, stdio: 'ignore' }).unref()
+      spawn('x-terminal-emulator', ['-e', `sh -c 'cd "${gameDir}" && ${exe === cmd ? cmd : `"${exe}"`}; exec sh'`], { detached: true, stdio: 'ignore' }).unref()
     }
   })
 
