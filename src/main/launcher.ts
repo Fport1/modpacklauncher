@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import path from 'path'
 import fs from 'fs-extra'
 import type { ChildProcess } from 'child_process'
@@ -16,6 +16,11 @@ export const gameEvents = new EventEmitter()
 /** Si una instancia está abierta ahora mismo. */
 export function isInstanceRunning(instanceId: string): boolean {
   return runningProcesses.has(instanceId)
+}
+
+/** PID del proceso del juego que abrió el launcher para esa instancia (lo comprueba el canal en vivo). */
+export function getInstancePid(instanceId: string): number | undefined {
+  return runningProcesses.get(instanceId)?.pid
 }
 
 function sendToWindow(window: BrowserWindow, channel: string, ...args: unknown[]): boolean {
@@ -367,6 +372,12 @@ export async function launchInstance(
   const extraJVMArgs = instance.jvmArgs?.trim()
     ? instance.jvmArgs.split('\n').flatMap(l => l.trim().split(/\s+/)).filter(Boolean)
     : []
+  // Canal en vivo (mod fport1-social): dónde está el puente para IAs y qué instancia es.
+  // Es el mismo ai-bridge.json que escribe aiBridge.ts. Sin el mod no hace nada.
+  extraJVMArgs.push(
+    `-Dfport1.bridge=${path.join(app.getPath('userData'), 'ai-bridge.json')}`,
+    `-Dfport1.instance=${instance.id}`
+  )
 
   // Resolve target display position for multi-monitor support
   const extraMCArgs: string[] = []

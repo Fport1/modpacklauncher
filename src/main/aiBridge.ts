@@ -3,7 +3,8 @@ import http from 'http'
 import crypto from 'crypto'
 import fs from 'fs-extra'
 import path from 'path'
-import { gameEvents, isInstanceRunning, killInstance } from './launcher'
+import { gameEvents, getInstancePid, isInstanceRunning, killInstance } from './launcher'
+import { createLiveBridge, NOT_LIVE_MESSAGE, type LiveRegistration } from './liveBridge'
 import { getInstance, getInstanceGameDir, listMods, listResourcepacks, listShaderpacks, loadInstances } from './instances'
 import { getInstalledModsMeta, getModVersions, installModFromUrl, searchMods } from './modrinth'
 import axios from 'axios'
@@ -29,7 +30,8 @@ import { countEvent } from './telemetry'
 // Claude Code, Codex, Gemini… piden aprobación para cada herramienta MCP.
 //
 // Es un servidor HTTP solo en 127.0.0.1 con una clave aleatoria guardada en
-// userData/ai-bridge.json; lo usa el servidor MCP de aiMcpScript.ts.
+// userData/ai-bridge.json; lo usa el servidor MCP de aiMcpScript.ts y, con
+// live/*, el mod fport1-social para abrir el canal en vivo con la partida.
 
 export const BRIDGE_FILE = (): string => path.join(app.getPath('userData'), 'ai-bridge.json')
 export const MCP_SCRIPT_FILE = (): string => path.join(app.getPath('userData'), 'ai', 'modpack-mcp.cjs')
@@ -79,6 +81,22 @@ function logActivity(instanceId: string, text: string, kind: AiActivity['kind'] 
   if (activity.length > 300) activity.shift()
   if (kind === 'change') countEvent('aiActions')
   broadcast('ai:activity', a)
+}
+
+// ── Canal en vivo con la partida (mod fport1-social, ver liveBridge.ts) ─────
+
+const live = createLiveBridge({
+  clientVersion: app.getVersion(),
+  activity: (id, text, kind) => logActivity(id, text, kind),
+  changed: (instanceId, status) => broadcast('ai:live', { instanceId, status }),
+})
+// Último error al conectar con cada partida, para no repetirlo en cada reintento del mod (cada 15 s)
+const liveErrors = new Map<string, string>()
+
+gameEvents.on('exit', (id: string) => live.unregister(id))
+
+function liveRegistration(body: any): LiveRegistration {
+  return { port: Number(body.port), token: String(body.token ?? ''), side: body.side, mc: body.mc, loader: body.loader, modVersion: body.modVersion, protocol: body.protocol, pid: body.pid != null ? Number(body.pid) : undefined }
 }
 
 // ── Utilidades ──────────────────────────────────────────────────────────────
@@ -236,6 +254,7 @@ export function startAiBridge(launch: LaunchFn): void {
   fs.outputFile(MCP_SCRIPT_FILE(), MCP_SCRIPT).catch(() => {})
 
   ipcMain.handle('ai:activity', (_e, instanceId?: string) => activity.filter((a) => !instanceId || a.instanceId === instanceId).slice(-100))
+  ipcMain.handle('ai:live', () => live.list())
   const server = http.createServer(async (req, res) => {
     const send = (status: number, body: unknown): void => {
       res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
@@ -553,6 +572,39 @@ export function startAiBridge(launch: LaunchFn): void {
         }
         case 'community':
           return send(200, await communityExperience(inst, body.mod ? String(body.mod) : undefined))
+        // ── Canal en vivo: el mod de la partida se registra y las IAs llaman a través del launcher ──
+        case 'live/register': {
+          // Solo la partida que abrió el launcher para esta instancia
+          if (!isInstanceRunning(inst.id)) return send(409, { error: 'Esta instancia no está abierta desde el launcher' })
+          const pid = getInstancePid(inst.id)
+          if (pid && body.pid != null && Number(body.pid) !== pid) return send(403, { error: 'Ese proceso no es el juego que abrió el launcher para esta instancia' })
+          const reg = liveRegistration(body)
+          if (!reg.token || !(reg.port > 0)) return send(400, { error: 'Faltan port y token' })
+          // Se responde ya y se conecta después: el mod espera la respuesta como mucho 10 s
+          // y, si la conexión falla, su próximo latido recibe 404 y vuelve a registrarse.
+          live.register(inst.id, reg).then(() => liveErrors.delete(inst.id), (e) => {
+            const msg = e instanceof Error ? e.message : String(e)
+            if (liveErrors.get(inst.id) !== msg) logActivity(inst.id, msg, 'error')
+            liveErrors.set(inst.id, msg)
+          })
+          return send(200, { ok: true })
+        }
+        case 'live/heartbeat':
+          return live.heartbeat(inst.id, { port: body.port, token: body.token }) ?send(200, { ok: true }) : send(404, { error: 'Sin registrar' })
+        case 'live/unregister':
+          live.unregister(inst.id)
+          liveErrors.delete(inst.id)
+          return send(200, { ok: true })
+        case 'live/call': {
+          // Lo usa el servidor MCP: las IAs nunca hablan directamente con el juego
+          const method = String(body.method ?? '')
+          if (!method) return send(400, { error: 'Falta method' })
+          if (!live.status(inst.id)) return send(409, { error: NOT_LIVE_MESSAGE, code: -32000 })
+          const params = body.params && typeof body.params === 'object' ? body.params : {}
+          const r = await live.call(inst.id, method, params)
+          if ('error' in r) return send(200, { error: r.error.message, code: r.error.code, motivo: r.error.hint, data: r.error.data })
+          return send(200, { result: r.result })
+        }
         default:
           return send(404, { error: `Acción desconocida: ${action}` })
       }
@@ -569,5 +621,5 @@ export function startAiBridge(launch: LaunchFn): void {
       fs.outputJsonSync(BRIDGE_FILE(), { port: addr.port, token, pid: process.pid, version: app.getVersion() })
     }
   })
-  app.on('before-quit', () => { fs.removeSync(BRIDGE_FILE()); server.close() })
+  app.on('before-quit', () => { fs.removeSync(BRIDGE_FILE()); live.closeAll(); server.close() })
 }
