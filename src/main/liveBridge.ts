@@ -89,6 +89,48 @@ export const LIVE_METHOD_CAPABILITIES: Record<string, (params: Record<string, un
   'state.get': () => ['state'],
   'perf.get': () => ['perf'],
   'command.run': (p) => (p.as === 'server' ? ['command', 'command.server'] : ['command']),
+  // Fase 5
+  'reload.datapacks': () => ['reload.datapacks'],
+  'reload.resources': () => ['reload.resources'],
+  'capture.screenshot': () => ['capture'],
+  'camera.set': () => ['camera'],
+  'registry.list': () => ['registry'],
+  'registry.dump': () => ['registry'],
+  'structure.place': () => ['structure'],
+  'player.teleport': () => ['teleport'],
+  'spark.run': () => ['spark'],
+  'events.subscribe': () => ['events'],
+  'events.unsubscribe': () => ['events'],
+  // Fase 6: antes/después de los cambios de la IA
+  'metrics.get': () => ['metrics'],
+  'metrics.mark': () => ['metrics'],
+  'metrics.compare': () => ['metrics'],
+}
+
+/** Métodos que valen con cualquiera de estas capacidades (inspeccionar desde el cliente o con acceso al servidor). */
+export const LIVE_METHOD_ANY_OF: Record<string, string[]> = {
+  'inspect.block': ['inspect', 'inspect.server'],
+  'inspect.entity': ['inspect', 'inspect.server'],
+}
+
+/** Un evento del mod (todos menos audit, que va a la actividad). */
+export interface LiveEvent { type: string; at: number; data: unknown }
+const MAX_EVENTS = 200
+
+/** Texto para la actividad de los eventos que el usuario tiene que ver (el resto solo se guarda). */
+export function eventActivity(type: string, data: unknown): { text: string; kind: AiActivity['kind'] } | null {
+  const d = (data ?? {}) as Record<string, any>
+  if (type === 'datapack_error') {
+    const problems: unknown[] = Array.isArray(d.problems) ? d.problems : []
+    const first = problems.length ? String(typeof problems[0] === 'string' ? problems[0] : (problems[0] as any)?.message ?? JSON.stringify(problems[0])).slice(0, 160) : ''
+    return { text: `Errores al recargar datapacks${problems.length ? ` (${problems.length})` : ''}${first ? `: ${first}` : ''}`, kind: 'error' }
+  }
+  if (type === 'crash_imminent') {
+    // El mod manda {reason: "memory", usedMb, maxMb}
+    const pct = typeof d.usedMb === 'number' && typeof d.maxMb === 'number' && d.maxMb > 0 ? ` (${Math.round((d.usedMb / d.maxMb) * 100)} % de ${d.maxMb} MB)` : ''
+    return { text: `La partida se está quedando sin memoria${pct}: puede cerrarse en cualquier momento`, kind: 'error' }
+  }
+  return null
 }
 
 const PROTOCOL_RANGE: [number, number] = [1, 1]
@@ -115,6 +157,8 @@ export interface LiveBridge {
   heartbeat(instanceId: string, reg: Partial<LiveRegistration>): boolean
   unregister(instanceId: string, reason?: string): void
   call(instanceId: string, method: string, params?: Record<string, unknown>): Promise<LiveCallResult>
+  /** Eventos guardados de la instancia (los últimos 200), opcionalmente desde una marca de tiempo y de ciertos tipos. */
+  events(instanceId: string, since?: number, types?: string[]): LiveEvent[]
   status(instanceId: string): LiveStatus | null
   list(): LiveStatus[]
   closeAll(): void
@@ -126,6 +170,14 @@ export function auditText(data: unknown): string {
   const what: Record<string, string> = {
     'command.run': 'Comando en la partida',
     'command.server': 'Comando en el servidor',
+    'reload.datapacks': 'Recarga de datapacks',
+    'reload.resources': 'Recarga de resource packs',
+    'capture.screenshot': 'Captura de pantalla',
+    'camera.set': 'Cámara movida',
+    'structure.place': 'Estructura colocada',
+    'player.teleport': 'Teletransporte',
+    'spark.run': 'Perfil de rendimiento (spark)',
+    'metrics.mark': 'Medición antes de un cambio',
   }
   const method = String(d.method ?? '?')
   const client = d.client && d.client !== 'modpack-launcher' ? ` (desde ${d.client})` : ''
@@ -138,6 +190,9 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
   const callTimeoutMs = opts.callTimeoutMs ?? 70_000
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10_000
   const conns = new Map<string, Conn>()
+  // Eventos por instancia: sobreviven a una reconexión del mod dentro de la misma partida
+  const eventLog = new Map<string, LiveEvent[]>()
+  const lastPid = new Map<string, number>()
 
   const armWatchdog = (c: Conn): void => {
     if (c.watchdog) clearTimeout(c.watchdog)
@@ -193,6 +248,14 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
     // Notificaciones del mod
     if (msg?.method === 'event' && msg.params?.type === 'audit') {
       hooks.activity(c.instanceId, auditText(msg.params.data), 'change')
+    } else if (msg?.method === 'event' && typeof msg.params?.type === 'string') {
+      const ev: LiveEvent = { type: msg.params.type, at: typeof msg.params.at === 'number' ? msg.params.at : Date.now(), data: msg.params.data ?? null }
+      const list = eventLog.get(c.instanceId) ?? []
+      list.push(ev)
+      if (list.length > MAX_EVENTS) list.splice(0, list.length - MAX_EVENTS)
+      eventLog.set(c.instanceId, list)
+      const a = eventActivity(ev.type, ev.data)
+      if (a) hooks.activity(c.instanceId, a.text, a.kind)
     } else if (msg?.method === 'capabilities/changed' && c.status) {
       const p = msg.params ?? {}
       c.status = {
@@ -225,6 +288,9 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
       // Un registro nuevo sustituye al anterior (el juego se reinició o se perdió la conexión)
       const old = conns.get(instanceId)
       if (old) drop(old)
+      // Otro proceso es otra partida: sus eventos empiezan de cero
+      if (reg.pid != null && lastPid.get(instanceId) !== reg.pid) eventLog.delete(instanceId)
+      if (reg.pid != null) lastPid.set(instanceId, reg.pid)
 
       const ws = new WebSocket(`ws://127.0.0.1:${port}/fport1-ai`, {
         headers: { Authorization: `Bearer ${reg.token}` },
@@ -288,6 +354,8 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
       // El mod tiene que declarar la capacidad (cambia al entrar o salir de un mundo)
       const need = LIVE_METHOD_CAPABILITIES[method]?.(params) ?? []
       const missing = need.filter((cap) => !c.status!.capabilities.includes(cap))
+      const anyOf = LIVE_METHOD_ANY_OF[method]
+      if (anyOf && !anyOf.some((cap) => c.status!.capabilities.includes(cap))) missing.push(anyOf.join(' o '))
       if (missing.length) {
         return { error: { code: LIVE_ERRORS.CAPABILITY, message: `La partida no ofrece ${missing.join(', ')} ahora mismo (${c.status.side}, permiso ${c.status.permission}). Capacidades: ${c.status.capabilities.join(', ') || 'ninguna'}` } }
       }
@@ -298,6 +366,12 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
         return { error: hint ? { ...r.error, hint } : r.error }
       }
       return r
+    },
+
+    events(instanceId, since, types) {
+      const list = eventLog.get(instanceId) ?? []
+      const want = types?.length && !types.includes('*') ? new Set(types) : null
+      return list.filter((e) => (since == null || e.at > since) && (!want || want.has(e.type)))
     },
 
     status: (instanceId) => conns.get(instanceId)?.status ?? null,
