@@ -127,12 +127,15 @@ let currentMainWindow: BrowserWindow | null = null
 let ipcHandlersRegistered = false
 
 /**
- * Claude Code que trae la app de escritorio de Claude (…/Claude/claude-code/<versión>/claude[.exe]).
- * Quien solo tiene la app no tiene «claude» en el PATH. Devuelve el de la versión más nueva.
+ * Claude Code instalado pero fuera del PATH:
+ * 1. el instalador oficial lo deja en ~/.local/bin y no siempre lo añade al PATH;
+ * 2. la app de escritorio de Claude trae el suyo en …/Claude/claude-code/<versión>/ (el más nuevo).
  */
 async function bundledClaudeCode(): Promise<string | null> {
-  const base = path.join(app.getPath('appData'), 'Claude', 'claude-code')
   const exe = process.platform === 'win32' ? 'claude.exe' : 'claude'
+  const native = path.join(os.homedir(), '.local', 'bin', exe)
+  if (fs.existsSync(native)) return native
+  const base = path.join(app.getPath('appData'), 'Claude', 'claude-code')
   const versions = await fs.promises.readdir(base).catch(() => [] as string[])
   const num = (v: string): number[] => v.split('.').map((x) => parseInt(x, 10) || 0)
   versions.sort((a, b) => { const x = num(a), y = num(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (y[i] ?? 0) - (x[i] ?? 0); return 0 })
