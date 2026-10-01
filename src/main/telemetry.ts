@@ -38,6 +38,9 @@ function localState(): LocalState {
   }
 }
 
+/** Id aleatorio de esta instalación (UUID con guiones; no sale de ningún dato personal). */
+export function installId(): string { return localState().id }
+
 function add(field: string, n = 1, day = true): void {
   pending.inc[field] = (pending.inc[field] ?? 0) + n
   if (day) pending.dayInc[field] = (pending.dayInc[field] ?? 0) + n
