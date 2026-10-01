@@ -97,6 +97,7 @@ function fakeMod({ instance = 'prueba', caps = ALL_CAPS } = {}) {
           }, 20)
           return
         }
+        case 'events.unsubscribe': return reply(id, { subscribed: [] })
         case 'metrics.get': return reply(id, { samples: [{ t: 1, fps: { avg: 90 } }], minutes: params.minutes })
         case 'metrics.mark': return reply(id, { id: 'marca123', kind: params.kind, target: params.target, label: params.label })
         case 'metrics.compare': return reply(id, { id: params.id, verdict: 'mejor' })
@@ -236,6 +237,8 @@ const mod3 = await fakeMod()
 const h3 = hooks()
 const live3 = createLiveBridge(h3.hooks, { callTimeoutMs: 2000 })
 await live3.register('prueba', reg(mod3, { pid: 111 }))
+for (let i = 0; i < 40 && !mod3.calls.length; i++) await sleep(25)
+check('al saludar, el launcher se suscribe a todos los eventos', mod3.calls[0]?.method === 'events.subscribe' && JSON.stringify(mod3.calls[0].params.types) === '["*"]', mod3.calls[0])
 const rl = await live3.call('prueba', 'reload.datapacks')
 check('reload.datapacks devuelve problems', rl.result?.problems?.length === 1, rl)
 await sleep(50)
@@ -274,22 +277,63 @@ check('auditText de métodos nuevos', auditText({ method: 'structure.place', det
 // Otra partida (otro proceso): los eventos empiezan de cero; la misma partida que se reconecta los conserva
 await live3.register('prueba', reg(mod3, { pid: 111 }))
 check('reconexión del mismo proceso conserva los eventos', live3.events('prueba').length > 0)
+const tOtro = Date.now()
 await live3.register('prueba', reg(mod3, { pid: 222 }))
-check('otro proceso: eventos vacíos', live3.events('prueba').length === 0)
+check('otro proceso: no quedan eventos de la partida anterior', live3.events('prueba').every((e) => e.at >= tOtro), live3.events('prueba'))
+mod3.calls.length = 0
+mod3.capabilitiesChanged(ALL_CAPS)
+for (let i = 0; i < 40 && !mod3.calls.length; i++) await sleep(25)
+check('al aparecer «events» después, también se suscribe a todo', mod3.calls[0]?.method === 'events.subscribe' && JSON.stringify(mod3.calls[0].params.types) === '["*"]', mod3.calls)
+const unsub = await live3.call('prueba', 'events.unsubscribe', { types: ['*', 'death'] })
+check('una IA no puede quitar la suscripción del launcher a todo', unsub.result !== undefined && JSON.stringify(mod3.calls.at(-1)?.params.types) === '["death"]', mod3.calls.at(-1))
 live3.closeAll()
 await mod3.close()
 
 // ── Fase 6: métricas y resultados (liveData.ts) ────────────────────────────
+
+// Copia en JS de las reglas publicadas en fport1web/firestore.rules (commits c1ddab0 a e471814).
+// Si fport1web las cambia, hay que cambiar esto también.
+const reglas = (() => {
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v)
+  const hasOnly = (o, keys) => Object.keys(o).every((k) => keys.includes(k))
+  const entre = (m, k, min, max) => !(k in m) || (isNum(m[k]) && m[k] >= min && m[k] <= max)
+  const num = (m, k) => !(k in m) || isNum(m[k])
+  const corto = (m, k, max) => !(k in m) || (typeof m[k] === 'string' && m[k].length <= max)
+  const resumen = (r) => r && typeof r === 'object' && hasOnly(r, ['minutes', 'counted', 'fpsAvg', 'fpsMin', 'msptAvg', 'msptP95', 'errorsPerMin', 'warningsPerMin', 'lagPerMin', 'worldLoadMs'])
+    && entre(r, 'minutes', 0, 1440) && entre(r, 'counted', 0, 1440) && ['fpsAvg', 'fpsMin', 'msptAvg', 'msptP95', 'errorsPerMin', 'warningsPerMin', 'lagPerMin', 'worldLoadMs'].every((k) => num(r, k))
+  return {
+    liveValido: (l) => hasOnly(l, ['fpsAvg', 'fpsP5', 'msptAvg', 'msptP95', 'lagPerMin', 'worldLoadMs', 'dimLoadMs', 'memMaxMb', 'topEntities', 'samples'])
+      && entre(l, 'fpsAvg', 0, 2000) && entre(l, 'fpsP5', 0, 2000) && entre(l, 'msptAvg', 0, 60000) && entre(l, 'msptP95', 0, 60000)
+      && ['lagPerMin', 'samples', 'worldLoadMs', 'dimLoadMs', 'memMaxMb'].every((k) => num(l, k))
+      && (!('topEntities' in l) || (typeof l.topEntities === 'object' && Object.keys(l.topEntities).length <= 10)),
+    // «at» lo añade el commit con la hora del servidor; aquí se comprueba el resto
+    outcomeValido: (d) => hasOnly(d, ['kind', 'target', 'mc', 'loader', 'v', 'modVersion', 'mods', 'before', 'after', 'ranAfter', 'verdict', 'lessonId'])
+      && ['mod', 'config', 'datapack', 'resourcepack', 'shader', 'world', 'other'].includes(d.kind)
+      && ['mejor', 'peor', 'igual', 'sin datos', 'sin datos de antes'].includes(d.verdict)
+      && typeof d.target === 'string' && d.target.length <= 64 && /^[a-z0-9_.:/-]*$/.test(d.target)
+      && corto(d, 'mc', 24) && corto(d, 'loader', 16) && corto(d, 'v', 20) && corto(d, 'modVersion', 24) && corto(d, 'lessonId', 40)
+      && (!('mods' in d) || (Array.isArray(d.mods) && d.mods.length <= 150))
+      && (!('before' in d) || resumen(d.before)) && (!('after' in d) || resumen(d.after))
+      && typeof d.ranAfter === 'boolean',
+  }
+})()
 
 liveData.clearSession('prueba')
 const sampleBase = { side: 'integrated', fps: { avg: 100, min: 40, p5: 60 }, mspt: { avg: 8, p95: 12, max: 40 }, tps: 20, memMb: { used: 500, max: 4000 },
   server: { topEntities: { 'minecraft:zombie': 20, 'minecraft:cow': 12 } }, log: { warnings: 0, errors: 0 }, lagSpikes: 1 }
 liveData.addSample('prueba', { ...sampleBase, t: 1 })
 liveData.addSample('prueba', { ...sampleBase, t: 2, fps: { avg: 80, p5: 40 }, mspt: { avg: 10, p95: 16 }, lagSpikes: 0 })
-liveData.addSample('prueba', { ...sampleBase, t: 3, fps: { avg: 5 }, loadMs: { world: 8000 } }) // minuto con carga: no cuenta para FPS
+liveData.addSample('prueba', { ...sampleBase, t: 3, fps: { avg: 5 }, loadMs: { world: 8000 }, memMb: { used: 1800, max: 4000 } }) // minuto con carga: no cuenta para FPS
+liveData.addSample('prueba', { ...sampleBase, t: 4, fps: { avg: 1, p5: 1 }, mspt: { avg: 500, p95: 900 }, pausedS: 45, lagSpikes: 1 }) // más de 30 s en pausa: tampoco
+liveData.addSample('prueba', { ...sampleBase, t: 5, fps: { avg: 90, p5: 50 }, mspt: { avg: 9, p95: 14 }, pausedS: 10, lagSpikes: 0 }) // pausa corta: sí cuenta
 const sum = liveData.summarizeSamples(liveData.getSamples('prueba'))
-check('resumen: FPS sin contar el minuto de carga', sum.fpsAvg === 90 && sum.fpsP5 === 50, sum)
-check('resumen: MSPT, lag, carga, memoria, entidades y muestras', sum.msptAvg === 9 && sum.msptP95 === 14 && sum.lagPerMin === 0.67 && sum.worldLoadMs === 8000 && sum.memMaxMb === 4000 && sum.topEntities['minecraft:zombie'] === 20 && sum.samples === 3, sum)
+check('resumen: FPS sin los minutos de carga ni los de más de 30 s en pausa', sum.fpsAvg === 90 && sum.fpsP5 === 50, sum)
+check('resumen: MSPT, lag, carga y muestras', sum.msptAvg === 9 && sum.msptP95 === 14 && sum.lagPerMin === 0.6 && sum.worldLoadMs === 8000 && sum.samples === 5, sum)
+check('resumen: memMaxMb es la memoria más alta USADA', sum.memMaxMb === 1800, sum.memMaxMb)
+check('resumen: topEntities con «_» en vez de «:»', sum.topEntities.minecraft_zombie === 20 && !Object.keys(sum.topEntities).some((k) => /[:/]/.test(k)), sum.topEntities)
+check('resumen: pasa liveValido de las reglas', reglas.liveValido(sum), sum)
+const sumTop = liveData.summarizeSamples(Array.from({ length: 15 }, (_, i) => ({ ...sampleBase, fps: { avg: 5000 }, server: { topEntities: Object.fromEntries(Array.from({ length: 15 }, (_, j) => [`mod:e${i}_${j}`, j])) } })))
+check('resumen: como mucho 10 entidades y FPS dentro del rango de las reglas', Object.keys(sumTop.topEntities).length === 10 && sumTop.fpsAvg === 2000 && reglas.liveValido(sumTop), sumTop)
 check('resumen: solo claves permitidas por las reglas', Object.keys(sum).every((k) => ['fpsAvg', 'fpsP5', 'msptAvg', 'msptP95', 'lagPerMin', 'worldLoadMs', 'dimLoadMs', 'memMaxMb', 'topEntities', 'samples'].includes(k)), Object.keys(sum))
 liveData.clearSession('prueba')
 check('una partida nueva empieza sin muestras', liveData.getSamples('prueba').length === 0)
@@ -300,7 +344,49 @@ check('resultado: target normalizado', doc.target === 'sodiumextra', doc.target)
 check('resultado: solo claves permitidas en before/after y minutos ≤ 1440', !('secreto' in doc.before) && doc.after.minutes === 1440, doc)
 check('resultado: mods válidos y lessonId', doc.mods.join() === 'sodium' && doc.lessonId === 'abcdEFGH1234', doc)
 check('resultado: kind y verdict inventados se corrigen', liveData.outcomeDoc({ kind: 'hack', verdict: 'genial', before: {} }, { mc: '1.21.1', loader: 'fabric', v: 'x' }).kind === 'other' && liveData.outcomeDoc({ kind: 'hack', verdict: 'genial', before: {} }, { mc: '1.21.1', loader: 'fabric', v: 'x' }).verdict === 'sin datos')
-check('resultado: sin before ni after no hay documento', liveData.outcomeDoc({ kind: 'mod' }, { mc: '1.21.1', loader: 'fabric', v: 'x' }) === null)
+const sinAntes = liveData.outcomeDoc({ kind: 'mod', target: 'sodium', after: { minutes: 5, fpsAvg: 80 }, verdict: 'sin datos de antes', id: 'del-mod', at: 123 }, { mc: '1.21.1', loader: 'fabric', v: 'x' })
+check('resultado: before es opcional («sin datos de antes»)', !('before' in sinAntes) && sinAntes.after.fpsAvg === 80 && sinAntes.verdict === 'sin datos de antes', sinAntes)
+check('resultado: sin id ni at del mod (at lo pone el servidor)', !('id' in sinAntes) && !('at' in sinAntes), sinAntes)
+const nada = liveData.outcomeDoc({ kind: 'mod', verdict: 'sin datos' }, { mc: '1.21.1', loader: 'fabric', v: 'x' })
+check('resultado: sin before ni after también se sube', !('before' in nada) && !('after' in nada) && nada.target === '', nada)
+for (const [n, d] of [['completo', doc], ['sin before', sinAntes], ['sin nada', nada]]) check(`resultado ${n}: pasa las reglas de live_outcomes`, reglas.outcomeValido(d), d)
+check('las reglas de prueba rechazan label', !reglas.outcomeValido({ ...doc, label: 'x' }))
+
+// ── Serie completa a Storage (uploadSeries) contra una web y un Storage falsos ──
+const subidas = { post: [], put: [] }
+let modoWeb = 'ok'
+const webSrv = http.createServer(async (req, res) => {
+  const chunks = []
+  for await (const c of req) chunks.push(c)
+  const body = Buffer.concat(chunks)
+  const json = (st, b) => { res.writeHead(st, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(b)) }
+  if (req.method === 'POST' && req.url === '/api/ai-data-upload') {
+    subidas.post.push(JSON.parse(body.toString()))
+    if (modoWeb === '429') return json(429, { error: 'rate_limited', retryAfter: 3600 })
+    return json(200, { url: `http://127.0.0.1:${webSrv.address().port}/firmada?x=1`, ruta: 'ai-data/perf/2026/10/abc.json.gz', metodo: 'PUT', expiraEn: 600,
+      cabeceras: { 'Content-Type': 'application/gzip', 'x-goog-content-length-range': '0,262144' } })
+  }
+  if (req.method === 'PUT' && req.url.startsWith('/firmada')) {
+    subidas.put.push({ headers: req.headers, size: body.length })
+    // Como Storage: sin la cabecera del rango de tamaño, rechaza
+    return req.headers['x-goog-content-length-range'] === '0,262144' && req.headers['content-type'] === 'application/gzip' ? json(200, {}) : json(403, { error: 'SignatureDoesNotMatch' })
+  }
+  json(404, {})
+})
+await new Promise((r) => webSrv.listen(0, '127.0.0.1', r))
+const web = `http://127.0.0.1:${webSrv.address().port}`
+const gzSerie = (await import('node:zlib')).gzipSync(Buffer.from(JSON.stringify({ samples: [sampleBase] })))
+const idInstalacion = crypto.randomUUID()
+const up = await liveData.uploadSeries(gzSerie, idInstalacion, web)
+check('serie: se pide la URL con kind perf, tamaño e installId (UUID con guiones)', subidas.post[0]?.kind === 'perf' && subidas.post[0].size === gzSerie.length && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(subidas.post[0].installId), subidas.post[0])
+check('serie: PUT con las cabeceras exactas de la web', up === 'subido' && subidas.put[0]?.headers['x-goog-content-length-range'] === '0,262144' && subidas.put[0].headers['content-type'] === 'application/gzip' && subidas.put[0].size === gzSerie.length, { up, put: subidas.put[0]?.headers })
+check('serie: más de 256 KB no se pide', await liveData.uploadSeries(Buffer.alloc(262145), idInstalacion, web) === 'grande' && subidas.post.length === 1)
+modoWeb = '429'
+const lim1 = await liveData.uploadSeries(gzSerie, idInstalacion, web)
+const lim2 = await liveData.uploadSeries(gzSerie, idInstalacion, web)
+check('serie: tras un 429 no se reintenta en bucle', lim1 === 'limitado' && lim2 === 'limitado' && subidas.post.length === 2, { lim1, lim2, posts: subidas.post.length })
+liveData.resetSeriesLimit()
+webSrv.close()
 check('texto del resultado', liveData.outcomeText(outcome) === 'La IA cambió mod Sodium Extra!: mejor · FPS 58 → 80 · MSPT 21.2 → undefined'.replace(' · MSPT 21.2 → undefined', ''), liveData.outcomeText(outcome))
 
 // ── De punta a punta: servidor MCP → puente (live/call) → partida ────────────
@@ -450,7 +536,7 @@ for (let i = 0; i < 50 && !live2.events('prueba').some((e) => e.type === 'crash_
 const ev = await tool('eventos_en_vivo')
 check('MCP eventos_en_vivo devuelve los eventos guardados', ev.code === 0 && ['death', 'lag_spike', 'crash_imminent', 'datapack_error'].every((t) => ev.json?.eventos?.some((e) => e.type === t)), ev.json)
 const evDeath = await tool('eventos_en_vivo', { tipos: 'death' })
-check('MCP eventos_en_vivo por tipo', evDeath.json?.eventos?.length === 1 && evDeath.json.eventos[0].type === 'death', evDeath.json)
+check('MCP eventos_en_vivo por tipo', evDeath.json?.eventos?.length >= 1 && evDeath.json.eventos.every((e) => e.type === 'death'), evDeath.json)
 
 // Lo que manda el mod por su cuenta (live/metrics y live/outcome)
 const postBridge = (action, body) => new Promise((resolve) => {
@@ -465,7 +551,7 @@ const m1 = await postBridge('live/metrics', { ...sampleBase, t: Date.now() })
 const m2 = await postBridge('live/metrics', { ...sampleBase, t: Date.now() + 60000 })
 check('live/metrics acumula las muestras de la partida', m1.status === 200 && m2.json?.muestras === 2, m2)
 const oc = await postBridge('live/outcome', { kind: 'config', target: 'prueba:zombis', label: '20 zombis más', before: { minutes: 10, fpsAvg: 90 }, after: { minutes: 5, fpsAvg: 60 }, ranAfter: true, verdict: 'peor' })
-check('live/outcome responde y no sube nada (reglas pendientes)', oc.status === 200 && oc.json?.subida === 'desactivado', oc)
+check('live/outcome responde (en la prueba no se sube nada)', oc.status === 200 && oc.json?.subida === 'desactivado', oc)
 check('live/outcome se muestra como actividad', h.activity.some((a) => a.text === 'La IA cambió config prueba:zombis: peor · FPS 90 → 60' && a.kind === 'error'), h.activity.slice(-3))
 
 mod2.capabilitiesChanged(['state', 'perf'])
