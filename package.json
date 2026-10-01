@@ -7,6 +7,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "probar:canal-en-vivo": "node scripts/probar-canal-en-vivo.mjs",
     "clean": "node -e \"require('fs-extra').emptyDirSync('dist')\"",
     "dist:win": "npm run clean && electron-vite build && electron-builder --win",
     "dist:mac": "npm run clean && electron-vite build && electron-builder --mac",
@@ -31,7 +32,8 @@
     "qrcode": "^1.5.4",
     "skinview3d": "^3.4.1",
     "ssh2-sftp-client": "^12.1.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/adm-zip": "^0.5.5",
@@ -42,6 +44,7 @@
     "@types/react-dom": "^18.3.0",
     "@types/ssh2-sftp-client": "^9.0.6",
     "@types/uuid": "^9.0.8",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
     "electron": "^31.0.0",

@@ -442,3 +442,22 @@ export interface ServerJarMeta {
 
 /** Algo que ha hecho (o intentado) una IA en una instancia, a través del launcher. */
 export interface AiActivity { instanceId: string; text: string; at: number; kind: 'info' | 'change' | 'denied' | 'error' }
+
+/**
+ * Partida abierta con el mod fport1-social conectada al launcher por su canal en vivo.
+ * Nunca lleva el puerto ni la clave del mod: eso se queda en el proceso principal.
+ */
+export interface LiveStatus {
+  instanceId: string
+  /** client | integrated | dedicated */
+  side: string
+  /** read | player | operator */
+  permission: string
+  serverHasMod: boolean
+  capabilities: string[]
+  mc?: string
+  loader?: string
+  modVersion?: string
+  protocol?: number
+  connectedAt: number
+}
