@@ -148,6 +148,7 @@ interface Conn {
   pending: Map<number, Pending>
   watchdog?: NodeJS.Timeout
   closed: boolean
+  subscribed?: boolean
 }
 
 export interface LiveBridge {
@@ -266,7 +267,20 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
         capabilities: Array.isArray(p.capabilities) ? p.capabilities.map(String) : c.status.capabilities,
       }
       hooks.changed(c.instanceId, c.status)
+      subscribeAll(c)
     }
+  }
+
+  /**
+   * El launcher se suscribe a todos los eventos en cuanto el mod ofrece «events»,
+   * para que datapack_error y crash_imminent salgan siempre en la actividad, haya
+   * o no una IA mirando. El mod dice que es barato (los eventos son raros o van
+   * limitados a uno cada 10 s).
+   */
+  const subscribeAll = (c: Conn): void => {
+    if (c.subscribed || c.closed || !c.status?.capabilities.includes('events')) return
+    c.subscribed = true
+    void send(c, 'events.subscribe', { types: ['*'] }, callTimeoutMs).then((r) => { if ('error' in r) c.subscribed = false })
   }
 
   const connect = (c: Conn): Promise<void> =>
@@ -329,6 +343,7 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
       }
       if (c.closed) throw new Error('La partida cerró el canal en vivo nada más conectar')
       hooks.changed(instanceId, c.status)
+      subscribeAll(c)
       hooks.activity(instanceId, `Partida en vivo: conectado con fport1-social${c.status.modVersion ? ` ${c.status.modVersion}` : ''} (${c.status.side}, permiso ${c.status.permission})`, 'info')
       return c.status
     },
@@ -359,6 +374,8 @@ export function createLiveBridge(hooks: LiveHooks, opts: LiveOptions = {}): Live
       if (missing.length) {
         return { error: { code: LIVE_ERRORS.CAPABILITY, message: `La partida no ofrece ${missing.join(', ')} ahora mismo (${c.status.side}, permiso ${c.status.permission}). Capacidades: ${c.status.capabilities.join(', ') || 'ninguna'}` } }
       }
+      // La conexión es una sola: una IA no puede quitar la suscripción del launcher a todo
+      if (method === 'events.unsubscribe' && Array.isArray(params.types)) params = { ...params, types: params.types.filter((t: unknown) => t !== '*') }
       const r = await send(c, method, params, callTimeoutMs)
       if ('error' in r) {
         const hint = ERROR_HINT[r.error.code]
