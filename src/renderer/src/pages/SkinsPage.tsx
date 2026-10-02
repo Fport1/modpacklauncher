@@ -394,6 +394,9 @@ export default function SkinsPage() {
   const [error, setError] = useState('')
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [elytra, setElytra] = useState(false)
+  // Lo último elegido, para la capa que termina de cargar después de crear el visor
+  const filtersRef = useRef(filters); filtersRef.current = filters
+  const elytraRef = useRef(elytra); elytraRef.current = elytra
   const [skinLightbox, setSkinLightbox] = useState(false)
   const [capeSelector, setCapeSelector] = useState(false)
   const [allCapes, setAllCapes] = useState<CapeEntry[]>([])
@@ -457,8 +460,14 @@ export default function SkinsPage() {
       canvas: canvasRef.current, width: 340, height: 470,
       skin: skinData.skin,
       model: skinData.model === 'slim' ? 'slim' : 'default',
-      ...(skinData.cape ? { cape: skinData.cape } : {}),
     })
+    // La capa se carga en segundo plano y skinview3d la pone «como capa» al terminar:
+    // se carga ya con el modo elegido y, al acabar, se vuelve a aplicar lo que haya ahora
+    if (skinData.cape) {
+      Promise.resolve(viewer.loadCape(skinData.cape, { backEquipment: elytraRef.current ? 'elytra' : 'cape' }))
+        .then(() => { if (viewerRef.current === viewer) applyFilters(viewer, filtersRef.current, elytraRef.current) })
+        .catch(() => {})
+    }
     viewer.controls.enableZoom = true
     viewer.controls.enableRotate = true
     viewer.controls.enablePan = true
@@ -686,15 +695,15 @@ export default function SkinsPage() {
           )}
 
           {skinData && !loading && (
-            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-6 items-start">
-              {/* Visor 3D */}
-              <div className="rounded-2xl bg-bg-card border border-border overflow-hidden">
+            <div className="flex flex-wrap gap-6 items-start">
+              {/* Visor 3D (si no cabe al lado, el panel pasa debajo) */}
+              <div className="rounded-2xl bg-bg-card border border-border overflow-hidden shrink-0">
                 <div className="flex items-center justify-center" style={{ background: 'radial-gradient(ellipse at 50% 40%, rgba(99,102,241,0.22), transparent 70%)' }}>
                   <canvas ref={canvasRef} />
                 </div>
                 <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
                   <button onClick={resetCamera}
-                    className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
+                    className="h-9 px-3 flex items-center gap-2 whitespace-nowrap rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
                     <Svg size={15}>{Icon.reset}</Svg>Restablecer vista
                   </button>
                   {hasCape && (
@@ -707,7 +716,7 @@ export default function SkinsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 content-start">
+              <div className="flex-1 min-w-[min(100%,560px)] grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] gap-4 content-start">
                 {/* Skin */}
                 <div className="rounded-2xl bg-bg-card border border-border p-4 flex gap-4">
                   <button onClick={() => setSkinLightbox(true)} title="Ver la textura en grande"
@@ -719,13 +728,13 @@ export default function SkinsPage() {
                       <p className="text-sm font-bold text-text-primary">Tu skin</p>
                       <p className="text-[11px] text-text-muted">{skinData.model === 'slim' ? 'Brazos finos (Alex)' : 'Brazos clásicos (Steve)'}</p>
                     </div>
-                    <button onClick={downloadSkin} className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
+                    <button onClick={downloadSkin} className="h-9 px-3 flex items-center gap-2 whitespace-nowrap rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
                       <Svg size={15}>{Icon.download}</Svg>Descargar PNG
                     </button>
-                    <button onClick={saveCurrentToLibrary} className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
+                    <button onClick={saveCurrentToLibrary} className="h-9 px-3 flex items-center gap-2 whitespace-nowrap rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
                       <Svg size={15}>{Icon.save}</Svg>Guardar en la librería
                     </button>
-                    <button onClick={loadSkin} disabled={loading} className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors disabled:opacity-50">
+                    <button onClick={loadSkin} disabled={loading} className="h-9 px-3 flex items-center gap-2 whitespace-nowrap rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors disabled:opacity-50">
                       <Svg size={15} className={loading ? 'animate-spin' : ''}>{Icon.refresh}</Svg>Recargar
                     </button>
                   </div>
@@ -733,15 +742,17 @@ export default function SkinsPage() {
 
                 {/* Capa */}
                 <div className="rounded-2xl bg-bg-card border border-border p-4 flex gap-4">
-                  <div className="w-28 h-28 shrink-0 rounded-xl bg-bg-primary border border-border flex items-center justify-center">
+                  <button onClick={openCapeSelector} title="Cambiar capa"
+                    className="group relative w-28 h-28 shrink-0 rounded-xl bg-bg-primary border border-border hover:border-accent/50 flex items-center justify-center transition-colors">
                     {skinData.cape ? <CapePreviewCanvas texture={skinData.cape} width={56} height={90} /> : <span className="text-[11px] text-text-muted text-center px-2">Sin capa</span>}
-                  </div>
+                    <span className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/50 flex items-center justify-center text-xs font-bold text-white opacity-0 group-hover:opacity-100 transition-all">Cambiar</span>
+                  </button>
                   <div className="flex-1 min-w-0 flex flex-col gap-2">
                     <div>
                       <p className="text-sm font-bold text-text-primary">Capa</p>
                       <p className="text-[11px] text-text-muted">{skinData.cape ? 'Equipada' : 'No llevas ninguna puesta'}</p>
                     </div>
-                    <button onClick={openCapeSelector} className="h-9 px-3 flex items-center gap-2 rounded-xl bg-accent/15 hover:bg-accent/25 text-accent text-sm font-bold transition-colors">
+                    <button onClick={openCapeSelector} className="h-9 px-3 flex items-center gap-2 whitespace-nowrap rounded-xl bg-accent/15 hover:bg-accent/25 text-accent text-sm font-bold transition-colors">
                       Cambiar capa
                     </button>
                     {hasCape && (
@@ -754,7 +765,7 @@ export default function SkinsPage() {
                 </div>
 
                 {/* Partes visibles */}
-                <div className="col-span-2 rounded-2xl bg-bg-card border border-border overflow-hidden">
+                <div className="col-span-full rounded-2xl bg-bg-card border border-border overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                     <div>
                       <p className="text-sm font-bold text-text-primary">Partes visibles en la vista</p>
