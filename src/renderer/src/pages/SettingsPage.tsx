@@ -329,11 +329,14 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl space-y-8">
-      <h1 className="text-xl font-bold text-text-primary">Ajustes</h1>
+    <div className="h-full overflow-y-auto" id="ajustes-scroll">
+      <SettingsHeader account={accounts.find((a) => a.id === activeAccountId)} />
+      <div className="flex gap-8 px-8 py-6">
+        <SettingsNav />
+        <div className="flex-1 min-w-0 max-w-3xl space-y-6">
 
       {/* Accounts */}
-      <section>
+      <section id="ajustes-cuentas" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Cuentas
         </h2>
@@ -464,7 +467,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Java & Memory */}
-      <section>
+      <section id="ajustes-java" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Java y Memoria
         </h2>
@@ -511,7 +514,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Launcher options */}
-      <section>
+      <section id="ajustes-launcher" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Launcher
         </h2>
@@ -555,7 +558,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Modrinth */}
-      <section>
+      <section id="ajustes-modrinth" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Modrinth
         </h2>
@@ -576,7 +579,7 @@ export default function SettingsPage() {
       </section>
 
       {/* GitHub para modpacks */}
-      <section>
+      <section id="ajustes-modpacks" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Creación de Modpacks
         </h2>
@@ -584,7 +587,7 @@ export default function SettingsPage() {
           <div>
             <label className="block text-sm text-text-secondary mb-1.5">
               Token de GitHub
-              <span className="text-text-muted text-xs ml-1">(solo si vas a crear modpacks)</span>
+              <span className="text-text-muted text-xs ml-1">(antiguo: ya no hace falta si conectas GitHub en Cuentas)</span>
             </label>
             <div className="flex gap-2">
               <input
@@ -636,7 +639,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Almacenamiento */}
-      <section>
+      <section id="ajustes-almacenamiento" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Almacenamiento
         </h2>
@@ -657,7 +660,7 @@ export default function SettingsPage() {
       </section>
 
         {/* Sistema */}
-      <section>
+      <section id="ajustes-sistema" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Sistema
         </h2>
@@ -720,7 +723,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Privacidad */}
-      <section>
+      <section id="ajustes-privacidad" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
           Privacidad
         </h2>
@@ -728,7 +731,7 @@ export default function SettingsPage() {
       </section>
 
       {/* Inteligencia Artificial */}
-      <section>
+      <section id="ajustes-ia" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Inteligencia Artificial</h2>
           {!aiForm && (
@@ -928,21 +931,92 @@ export default function SettingsPage() {
         )}
       </section>
 
-      {/* Save */}
-      <button
-        onClick={saveSettings}
-        className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white font-medium rounded-xl transition-colors"
-      >
-        {saved ? '¡Guardado!' : 'Guardar ajustes'}
-      </button>
-
-      {/* Version */}
-      <div className="flex items-center justify-center gap-2 pb-2">
-        <p className="text-xs text-text-muted">ModpackLauncher v{APP_VERSION}</p>
-        <UpdateCheckBtn />
+      {/* Guardar: siempre a mano abajo */}
+      <div className="sticky bottom-0 -mx-1 px-1 py-3 bg-gradient-to-t from-bg-primary via-bg-primary/95 to-transparent">
+        <button
+          onClick={saveSettings}
+          className="w-full py-3 bg-accent hover:bg-accent-hover text-white font-semibold rounded-xl transition-colors shadow-lg shadow-accent/20"
+        >
+          {saved ? '¡Guardado!' : 'Guardar ajustes'}
+        </button>
       </div>
 
+
+        </div>
+      </div>
       {storageOpen && <StorageModal onClose={() => setStorageOpen(false)} />}
     </div>
+  )
+}
+
+// ── Cabecera e índice de Ajustes ─────────────────────────────────────────────
+
+const SECTIONS: { id: string; label: string; icon: string }[] = [
+  { id: 'cuentas', label: 'Cuentas', icon: '👤' },
+  { id: 'java', label: 'Java y memoria', icon: '☕' },
+  { id: 'launcher', label: 'Launcher', icon: '🚀' },
+  { id: 'modrinth', label: 'Modrinth', icon: '🧩' },
+  { id: 'modpacks', label: 'Crear modpacks', icon: '📦' },
+  { id: 'almacenamiento', label: 'Almacenamiento', icon: '💾' },
+  { id: 'sistema', label: 'Sistema', icon: '🖥️' },
+  { id: 'privacidad', label: 'Privacidad', icon: '🔒' },
+  { id: 'ia', label: 'Inteligencia Artificial', icon: '✨' },
+]
+
+function SettingsHeader({ account }: { account?: MinecraftAccount }) {
+  return (
+    <div className="relative overflow-hidden border-b border-border" style={{ background: 'linear-gradient(115deg, rgba(34,197,94,0.16), rgba(99,102,241,0.10) 55%, transparent 90%)' }}>
+      <div className="px-8 pt-7 pb-6 flex items-center gap-5">
+        <div className="w-16 h-16 rounded-2xl overflow-hidden bg-bg-card border border-white/10 flex items-center justify-center shrink-0">
+          {account?.type === 'microsoft'
+            ? <SkinAvatar uuid={account.uuid} username={account.username} size={64} />
+            : account ? <span className="text-2xl font-bold text-accent">{account.username[0].toUpperCase()}</span>
+              : <span className="text-2xl">⚙️</span>}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-bold text-text-primary">Ajustes</h1>
+          <p className="text-sm text-text-secondary mt-0.5 truncate">
+            {account ? `${account.username} · ${account.type === 'microsoft' ? 'cuenta Microsoft' : 'cuenta offline'}` : 'Añade una cuenta para jugar'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] text-text-muted px-2 py-1 rounded-lg bg-black/20 border border-border">v{APP_VERSION}</span>
+          <UpdateCheckBtn />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Índice fijo: lleva a cada sección y marca en cuál estás. */
+function SettingsNav() {
+  const [active, setActive] = useState(SECTIONS[0].id)
+  useEffect(() => {
+    const root = document.getElementById('ajustes-scroll')
+    if (!root) return
+    // La sección activa es la última cuyo título ya ha llegado arriba (o la última si se llega al final)
+    const onScroll = (): void => {
+      const top = root.getBoundingClientRect().top + 120
+      let current = SECTIONS[0].id
+      for (const s of SECTIONS) {
+        const el = document.getElementById(`ajustes-${s.id}`)
+        if (el && el.getBoundingClientRect().top <= top) current = s.id
+      }
+      if (root.scrollTop + root.clientHeight >= root.scrollHeight - 4) current = SECTIONS[SECTIONS.length - 1].id
+      setActive(current)
+    }
+    root.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
+    return () => root.removeEventListener('scroll', onScroll)
+  }, [])
+  return (
+    <nav className="w-52 shrink-0 sticky top-6 self-start space-y-0.5">
+      {SECTIONS.map((s) => (
+        <button key={s.id} onClick={() => { setActive(s.id); document.getElementById(`ajustes-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-left transition-colors ${active === s.id ? 'bg-accent/15 text-accent font-semibold' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}>
+          <span className="w-5 text-center">{s.icon}</span>{s.label}
+        </button>
+      ))}
+    </nav>
   )
 }
