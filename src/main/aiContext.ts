@@ -202,6 +202,7 @@ En Claude Code, Codex, Gemini CLI, Grok CLI, Cursor o VS Code las herramientas s
 - **En vivo** (con la partida abierta y el mod fport1-social): \`estado_en_vivo\`, \`rendimiento_en_vivo\`, \`ejecutar_comando\`, \`recargar\` (datapacks o resource packs, con sus errores), \`captura\` (te devuelve la imagen), \`camara\`, \`ir_a\`, \`inspeccionar\`, \`registro_en_vivo\`, \`colocar_estructura\`, \`spark\`, \`observar_eventos\` / \`eventos_en_vivo\`. Para saber si un cambio funcionó de verdad: \`medir_cambio\` JUSTO ANTES de cambiar algo y \`comparar_cambio\` después (el launcher muestra el veredicto medido)
 - \`documentacion\` — la wiki y documentación oficial de cualquier mod (y la que trae dentro del jar), por páginas o buscando; úsala para saber a fondo cómo funciona un mod
 - \`experiencia_comunidad\` — cómo se comporta el juego con un mod en las partidas de otros jugadores (crashes, carga, lag, mods con los que se usa, dimensiones, mobs)
+- \`analizar_rig\`, \`crear_animaciones_base\` — si un modelo está preparado para moverse y tener expresiones (huesos, pivotes, ojos, párpados, mandíbula…) y qué animaciones le faltan; y una primera versión de idle, walk, run, attack, hurt, death, blink, talk y fly a partir de sus huesos
 - \`analizar_animacion\`, \`escribir_animacion\` — entender, revisar y escribir animaciones (GeckoLib/Bedrock .animation.json, Blockbench, CEM/EMF, Emotecraft), comprobando los huesos contra el modelo; guía en \`guia animaciones\`
 - \`guia\` — guías de modelos (bloques, ítems, entidades, CEM/EMF, Bedrock), Blockbench, GeckoLib, Blender, equivalencias de Unity/VFX, partículas, shaders y post-procesado, sonido, vídeo y texturas (también en \`.ai/guias/\`)
 - \`analizar_medio\`, \`convertir_medio\` — audio, vídeo e imágenes que te pasen: Minecraft solo carga .ogg (Vorbis) y .png, y no reproduce vídeo. Sonido → .ogg (mono si sale de un punto del mundo) y, con \`paquete\` y \`evento\`, guardado en ese resource pack y registrado en sounds.json; vídeo o GIF → textura animada (tira + .mcmeta) o .mp4 para mods reproductores (WaterMedia); imagen → .png
@@ -240,6 +241,11 @@ ${fmt.java ? `- Java ${fmt.java}` : ''}
    - **Datapacks**: con el mundo abierto, \`/datapack enable|disable\` o \`/reload\` dentro del juego; el launcher no toca el mundo abierto.
    - **Configs**: casi todas se leen al arrancar; si el mod tiene menú de opciones o comando de recarga, dilo.
    Lee el campo \`enJuego\` de la respuesta y díselo al jugador tal cual. No digas que algo «ya se ve» si no lo has comprobado (con \`captura\` o \`estado_en_vivo\`).
+10. **Un modelo no es solo su forma: piensa en cómo se mueve.** Al crear o cambiar un modelo (de entidad, de mob, de ítem animado):
+   - jerarquía de huesos pensada para animar (cuerpo → cuello → cabeza → mandíbula/ojos/párpados; hombro → brazo → mano) y **pivotes en las articulaciones**;
+   - partes para **expresiones**: ojos y párpados (parpadear, mirar), mandíbula o boca (hablar, rugir), cejas u orejas si tiene carácter, o expresiones por textura;
+   - y las **animaciones** que necesita (idle, walk, run, attack, hurt, death y las suyas: volar, nadar, dormir…).
+   Revísalo con \`analizar_rig\`, crea una base con \`crear_animaciones_base\` y retócala con \`escribir_animacion\`. Detalles en \`guia animaciones\`.
 
 ${toolsSection()}
 ## Mapa de la carpeta
@@ -312,7 +318,7 @@ function modDocMd(d: ModDoc, facts: ReturnType<typeof jarFacts>, configs: string
 // Las de solo lectura se permiten sin preguntar; las que cambian algo no se
 // listan, así que la IA pide permiso para cada una con su propio aviso (en
 // Claude Code, «Sí» o «Sí, y no volver a preguntar»).
-const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion', 'registro', 'ver_recurso', 'mundo', 'validar_pack', 'experiencia_comunidad', 'desofuscar', 'ver_clase', 'documentacion', 'guia', 'analizar_medio', 'instancias', 'analizar_animacion']
+const READ_TOOLS = ['estado_juego', 'leer_log', 'crashes', 'listar_contenido', 'buscar', 'versiones', 'listar_archivos', 'leer_archivo', 'lecciones', 'anotar_leccion', 'valorar_leccion', 'registro', 'ver_recurso', 'mundo', 'validar_pack', 'experiencia_comunidad', 'desofuscar', 'ver_clase', 'documentacion', 'guia', 'analizar_medio', 'instancias', 'analizar_animacion', 'analizar_rig']
 
 async function mergeJson(file: string, update: (cur: any) => any): Promise<void> {
   const cur = await fs.readJson(file).catch(() => ({}))

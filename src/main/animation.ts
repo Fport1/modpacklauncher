@@ -220,3 +220,191 @@ export async function writeAnimation(base: string, file: string, spec: Animation
   const mine = (check.animaciones as AnimInfo[]).find((a) => a.nombre === name)
   return { archivo: target, animacion: name, accion: replaced ? 'reemplazada' : 'añadida', duracion: anim.animation_length, problemas: mine?.problemas ?? [] }
 }
+
+// ── El modelo pensado para moverse: rig, expresiones y animaciones base ─────
+
+interface RigBone { nombre: string; padre?: string; pivote?: number[]; cubos: number; rol?: string; lado?: 'izquierda' | 'derecha'; posicion?: 'delante' | 'detras' }
+
+const ROLES: [string, RegExp][] = [
+  // Ojo: «_» cuenta como letra para \b, por eso los separadores van explícitos ([_\s.-]) o se usa camelCase (leftEye)
+  ['parpado', /eye_?lid|eyelid|(^|[_\s.-])lid|p[aá]rpado/i], ['ceja', /brow|ceja/i], ['ojo', /(^|[_\s.-]|[a-z])eye|^eye|ojo|pupil/i],
+  ['mandibula', /jaw|mand[ií]bula|mouth|boca|(^|[_\s.-])lip|labio/i], ['oreja', /(^|[_\s.-])[eE][aA][rR]|[a-z]Ear|[oO]reja/], ['cuello', /neck|cuello/i],
+  ['cabeza', /head|cabeza|skull/i], ['ala', /wing|(^|[_\s.-])ala([_\s.-]|$)/i], ['cola', /tail|cola/i],
+  ['mano', /hand|mano|finger|dedo/i], ['brazo', /arm|brazo|shoulder|hombro/i], ['pie', /foot|feet|(^|[_\s.-])pie([_\s.-]|$)|paw|pezu/i],
+  ['pierna', /leg|pierna|pata|thigh|muslo|knee|rodilla/i], ['cuerpo', /body|torso|chest|cuerpo|pecho|spine|hip|cadera|pelvis|root/i],
+]
+const side = (n: string): RigBone['lado'] => (/(^|[_\s.-])(l|left|izq|izquierd[ao])([_\s.-]|$)|left|izq/i.test(n) ? 'izquierda' : /(^|[_\s.-])(r|right|der|derech[ao])([_\s.-]|$)|right|derech/i.test(n) ? 'derecha' : undefined)
+const front = (n: string): RigBone['posicion'] => (/front|delant|fore/i.test(n) ? 'delante' : /back|hind|rear|tras|detr/i.test(n) ? 'detras' : undefined)
+
+/** Huesos con jerarquía, pivotes y papel (cabeza, pierna izquierda, párpado…). */
+async function rigBones(modelFile: string): Promise<{ bones: RigBone[]; formato: string }> {
+  const j = await fs.readJson(modelFile)
+  const out: RigBone[] = []
+  const geo = j['minecraft:geometry'] ?? (j.geometry ? [j.geometry] : null)
+  let formato = ''
+  if (Array.isArray(geo)) {
+    formato = 'Bedrock / GeckoLib (.geo.json)'
+    for (const b of geo.flatMap((g: any) => g.bones ?? [])) out.push({ nombre: String(b.name), padre: b.parent, pivote: b.pivot, cubos: (b.cubes ?? []).length })
+  } else if (j.meta && Array.isArray(j.outliner)) {
+    formato = `Blockbench (.bbmodel, ${j.meta.model_format})`
+    const walk = (n: any, parent?: string): void => {
+      if (!n || typeof n !== 'object') return
+      out.push({ nombre: String(n.name), padre: parent, pivote: n.origin, cubos: (n.children ?? []).filter((c: unknown) => typeof c === 'string').length })
+      for (const c of n.children ?? []) if (typeof c === 'object') walk(c, String(n.name))
+    }
+    j.outliner.forEach((n: any) => walk(n))
+  } else if (Array.isArray(j.models)) {
+    formato = 'OptiFine CEM / EMF (.jem)'
+    for (const m of j.models) out.push({ nombre: String(m.part ?? m.id), pivote: m.translate, cubos: (m.boxes ?? []).length + (m.submodels ?? []).length })
+  } else throw new Error('No parece un modelo .geo.json, .bbmodel ni .jem')
+  for (const b of out) {
+    b.rol = ROLES.find(([, re]) => re.test(b.nombre))?.[0]
+    b.lado = side(b.nombre)
+    b.posicion = front(b.nombre)
+  }
+  return { bones: out, formato }
+}
+
+const has = (bones: RigBone[], rol: string): RigBone[] => bones.filter((b) => b.rol === rol)
+
+/**
+ * ¿Está el modelo preparado para moverse y para tener expresiones? Jerarquía,
+ * pivotes, partes reconocidas, qué animaciones tiene (si se pasan) y qué falta.
+ */
+export async function analyzeRig(modelFile: string, animationsFile?: string): Promise<Record<string, unknown>> {
+  const { bones, formato } = await rigBones(modelFile)
+  const problems: string[] = []
+  const tips: string[] = []
+  const names = new Set(bones.map((b) => b.nombre))
+  for (const b of bones) {
+    if (b.padre && !names.has(b.padre)) problems.push(`«${b.nombre}» tiene como padre «${b.padre}», que no existe`)
+    const atOrigin = Array.isArray(b.pivote) && b.pivote.every((v) => Number(v) === 0)
+    if (atOrigin && b.rol && ['cabeza', 'brazo', 'pierna', 'cola', 'ala', 'mandibula', 'oreja', 'parpado'].includes(b.rol)) {
+      problems.push(`El pivote de «${b.nombre}» (${b.rol}) está en 0,0,0: al rotarlo girará desde el suelo, no desde su articulación. Ponlo donde se une (hombro, cadera, cuello…)`)
+    }
+  }
+  const legs = has(bones, 'pierna'), arms = has(bones, 'brazo'), head = has(bones, 'cabeza')
+  const eyes = has(bones, 'ojo'), lids = has(bones, 'parpado'), jaw = has(bones, 'mandibula'), brows = has(bones, 'ceja')
+  const kind = legs.length >= 4 ? 'cuadrúpedo' : legs.length === 2 ? (arms.length ? 'bípedo (humanoide)' : 'bípedo') : legs.length ? `${legs.length} patas` : has(bones, 'ala').length ? 'volador' : 'sin patas'
+  if (!head.length) tips.push('Sin hueso de cabeza: no podrá mirar al jugador ni hacer gestos con la cabeza.')
+  if (head.length && !has(bones, 'cuello').length && kind === 'cuadrúpedo') tips.push('Un hueso «neck» entre cuerpo y cabeza da movimientos de cabeza más naturales.')
+  const expr = {
+    parpadear: lids.length ? 'sí (párpados)' : eyes.length ? 'sí, escalando los ojos' : 'no: añade huesos de ojos o párpados',
+    hablar_o_morder: jaw.length ? 'sí (mandíbula/boca)' : 'no: añade un hueso de mandíbula con el pivote en la bisagra',
+    cejas: brows.length ? 'sí' : 'no',
+    mirar: head.length ? 'sí (cabeza)' : 'no',
+    por_textura: 'También se pueden hacer cambiando la textura de la cara (GeckoLib: textura según el estado en el código; ETF: variantes y ojos emisivos _e)',
+  }
+  if (!eyes.length && !lids.length) tips.push('Para expresiones, separa los ojos (y mejor párpados) en huesos propios, hijos de la cabeza.')
+  if (!jaw.length && head.length) tips.push('Una mandíbula como hueso hijo de la cabeza permite hablar, rugir o morder.')
+  let animations: string[] = []
+  if (animationsFile && await fs.pathExists(animationsFile)) {
+    const a = await fs.readJson(animationsFile).catch(() => ({}))
+    animations = a.animations && !Array.isArray(a.animations) ? Object.keys(a.animations) : Array.isArray(a.animations) ? a.animations.map((x: any) => x.name) : []
+  }
+  const want = ['idle', 'walk', ...(legs.length ? ['run'] : []), ...(arms.length || jaw.length ? ['attack'] : []), 'hurt', 'death', ...(lids.length || eyes.length ? ['blink'] : []), ...(jaw.length ? ['talk'] : []), ...(has(bones, 'ala').length ? ['fly'] : [])]
+  const missing = want.filter((w) => !animations.some((n) => n.toLowerCase().includes(w)))
+  return {
+    modelo: modelFile, formato, tipo: kind,
+    huesos: bones.map((b) => ({ ...b, pivote: b.pivote ? b.pivote.map((v) => Number(v)) : undefined })),
+    partes: Object.fromEntries(ROLES.map(([r]) => [r, has(bones, r).map((b) => b.nombre)]).filter(([, l]) => (l as string[]).length)),
+    expresiones: expr, animaciones: animationsFile ? animations : undefined,
+    animacionesQueFaltan: missing, problemas: problems, consejos: tips,
+    siguiente: missing.length ? 'crear_animaciones_base hace una primera versión de las que faltan a partir de estos huesos, para retocarlas después.' : undefined,
+  }
+}
+
+/**
+ * Primera versión de las animaciones típicas a partir de los huesos del modelo
+ * (por nombre: piernas, brazos, cabeza, cola, alas, mandíbula, ojos…). Son una
+ * base razonable para retocar, no la animación final.
+ */
+export async function baseAnimations(modelFile: string, which?: string[]): Promise<AnimationSpec[]> {
+  const { bones } = await rigBones(modelFile)
+  const legs = has(bones, 'pierna'), arms = has(bones, 'brazo'), head = has(bones, 'cabeza')[0], body = has(bones, 'cuerpo')[0]
+  const tails = has(bones, 'cola'), wings = has(bones, 'ala'), jaw = has(bones, 'mandibula')[0]
+  const blinkers = has(bones, 'parpado').length ? has(bones, 'parpado') : has(bones, 'ojo')
+  const quad = legs.length >= 4
+  // Fase de cada pierna: en cuadrúpedos se mueven en diagonal (delantera izquierda con trasera derecha)
+  const phase = (b: RigBone): number => {
+    const left = b.lado === 'izquierda'
+    if (!quad) return left ? 0 : 1
+    const fr = b.posicion !== 'detras'
+    return left === fr ? 0 : 1
+  }
+  const swing = (amp: number, len: number, p: number): Record<string, Vec> => {
+    const a = p ? -amp : amp
+    return { 0: [a, 0, 0], [len / 2]: [-a, 0, 0], [len]: [a, 0, 0] }
+  }
+  const specs: AnimationSpec[] = []
+  const want = (n: string): boolean => !which?.length || which.includes(n)
+  if (want('idle')) {
+    const h: AnimationSpec['huesos'] = {}
+    if (body) h[body.nombre] = { scale: { 0: [1, 1, 1], 1.5: [1, 1.02, 1], 3: [1, 1, 1] } }
+    if (head) h[head.nombre] = { rotation: { 0: [0, 0, 0], 1.5: [-3, 0, 0], 3: [0, 0, 0] } }
+    for (const t of tails) h[t.nombre] = { rotation: [0, 'math.sin(query.anim_time * 120) * 8', 0] }
+    for (const w of wings) h[w.nombre] = { rotation: [0, 0, `math.sin(query.anim_time * 90) * ${w.lado === 'derecha' ? -4 : 4}`] }
+    if (Object.keys(h).length) specs.push({ nombre: 'idle', bucle: true, duracion: 3, huesos: h })
+  }
+  if (want('walk') && (legs.length || arms.length)) {
+    const h: AnimationSpec['huesos'] = {}
+    for (const l of legs) h[l.nombre] = { rotation: swing(25, 1, phase(l)) }
+    // Los brazos van al revés que la pierna de su lado
+    for (const a of arms) h[a.nombre] = { rotation: swing(15, 1, a.lado === 'izquierda' ? 1 : 0) }
+    if (body) h[body.nombre] = { position: { 0: [0, 0, 0], 0.25: [0, 0.5, 0], 0.5: [0, 0, 0], 0.75: [0, 0.5, 0], 1: [0, 0, 0] } }
+    for (const t of tails) h[t.nombre] = { rotation: { 0: [0, 10, 0], 0.5: [0, -10, 0], 1: [0, 10, 0] } }
+    specs.push({ nombre: 'walk', bucle: true, duracion: 1, huesos: h })
+  }
+  if (want('run') && legs.length) {
+    const h: AnimationSpec['huesos'] = {}
+    for (const l of legs) h[l.nombre] = { rotation: swing(45, 0.5, phase(l)) }
+    for (const a of arms) h[a.nombre] = { rotation: swing(35, 0.5, a.lado === 'izquierda' ? 1 : 0) }
+    if (body) h[body.nombre] = { rotation: [8, 0, 0], position: { 0: [0, 0, 0], 0.125: [0, 1, 0], 0.25: [0, 0, 0], 0.375: [0, 1, 0], 0.5: [0, 0, 0] } }
+    specs.push({ nombre: 'run', bucle: true, duracion: 0.5, huesos: h })
+  }
+  if (want('attack') && (arms.length || jaw || head)) {
+    const h: AnimationSpec['huesos'] = {}
+    const arm = arms.find((a) => a.lado === 'derecha') ?? arms[0]
+    if (arm) h[arm.nombre] = { rotation: { 0: [0, 0, 0], 0.2: [-110, 0, 0], 0.35: [20, 0, 0], 0.6: [0, 0, 0] } }
+    else if (head) h[head.nombre] = { rotation: { 0: [0, 0, 0], 0.15: [-20, 0, 0], 0.3: [15, 0, 0], 0.6: [0, 0, 0] } }
+    if (jaw) h[jaw.nombre] = { rotation: { 0: [0, 0, 0], 0.15: [25, 0, 0], 0.3: [0, 0, 0] } }
+    specs.push({ nombre: 'attack', bucle: false, duracion: 0.6, huesos: h })
+  }
+  if (want('hurt') && (body || head)) {
+    const b = body ?? head!
+    specs.push({ nombre: 'hurt', bucle: false, duracion: 0.3, huesos: { [b.nombre]: { rotation: { 0: [0, 0, 0], 0.1: [-10, 0, 5], 0.3: [0, 0, 0] } } } })
+  }
+  if (want('death') && (body || head)) {
+    const b = body ?? head!
+    specs.push({ nombre: 'death', bucle: 'hold_on_last_frame', duracion: 1, huesos: { [b.nombre]: { rotation: { 0: [0, 0, 0], 1: { post: [0, 0, 90], lerp_mode: 'catmullrom' } } } } })
+  }
+  if (want('blink') && blinkers.length) {
+    const h: AnimationSpec['huesos'] = {}
+    for (const e of blinkers) h[e.nombre] = { scale: { 0: [1, 1, 1], 3.8: [1, 1, 1], 3.9: [1, 0.1, 1], 4: [1, 1, 1] } }
+    specs.push({ nombre: 'blink', bucle: true, duracion: 4, huesos: h })
+  }
+  if (want('talk') && jaw) {
+    specs.push({ nombre: 'talk', bucle: true, duracion: 0.6, huesos: { [jaw.nombre]: { rotation: { 0: [0, 0, 0], 0.15: [18, 0, 0], 0.3: [4, 0, 0], 0.45: [14, 0, 0], 0.6: [0, 0, 0] } } } })
+  }
+  if (want('fly') && wings.length) {
+    const h: AnimationSpec['huesos'] = {}
+    for (const w of wings) h[w.nombre] = { rotation: { 0: [0, 0, w.lado === 'derecha' ? 35 : -35], 0.25: [0, 0, w.lado === 'derecha' ? -25 : 25], 0.5: [0, 0, w.lado === 'derecha' ? 35 : -35] } }
+    specs.push({ nombre: 'fly', bucle: true, duracion: 0.5, huesos: h })
+  }
+  return specs
+}
+
+/** Escribe las animaciones base que falten (o las pedidas) en el .animation.json. */
+export async function writeBaseAnimations(base: string, modelFile: string, animFile: string, which?: string[], replace = false): Promise<Record<string, unknown>> {
+  const model = path.resolve(base, modelFile)
+  const target = path.resolve(base, animFile)
+  const existing = (await fs.pathExists(target)) ? Object.keys((await fs.readJson(target)).animations ?? {}) : []
+  const specs = await baseAnimations(model, which)
+  const written: string[] = [], skipped: string[] = []
+  for (const s of specs) {
+    if (!replace && existing.some((n) => n.toLowerCase().endsWith('.' + s.nombre) || n.toLowerCase() === s.nombre)) { skipped.push(s.nombre); continue }
+    const r = await writeAnimation(base, animFile, s, { model: modelFile })
+    written.push(String(r.animacion))
+  }
+  return { archivo: target, creadas: written, yaExistian: skipped, nota: written.length ? 'Son una primera versión hecha a partir de los nombres de los huesos: revísalas (amplitudes, tiempos, ejes) con analizar_animacion y retócalas con escribir_animacion.' : 'No había ninguna que crear.' }
+}

@@ -67,6 +67,19 @@ Librería de animación para mods (Fabric, NeoForge, Forge). Usa el formato **Be
 
 Herramientas: \`analizar_animacion\` (entender y revisar un archivo, con el modelo para comprobar huesos) y \`escribir_animacion\` (añadir o cambiar una animación en un .animation.json sin romper el formato).
 
+## Primero el rig: un modelo hecho para moverse
+Un modelo no está terminado si solo tiene forma: tiene que poder moverse y expresar. Antes de animar (\`analizar_rig\`):
+- **Jerarquía**: cuerpo (raíz) → cuello → cabeza → mandíbula, ojos, párpados, orejas; hombro → brazo → antebrazo → mano; cadera → pierna → pie; cola en segmentos (cola1 → cola2 → cola3) para que ondule.
+- **Pivotes en la articulación**: el de la cabeza en el cuello, el del brazo en el hombro, el de la pierna en la cadera, el de la mandíbula en la bisagra. Con el pivote en 0,0,0 la parte gira desde el suelo.
+- **Nombres claros y con lado**: left_leg/right_leg, front_left_leg/back_right_leg… (así \`crear_animaciones_base\` sabe qué es cada cosa, y quien lo retoque también).
+- **Expresiones**:
+  - parpadeo: párpados como huesos (escala Y de 1 a 0.1 y vuelta) o, si no hay, escalar los ojos;
+  - mirar: girar la cabeza (en GeckoLib, desde el código con el hueso de la cabeza; en Bedrock con \`query.head_x_rotation\`/\`query.head_y_rotation\`; en CEM con \`head_yaw\`/\`head_pitch\`);
+  - hablar o rugir: rotación X de la mandíbula; cejas u orejas para enfado, sorpresa o miedo;
+  - por textura: cambiar la textura de la cara según el estado (GeckoLib en el código; ETF con variantes; ojos que brillan con \`_e\`).
+- **Animaciones típicas**: idle (respirar: escala del pecho ±2 %, cabeza que se mueve un poco, parpadeo), walk/run (piernas opuestas; en cuadrúpedos, delantera izquierda con trasera derecha; brazos al revés que la pierna de su lado; el cuerpo sube un poco en cada paso), attack, hurt, death (con \`hold_on_last_frame\`), y las propias (volar, nadar, dormir, comer, rugir…).
+- Para que se sienta vivo: animaciones superpuestas (idle + blink a la vez), tiempos desiguales (no todo en 1 s exacto), \`catmullrom\` en movimientos suaves y anticipación antes de un golpe.
+
 ## Bedrock / GeckoLib (.animation.json)
 \`\`\`json
 { "format_version": "1.8.0",

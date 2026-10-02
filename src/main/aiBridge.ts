@@ -23,7 +23,7 @@ import { packFormats, queryRegistry, readResource, scaffoldProject, setGameRule,
 import { countEvent } from './telemetry'
 import { convertMedia, probeMedia, registerSound, type ConvertInput } from './mediaConvert'
 import { guide } from './aiKnowledge'
-import { analyzeAnimation, writeAnimation } from './animation'
+import { analyzeAnimation, analyzeRig, writeAnimation, writeBaseAnimations } from './animation'
 
 // Puente local para IAs (Claude Code, Codex, Gemini, Cursor…).
 //
@@ -166,6 +166,18 @@ async function sharedAction(action: string, base: string, body: any, inst?: Inst
     try {
       const file = path.resolve(base, String(body.file ?? ''))
       return { status: 200, body: await analyzeAnimation(file, body.model ? path.resolve(base, String(body.model)) : undefined) }
+    } catch (e) { return { status: 400, body: { error: (e as Error).message } } }
+  }
+  if (action === 'rig/analyze') {
+    try {
+      return { status: 200, body: await analyzeRig(path.resolve(base, String(body.model ?? '')), body.animations ? path.resolve(base, String(body.animations)) : undefined) }
+    } catch (e) { return { status: 400, body: { error: (e as Error).message } } }
+  }
+  if (action === 'animation/base') {
+    try {
+      const r = await writeBaseAnimations(base, String(body.model ?? ''), String(body.file ?? ''), Array.isArray(body.which) ? body.which.map(String) : undefined, !!body.replace)
+      if (inst && (r.creadas as string[]).length) logActivity(inst.id, `Animaciones base creadas: ${(r.creadas as string[]).join(', ')}`, 'change')
+      return { status: 200, body: r }
     } catch (e) { return { status: 400, body: { error: (e as Error).message } } }
   }
   if (action === 'animation/write') {
