@@ -61,6 +61,54 @@ Librería de animación para mods (Fabric, NeoForge, Forge). Usa el formato **Be
 - Las rutas y los nombres de clases cambian entre versiones de GeckoLib (las más recientes agrupan los archivos bajo una carpeta \`geckolib/\`): mira la versión de GeckoLib instalada (listar_contenido) y su wiki (documentacion geckolib).
 - Exportar desde Blockbench con el plugin «GeckoLib Animation Utils» (formato GeckoLib Animated Model).`,
   },
+  animaciones: {
+    title: 'Animaciones (GeckoLib, Bedrock, Blockbench, CEM/EMF, emotes, displays)',
+    body: `# Animaciones en Minecraft
+
+Herramientas: \`analizar_animacion\` (entender y revisar un archivo, con el modelo para comprobar huesos) y \`escribir_animacion\` (añadir o cambiar una animación en un .animation.json sin romper el formato).
+
+## Bedrock / GeckoLib (.animation.json)
+\`\`\`json
+{ "format_version": "1.8.0",
+  "animations": {
+    "animation.dragon.walk": {
+      "loop": true, "animation_length": 1.0,
+      "bones": {
+        "left_leg":  { "rotation": { "0.0": [20, 0, 0], "0.5": [-20, 0, 0], "1.0": [20, 0, 0] } },
+        "head":      { "rotation": ["math.sin(query.anim_time * 360) * 5", 0, 0] },
+        "body":      { "position": { "0.0": { "post": [0, 0, 0], "lerp_mode": "catmullrom" }, "0.5": [0, 1, 0] } }
+      },
+      "sound_effects": { "0.25": { "effect": "mimod:paso" } }
+    } } }
+\`\`\`
+- **Canales**: \`rotation\` en grados, \`position\` en píxeles (1/16 de bloque), \`scale\` multiplicador. Siempre [x, y, z].
+- **Valor**: fijo (vector o Molang) o keyframes por tiempo en segundos. Un keyframe puede ser [x,y,z] o \`{ "pre": [...], "post": [...], "lerp_mode": "linear|catmullrom|step" }\` (pre/post para saltos bruscos).
+- **loop**: true, false o "hold_on_last_frame" (se queda en la última pose).
+- **Molang**: \`math.sin/cos\` trabajan en GRADOS; \`query.anim_time\` (segundos desde que empezó la animación), \`query.life_time\`, \`variable.*\`. Qué queries soporta GeckoLib depende de su versión: compruébalo en su wiki (\`documentacion geckolib\`).
+- Los nombres de **huesos** tienen que coincidir EXACTAMENTE con los del .geo.json (mayúsculas incluidas); si no, esa parte no se mueve. Rotar un hueso rota sus hijos alrededor de su **pivote**.
+- **Eventos**: \`sound_effects\`, \`particle_effects\` y \`timeline\` (instrucciones) por tiempo; en GeckoLib los reciben los keyframe handlers del controlador.
+- **Bedrock (add-ons)**: además usa \`animation_controllers\` (estados y transiciones con Molang). **GeckoLib (mods)**: los estados están en código, con \`AnimationController\` y \`RawAnimation.begin().thenLoop("walk")\`; las animaciones disparadas (atacar) con \`triggerableAnim\`.
+
+## Probar rápido
+- Las animaciones de un mod con GeckoLib están en \`assets/<modid>/animations/\` de su jar: un **resource pack** con el mismo archivo en la misma ruta lo sustituye, así se prueba con \`recargar\` resource_packs (F3+T) sin recompilar el mod.
+- En la partida (mod fport1-social): \`captura\` para verla y \`inspeccionar\` para ver la entidad.
+
+## Blockbench
+- Pestaña **Animate**: línea de tiempo por hueso, keyframes de rotación/posición/escala, interpolación (linear, catmullrom, step, bezier) y Molang en los valores.
+- Exportar: «File › Export › Export Animations» (Bedrock .animation.json) o, con el plugin GeckoLib Animation Utils, el formato de GeckoLib. El .bbmodel guarda las animaciones dentro (\`analizar_animacion\` lo lee).
+
+## Entidades vanilla sin código: CEM / EMF
+- En el .jem, cada parte puede tener \`animations\` con expresiones: \`"head.rx": "head_pitch"\`, \`"left_arm.rx": "sin(limb_swing * 0.6662) * limb_speed"\`.
+- Variables habituales: \`limb_swing\`, \`limb_speed\`, \`age\`, \`head_yaw\`, \`head_pitch\`, \`time\`, \`pi\`, \`is_on_ground\`, \`is_in_water\`. EMF añade más (mira su documentación). Ojo: aquí \`rx/ry/rz\` van en RADIANES.
+
+## El jugador: emotes y animaciones
+- **Emotecraft**: emotes en \`.json\` (partes head, torso, rightArm, leftArm, rightLeg, leftLeg con ticks) o hechos en Blockbench con su plugin; van en la carpeta de emotes.
+- Mods que animan al jugador suelen usar **Player Animator** (biblioteca).
+
+## Sin mods: datapacks
+- **Display entities** (1.19.4+): \`transformation\` (traslación, rotación con cuaterniones, escala) + \`interpolation_duration\` y \`start_interpolation\` para animar suave; \`teleport_duration\` para moverlas suave. Con modelos de ítem propios (1.21.4+: \`item_model\`) se hacen criaturas y máquinas animadas por comandos.
+- Mide el coste con \`medir_cambio\`/\`comparar_cambio\`: muchas entidades animadas por tick bajan los TPS.`,
+  },
   blender: {
     title: 'Blender → Minecraft',
     body: `# De Blender a Minecraft
@@ -162,7 +210,7 @@ export const GUIDE_TOPICS = Object.keys(GUIDES)
 /** Una guía, o la lista si el tema no existe. */
 export function guide(topic?: string): Record<string, unknown> {
   const key = String(topic ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[\s-]+/g, '_')
-  const alias: Record<string, string> = { unity: 'unity_vfx', vfx: 'unity_vfx', efectos: 'particulas', particles: 'particulas', audio: 'sonido', sonidos: 'sonido', musica: 'sonido', modelo: 'modelos', models: 'modelos', animaciones: 'geckolib', post: 'shaders', postprocesado: 'shaders', imagen: 'video', gif: 'video' }
+  const alias: Record<string, string> = { unity: 'unity_vfx', vfx: 'unity_vfx', efectos: 'particulas', particles: 'particulas', audio: 'sonido', sonidos: 'sonido', musica: 'sonido', modelo: 'modelos', models: 'modelos', animaciones: 'animaciones', animacion: 'animaciones', animations: 'animaciones', emotes: 'animaciones', post: 'shaders', postprocesado: 'shaders', imagen: 'video', gif: 'video' }
   const g = GUIDES[key] ?? GUIDES[alias[key] ?? '']
   if (!g) return { temas: GUIDE_TOPICS.map((k) => ({ tema: k, titulo: GUIDES[k].title })) }
   return { tema: key in GUIDES ? key : alias[key], titulo: g.title, guia: g.body }

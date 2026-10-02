@@ -23,6 +23,7 @@ import { packFormats, queryRegistry, readResource, scaffoldProject, setGameRule,
 import { countEvent } from './telemetry'
 import { convertMedia, probeMedia, registerSound, type ConvertInput } from './mediaConvert'
 import { guide } from './aiKnowledge'
+import { analyzeAnimation, writeAnimation } from './animation'
 
 // Puente local para IAs (Claude Code, Codex, Gemini, Cursor…).
 //
@@ -160,6 +161,20 @@ export const launcherWorkspace = (): string => path.join(app.getPath('userData')
  */
 async function sharedAction(action: string, base: string, body: any, inst?: Instance): Promise<{ status: number; body: unknown } | null> {
   if (action === 'guide') return { status: 200, body: guide(body.topic) }
+  // Animaciones: leer se puede de cualquier ruta; escribir, solo dentro de la carpeta (copia del anterior en .ai/copias)
+  if (action === 'animation/analyze') {
+    try {
+      const file = path.resolve(base, String(body.file ?? ''))
+      return { status: 200, body: await analyzeAnimation(file, body.model ? path.resolve(base, String(body.model)) : undefined) }
+    } catch (e) { return { status: 400, body: { error: (e as Error).message } } }
+  }
+  if (action === 'animation/write') {
+    try {
+      const r = await writeAnimation(base, String(body.file ?? ''), body.spec, { model: body.model ? String(body.model) : undefined, prefix: body.prefix ? String(body.prefix) : undefined })
+      if (inst) logActivity(inst.id, `Animación ${r.accion}: ${String(r.animacion)}`, 'change')
+      return { status: 200, body: r }
+    } catch (e) { return { status: 400, body: { error: (e as Error).message } } }
+  }
   if (action === 'media/probe') {
     try { return { status: 200, body: await probeMedia(String(body.file ?? '')) } }
     catch (e) { return { status: 400, body: { error: (e as Error).message } } }
