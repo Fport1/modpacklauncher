@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -503,7 +503,16 @@ const api = {
     status: () => ipcRenderer.invoke('bedrock:status') as Promise<BedrockStatus>,
     launch: (edition: BedrockEdition) => ipcRenderer.invoke('bedrock:launch', edition) as Promise<void>,
     store: (edition: BedrockEdition, updates?: boolean) => ipcRenderer.invoke('bedrock:store', edition, updates) as Promise<void>,
-    owned: (accountId: string) => ipcRenderer.invoke('bedrock:owned', accountId) as Promise<boolean | null>
+    owned: (accountId: string) => ipcRenderer.invoke('bedrock:owned', accountId) as Promise<boolean | null>,
+    // Ventana con resolución fija (pantallas raras, OBS)
+    windowGet: () => ipcRenderer.invoke('bedrock:window-get') as Promise<BedrockWindowSettings>,
+    windowSet: (s: BedrockWindowSettings) => ipcRenderer.invoke('bedrock:window-set', s) as Promise<BedrockWindowSettings>,
+    windowApply: (s: BedrockWindowSettings) => ipcRenderer.invoke('bedrock:window-apply', s) as Promise<{ ok: boolean; message: string; clientWidth?: number; clientHeight?: number }>,
+    onWindow: (cb: (r: { ok: boolean; message: string }) => void) => {
+      const h = (_e: unknown, r: { ok: boolean; message: string }): void => cb(r)
+      ipcRenderer.on('bedrock:window', h)
+      return () => { ipcRenderer.removeListener('bedrock:window', h) }
+    },
   },
 
   mc: {

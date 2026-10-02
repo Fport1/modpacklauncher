@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { BedrockEdition, BedrockStatus } from '../../../shared/types'
+import type { BedrockEdition, BedrockStatus, BedrockWindowSettings } from '../../../shared/types'
 import { useStore, activeAccount } from '../store'
 import { useTextures } from '../lib/mcTextures'
 import { IconPlay, IconDownload, IconRefresh, IconCheck } from '../components/ui/icons'
@@ -130,6 +130,8 @@ export default function BedrockPage() {
           )}
         </div>
 
+        <WindowSettings running={!!release?.running} />
+
         <p className="text-xs text-text-muted leading-relaxed">
           Bedrock lo instala y lo actualiza la Microsoft Store: el launcher lo abre y te lleva a la Store para instalarlo o
           actualizarlo. Las partidas, mundos y compras del Marketplace son las de siempre.
@@ -179,6 +181,111 @@ export function GrassBlock({ size = 120, tint = '#79c05a' }: { size?: number; ti
         <div style={face({ transform: `rotateX(90deg) translateZ(${half}px)`, backgroundColor: tint, overflow: 'hidden' })}>
           <div style={{ width: '100%', height: '100%', backgroundImage: `url(${top})`, backgroundSize: '100% 100%', imageRendering: 'pixelated', mixBlendMode: 'multiply' }} />
         </div>
+      </div>
+    </div>
+  )
+}
+
+const PRESETS: [number, number, string][] = [
+  [1280, 720, '720p'], [1600, 900, '900p'], [1920, 1080, '1080p'], [2560, 1440, '1440p'], [3840, 2160, '4K'],
+  [2560, 1080, 'Ultrapanorámica'], [1080, 1920, 'Vertical'], [1440, 1440, 'Cuadrada'],
+]
+
+/**
+ * Bedrock en ventana con una resolución exacta: el área de juego mide lo que
+ * pongas (sin contar el marco), útil para pantallas con medidas poco comunes y
+ * para capturarlo en OBS. Se aplica al abrirlo desde aquí o con «Aplicar ahora».
+ */
+function WindowSettings({ running }: { running: boolean }) {
+  const [s, setS] = useState<BedrockWindowSettings | null>(null)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    window.api.bedrock.windowGet().then(setS).catch(() => {})
+    return window.api.bedrock.onWindow((r) => setMsg({ ok: r.ok, text: r.message }))
+  }, [])
+
+  if (!s) return null
+  const save = (patch: Partial<BedrockWindowSettings>): void => {
+    const next = { ...s, ...patch }
+    setS(next)
+    window.api.bedrock.windowSet(next).then(setS).catch(() => {})
+  }
+  const custom = typeof s.position === 'object'
+
+  async function applyNow(): Promise<void> {
+    if (!s) return
+    setBusy(true); setMsg(null)
+    try { const r = await window.api.bedrock.windowApply(s); setMsg({ ok: r.ok, text: r.message }) }
+    catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e) }) }
+    finally { setBusy(false) }
+  }
+
+  const num = 'w-24 bg-bg-primary border border-border focus:border-accent rounded-lg px-2.5 py-1.5 text-sm text-text-primary outline-none tabular-nums'
+
+  return (
+    <div className="p-5 rounded-2xl bg-bg-card border border-border space-y-4">
+      <label className="flex items-start gap-3 cursor-pointer">
+        <input type="checkbox" checked={s.enabled} onChange={(e) => save({ enabled: e.target.checked })} className="w-4 h-4 mt-0.5 accent-accent" />
+        <span>
+          <span className="block text-sm font-semibold text-text-primary">Abrir en ventana con una resolución fija</span>
+          <span className="block text-xs text-text-muted">El área de juego mide exactamente lo que pongas, aunque tu pantalla tenga medidas raras. Ideal para capturarlo en OBS.</span>
+        </span>
+      </label>
+
+      <div className={`space-y-4 ${s.enabled ? '' : 'opacity-50 pointer-events-none'}`}>
+        <div>
+          <p className="text-xs font-medium text-text-secondary mb-1.5">Resolución</p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {PRESETS.map(([w, h, label]) => (
+              <button key={label} onClick={() => save({ width: w, height: h })}
+                className={`px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${s.width === w && s.height === h ? 'bg-accent/15 border-accent/60 text-accent' : 'border-border text-text-secondary hover:bg-bg-hover'}`}>
+                {label} <span className="text-text-muted">{w}×{h}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 text-sm text-text-muted">
+            <input type="number" min={320} max={16384} value={s.width} onChange={(e) => setS({ ...s, width: Number(e.target.value) })} onBlur={() => save({})} className={num} />
+            ×
+            <input type="number" min={240} max={16384} value={s.height} onChange={(e) => setS({ ...s, height: Number(e.target.value) })} onBlur={() => save({})} className={num} />
+            <span className="text-xs">píxeles del área de juego</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs font-medium text-text-secondary mb-1.5">Posición</p>
+            <div className="flex gap-1.5">
+              {([['center', 'Centrada'], ['topleft', 'Esquina'], ['custom', 'Exacta']] as const).map(([k, label]) => (
+                <button key={k} onClick={() => save({ position: k === 'custom' ? { x: 0, y: 0 } : k })}
+                  className={`flex-1 py-1.5 rounded-lg text-xs border ${(k === 'custom' ? custom : s.position === k) ? 'bg-accent/15 border-accent/60 text-accent' : 'border-border text-text-secondary hover:bg-bg-hover'}`}>{label}</button>
+              ))}
+            </div>
+            {custom && (
+              <div className="flex items-center gap-2 mt-2 text-xs text-text-muted">
+                X <input type="number" value={(s.position as { x: number }).x} onChange={(e) => setS({ ...s, position: { ...(s.position as { x: number; y: number }), x: Number(e.target.value) } })} onBlur={() => save({})} className={num} />
+                Y <input type="number" value={(s.position as { y: number }).y} onChange={(e) => setS({ ...s, position: { ...(s.position as { x: number; y: number }), y: Number(e.target.value) } })} onBlur={() => save({})} className={num} />
+              </div>
+            )}
+          </div>
+          <label className="flex items-start gap-2.5 cursor-pointer pt-5">
+            <input type="checkbox" checked={s.borderless} onChange={(e) => save({ borderless: e.target.checked })} className="w-4 h-4 mt-0.5 accent-accent" />
+            <span>
+              <span className="block text-xs font-medium text-text-primary">Sin bordes</span>
+              <span className="block text-[11px] text-text-muted">Sin barra de título: la ventana entera es el juego (en OBS, captura de ventana sin recortes).</span>
+            </span>
+          </label>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button onClick={applyNow} disabled={busy || !running}
+            className="px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover disabled:opacity-40 text-white text-sm font-semibold">
+            {busy ? 'Aplicando…' : 'Aplicar ahora'}
+          </button>
+          <span className="text-xs text-text-muted">{running ? 'Se aplica a la ventana abierta.' : 'Se aplica sola cuando abras Bedrock desde aquí (quita la pantalla completa al arrancar).'}</span>
+        </div>
+        {msg && <p className={`text-xs ${msg.ok ? 'text-green-300' : 'text-amber-300'}`}>{msg.text}</p>}
       </div>
     </div>
   )

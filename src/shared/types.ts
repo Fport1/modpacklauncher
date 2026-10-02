@@ -443,6 +443,9 @@ export interface ServerJarMeta {
 /** Algo que ha hecho (o intentado) una IA en una instancia, a través del launcher. */
 export interface AiActivity { instanceId: string; text: string; at: number; kind: 'info' | 'change' | 'denied' | 'error' }
 
+/** Bedrock en ventana con una resolución exacta (área de juego en píxeles) */
+export interface BedrockWindowSettings { enabled: boolean; width: number; height: number; borderless: boolean; position: 'center' | 'topleft' | { x: number; y: number } }
+
 /** Cuenta de GitHub conectada al launcher (la clave nunca llega a la ventana) */
 export interface GithubStatus { connected: boolean; login?: string; name?: string; avatarUrl?: string; method?: 'device' | 'token'; canPrivate?: boolean; deviceFlow: boolean }
 export interface GithubRepo { fullName: string; private: boolean; description: string; htmlUrl: string; defaultBranch: string; license?: string }

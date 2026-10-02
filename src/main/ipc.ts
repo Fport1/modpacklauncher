@@ -92,6 +92,7 @@ import {
 } from './ftp'
 import { getTextures } from './mcTextures'
 import { bedrockStatus, bedrockLaunch, bedrockOpenStore } from './bedrock'
+import { applyBedrockWindow, disableBedrockFullscreen, getBedrockWindowSettings, placeBedrockWindowAfterLaunch, setBedrockWindowSettings, type BedrockWindowSettings } from './bedrockWindow'
 import { assistHostStart, assistHostStop, assistHostOp, assistHelperStart, assistHelperClosed } from './assist'
 import { openPaneWindow, closePaneWindow, paneState, setPaneDir, getPaneDirs, setDrag, getDrag, notifyChanged, pushLog, type PaneSide } from './popout'
 import { nbtReadRemote, nbtWriteRemote, nbtReadLocal, nbtWriteLocal } from './nbt'
@@ -1509,7 +1510,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // Minecraft Bedrock (solo Windows)
   ipcMain.handle('bedrock:status', () => bedrockStatus())
-  ipcMain.handle('bedrock:launch', (_e, edition: BedrockEdition) => bedrockLaunch(edition))
+  ipcMain.handle('bedrock:launch', async (e, edition: BedrockEdition) => {
+    // Ventana con resolución fija: sin pantalla completa al arrancar y, al abrirse, se coloca
+    const win = await getBedrockWindowSettings()
+    const before = await bedrockStatus().catch(() => null)
+    const alreadyOpen = !!before?.editions[edition]?.running
+    if (win.enabled && !alreadyOpen) await disableBedrockFullscreen().catch(() => 0)
+    await bedrockLaunch(edition)
+    if (win.enabled) placeBedrockWindowAfterLaunch((r) => { if (!e.sender.isDestroyed()) e.sender.send('bedrock:window', r) }).catch(() => {})
+  })
+  ipcMain.handle('bedrock:window-get', () => getBedrockWindowSettings())
+  ipcMain.handle('bedrock:window-set', (_e, s: BedrockWindowSettings) => setBedrockWindowSettings(s))
+  ipcMain.handle('bedrock:window-apply', async (_e, s: BedrockWindowSettings) => applyBedrockWindow(await setBedrockWindowSettings(s)))
   ipcMain.handle('bedrock:store', (_e, edition: BedrockEdition, updates?: boolean) => bedrockOpenStore(edition, updates))
   /**
    * Si la cuenta de Microsoft tiene Bedrock comprado. Desde 2022 Java incluye
