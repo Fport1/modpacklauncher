@@ -106,5 +106,7 @@
 ["{0} min jugados", "{0} min played"],
 ["{0} h jugadas", "{0} h played"],
 ["Tus {0} teclas, también las de los mods", "Your {0} keys, including mod ones"],
-["Nueva versión disponible: v{0}", "New version available: v{0}"]
+["Nueva versión disponible: v{0}", "New version available: v{0}"],
+["{0} · cuenta Microsoft", "{0} · Microsoft account"],
+["{0} · cuenta offline", "{0} · offline account"]
 ]

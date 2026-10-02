@@ -602,42 +602,57 @@ export default function SkinsPage() {
 
   if (!account || account.type !== 'microsoft') {
     return (
-      <div className="flex items-center justify-center h-full text-text-muted text-sm">
-        Necesitas una cuenta Microsoft para ver tus skins.
+      <div className="h-full flex items-center justify-center p-8" style={{ background: 'radial-gradient(ellipse at 50% 30%, rgba(99,102,241,0.14), transparent 60%)' }}>
+        <div className="max-w-md text-center">
+          <div className="w-20 h-20 mx-auto rounded-3xl bg-accent/15 text-accent flex items-center justify-center mb-5">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="7" y="2" width="10" height="9" rx="1" /><path d="M7 11h10v7H7zM4 11h3v6H4zM17 11h3v6h-3zM8 18h3v4H8zM13 18h3v4h-3z" /></svg>
+          </div>
+          <h1 className="text-2xl font-bold text-text-primary">Tus skins</h1>
+          <p className="text-sm text-text-secondary mt-2">Para ver y cambiar la skin y la capa de tu personaje hace falta una cuenta de Microsoft (Minecraft Premium). Con ella también tendrás tu librería de skins y podrás explorar las de otros.</p>
+          <div className="flex items-center justify-center gap-2 mt-6">
+            <button onClick={() => navigate('/settings')} className="px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-semibold">Añadir cuenta de Microsoft</button>
+            <button onClick={() => navigate('/skin-editor')} className="px-5 py-2.5 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover">Abrir el editor de skins</button>
+          </div>
+        </div>
       </div>
     )
   }
 
-  const TABS: { key: Tab; label: string }[] = [
-    { key: 'mine',    label: 'Mi skin'   },
-    { key: 'library', label: 'Librería'  },
-    { key: 'browse',  label: 'Explorar'  },
+  const TABS: { key: Tab; label: string; icon: string }[] = [
+    { key: 'mine',    label: 'Mi skin',  icon: '🧍' },
+    { key: 'library', label: 'Librería', icon: '📚' },
+    { key: 'browse',  label: 'Explorar', icon: '🔎' },
   ]
 
   return (
-    <div className="p-6 h-full flex flex-col">
-      {/* Header + tabs */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-text-primary mb-1">Skins</h1>
-        <div className="flex items-center gap-1 mt-3">
+    <div className="h-full flex flex-col">
+      {/* Cabecera: tu personaje, pestañas y crear */}
+      <div className="relative overflow-hidden border-b border-border flex-shrink-0" style={{ background: 'linear-gradient(115deg, rgba(99,102,241,0.20), rgba(34,197,94,0.08) 55%, transparent 90%)' }}>
+        <div className="px-8 pt-6 pb-0 flex items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl overflow-hidden bg-black/20 border border-white/10 flex items-center justify-center flex-shrink-0">
+            {skinData ? <SkinHeadCanvas skin={skinData.skin} size={56} /> : <div className="w-full h-full animate-pulse bg-bg-hover" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold text-text-primary">Skins</h1>
+            <p className="text-sm text-text-secondary truncate">{account.username}{skinData ? ` · modelo ${skinData.model === 'slim' ? 'fino (Alex)' : 'clásico (Steve)'}${skinData.cape ? ' · con capa' : ''}` : ''}</p>
+          </div>
+          <button onClick={() => navigate('/skin-editor')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm rounded-xl font-semibold transition-colors shadow-lg shadow-accent/20">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Crear skin
+          </button>
+        </div>
+        <div className="px-8 mt-4 flex items-center gap-1">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-accent/20 text-accent' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}>
-              {t.label}
+              className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === t.key ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'}`}>
+              <span className="mr-1.5">{t.icon}</span>{t.label}
             </button>
           ))}
-          <div className="ml-auto">
-            <button onClick={() => navigate('/skin-editor')}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs rounded-lg font-medium transition-colors">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-              Crear skin
-            </button>
-            <div className="absolute bottom-full right-0 mb-1.5 px-2 py-1 bg-bg-card border border-border text-text-secondary text-[10px] rounded-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg">
-              Próximamente
-            </div>
-          </div>
         </div>
       </div>
+
+      <div className="flex-1 min-h-0 flex flex-col px-8 py-6 overflow-y-auto">
 
       {/* ── Tab: Mi skin ── */}
       {tab === 'mine' && (
@@ -1125,6 +1140,7 @@ export default function SkinsPage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
