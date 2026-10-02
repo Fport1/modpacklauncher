@@ -602,6 +602,10 @@ const api = {
   // Launcher console logs
   console: {
     getLogs: () => ipcRenderer.invoke('console:get-logs') as Promise<{ level: string; message: string; at: number }[]>,
+    /** Guarda un error de la interfaz en el registro del launcher (también en disco) */
+    reportError: (message: string) => ipcRenderer.send('console:renderer-error', message),
+    /** Abre la carpeta del registro de errores */
+    showErrorsLog: () => ipcRenderer.invoke('console:show-errors-log') as Promise<void>,
     onLog: (cb: (entry: { level: string; message: string; at: number }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, entry: { level: string; message: string; at: number }) => cb(entry)
       ipcRenderer.on('console:log', handler)

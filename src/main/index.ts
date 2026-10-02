@@ -89,6 +89,19 @@ function createWindow(): void {
   if (getSettings().devTools) mainWindow.webContents.openDevTools({ mode: 'detach' })
   setLoggerWindow(mainWindow)
 
+  // Si la página de la ventana se cae (memoria, GPU…), se apunta y se recarga en vez de
+  // dejar la ventana en negro. Si vuelve a caerse enseguida no se insiste (evita un bucle).
+  let lastGone = 0
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    console.error(`[Ventana] La página se cayó: ${details.reason} (código ${details.exitCode})`)
+    if (details.reason === 'clean-exit' || allowClose || !mainWindow || mainWindow.isDestroyed()) return
+    const now = Date.now()
+    if (now - lastGone < 15_000) return
+    lastGone = now
+    mainWindow.webContents.reload()
+  })
+  mainWindow.on('unresponsive', () => console.error('[Ventana] La página no responde'))
+
   // Send any pending .fpack file once the renderer is ready
   mainWindow.webContents.once('did-finish-load', () => {
     if (pendingFpackFile) {

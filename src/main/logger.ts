@@ -1,4 +1,6 @@
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
+import fs from 'fs'
+import path from 'path'
 
 export interface LogEntry {
   level: 'log' | 'info' | 'warn' | 'error'
@@ -18,6 +20,30 @@ export function setLoggerWindow(w: BrowserWindow): void {
   })
 }
 
+// Los errores también van a disco (userData/logs/errores.log): el buffer vive en memoria
+// y, si la ventana se queda en negro o el launcher se cierra, se perdería lo que pasó.
+const ERRORS_MAX_BYTES = 1024 * 1024
+let errorsFile: string | null = null
+
+function persistError(entry: LogEntry): void {
+  try {
+    if (!errorsFile) {
+      const dir = path.join(app.getPath('userData'), 'logs')
+      fs.mkdirSync(dir, { recursive: true })
+      errorsFile = path.join(dir, 'errores.log')
+    }
+    const size = fs.existsSync(errorsFile) ? fs.statSync(errorsFile).size : 0
+    if (size > ERRORS_MAX_BYTES) fs.renameSync(errorsFile, errorsFile.replace(/.log$/, '.anterior.log'))
+    fs.appendFileSync(errorsFile, `[${new Date(entry.at).toISOString()}] v${app.getVersion()} ${entry.message}
+`)
+  } catch { /* sin disco no hay registro, pero el launcher sigue */ }
+}
+
+/** Ruta del registro de errores (para enseñarla o abrirla). */
+export function errorsLogPath(): string {
+  return path.join(app.getPath('userData'), 'logs', 'errores.log')
+}
+
 function push(level: LogEntry['level'], args: unknown[]): void {
   const msg = args.map(a => {
     if (typeof a === 'string') return a
@@ -27,6 +53,7 @@ function push(level: LogEntry['level'], args: unknown[]): void {
   const entry: LogEntry = { level, message: msg, at: Date.now() }
   buf.push(entry)
   if (buf.length > MAX) buf.splice(0, buf.length - MAX)
+  if (level === 'error') persistError(entry)
   // Si la página de la ventana se está recargando o se cayó, Electron no lanza al
   // enviar: escribe «Error sending from webFrameMain…» con console.error, que vuelve
   // a pasar por aquí y vuelve a enviar, en bucle. Mientras se envía no se reenvía,
@@ -47,6 +74,11 @@ export function installConsoleCapture(): void {
   console.error = (...a: unknown[]) => { _error(...a); push('error', a) }
   process.on('uncaughtException', (e) => push('error', [`[UncaughtException] ${e.stack ?? e.message}`]))
   process.on('unhandledRejection', (r) => push('error', [`[UnhandledRejection] ${r}`]))
+}
+
+/** Un error de la interfaz (la ventana) llega por IPC y se guarda igual que los del proceso principal. */
+export function logRendererError(message: string): void {
+  push('error', [`[Interfaz] ${String(message).slice(0, 8000)}`])
 }
 
 export function getLogBuffer(): LogEntry[] {

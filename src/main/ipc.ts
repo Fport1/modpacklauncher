@@ -111,7 +111,7 @@ import { hasSocialSession } from './socialSession'
 import { listAssetSources, listAssetDir, readAssetFile } from './assets'
 import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
-import { getLogBuffer } from './logger'
+import { errorsLogPath, getLogBuffer, logRendererError } from './logger'
 import { analyzeUpload, inMcRange } from './fport1Analyze'
 import { installTool, openInTerminal, resolveCommand, toolMissing, type AiTool } from './aiTools'
 import {
@@ -1872,6 +1872,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── Console / Dev logs ────────────────────────────────────────────────────
 
   ipcMain.handle('console:get-logs', () => getLogBuffer())
+  // Errores de la interfaz: se guardan con los del proceso principal (también en disco)
+  ipcMain.on('console:renderer-error', (_e, message: string) => logRendererError(message))
+  ipcMain.handle('console:show-errors-log', () => shell.showItemInFolder(errorsLogPath()))
 }
 
 function addAccount(account: MinecraftAccount): void {
