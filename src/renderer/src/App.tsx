@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { nav } from './nav'
-import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
+import ErrorBoundary from './components/ErrorBoundary'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import OperationsPanel from './components/OperationsPanel'
@@ -25,6 +26,13 @@ import { useStore } from './store'
 import ChatNotifier from './components/chat/ChatNotifier'
 import AiAgentHost from './components/AiAgentHost'
 import { setAutoTranslate } from './i18n/autoTranslate'
+
+/** Un fallo al pintar una página solo se lleva esa página: la barra lateral sigue y al cambiar de página se reintenta. */
+function PageBoundary({ children }: { children: React.ReactNode }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  return <ErrorBoundary key={location.pathname} scope="page" onHome={() => navigate('/home')}>{children}</ErrorBoundary>
+}
 
 function FpackOpenHandler() {
   const navigate = useNavigate()
@@ -301,6 +309,7 @@ export default function App() {
         <div className="flex flex-1 overflow-hidden">
           <Sidebar />
           <main className="flex-1 overflow-y-auto bg-bg-primary">
+            <PageBoundary>
             <Routes>
               <Route path="/" element={<Navigate to="/home" replace />} />
               <Route path="/home" element={<HomePage />} />
@@ -320,6 +329,7 @@ export default function App() {
               <Route path="/mac-tools" element={<MacToolsPage />} />
               <Route path="/admin" element={<AdminPage />} />
             </Routes>
+            </PageBoundary>
           </main>
         </div>
         <OperationsPanel />

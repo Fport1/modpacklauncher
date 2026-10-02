@@ -2,12 +2,17 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import PopoutApp from './PopoutApp'
+import ErrorBoundary, { installGlobalErrorReporting } from './components/ErrorBoundary'
 import './index.css'
+
+installGlobalErrorReporting()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {/* Un cuadro de Servidores sacado a su ventana carga solo ese cuadro, sin el resto del launcher */}
-    {window.location.hash.startsWith('#/ftp-pane') ? <PopoutApp /> : <App />}
+    <ErrorBoundary scope="app">
+      {window.location.hash.startsWith('#/ftp-pane') ? <PopoutApp /> : <App />}
+    </ErrorBoundary>
   </React.StrictMode>
 )
 
