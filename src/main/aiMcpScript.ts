@@ -192,7 +192,7 @@ const LIVE_TOOLS = [
     input: S({ args: str('p. ej. "tps", "health" o "profiler"') }, ['args']),
     map: (a) => ({ args: String(a.args || '') }) },
   { name: 'observar_eventos', method: 'events.subscribe', capability: 'events',
-    description: 'Empieza a recibir eventos de la partida: death, dimension, load, lag_spike (tick de más de 100 ms), crash_imminent (memoria por encima del 95 %) y datapack_error. El launcher los guarda; léelos con eventos_en_vivo.' + EN_VIVO,
+    description: 'Empieza a recibir eventos de la partida: death, dimension, load, advancement (logros, en un servidor sin el nombre del jugador), lag_spike (tick de más de 100 ms), crash_imminent (memoria por encima del 95 %) y datapack_error. El launcher los guarda; léelos con eventos_en_vivo.' + EN_VIVO,
     input: S({ tipos: { type: 'array', items: { type: 'string' }, description: 'Tipos a observar (por defecto todos: "*")' } }),
     map: (a) => ({ types: a.tipos === undefined ? ['*'] : Array.isArray(a.tipos) ? a.tipos : String(a.tipos).split(/[ ,]+/).filter(Boolean) }) },
   { name: 'medir_cambio', method: 'metrics.mark', capability: 'metrics',
@@ -207,11 +207,49 @@ const LIVE_TOOLS = [
     description: 'Las últimas muestras por minuto de la partida (FPS, MSPT, memoria, entidades, errores del log, picos de lag, tiempos de carga).' + EN_VIVO,
     input: S({ minutos: num('cuántos minutos (por defecto los últimos)') }),
     map: (a) => noVacios({ minutes: a.minutos === undefined ? undefined : Number(a.minutos) }) },
+  // Integraciones con otros mods: solo si el mod está instalado (lo dice la capacidad del saludo)
+  { name: 'integraciones', method: 'integrations.list', capability: 'integrations',
+    description: 'Qué mods de eventos hay (voz, partículas AAA, cielo, grabación) y qué se puede hacer con ellos en la partida abierta: dónde están (cliente o servidor) y qué herramientas dan.' + EN_VIVO,
+    input: S() },
+  { name: 'voz', method: (a) => ({ grupos: 'voice.groups', crear_grupo: 'voice.group.create', quitar_grupo: 'voice.group.remove', unir: 'voice.join', sacar: 'voice.leave', silenciar: 'voice.mute', quitar_silencio: 'voice.unmute' })[a.accion || 'grupos'], capability: 'voice',
+    description: 'Grupos de Simple Voice Chat (verlos, crear, quitar, unir o sacar a un jugador) y silenciar con Plasmo Voice, para ensayar eventos. Todo menos «grupos» cambia algo en el servidor.' + EN_VIVO,
+    input: S({
+      accion: { type: 'string', enum: ['grupos', 'crear_grupo', 'quitar_grupo', 'unir', 'sacar', 'silenciar', 'quitar_silencio'], description: 'Qué hacer (por defecto grupos)' },
+      nombre: str('crear_grupo: nombre del grupo (máx. 24)'), grupo: str('quitar_grupo, unir, sacar: id o nombre del grupo'),
+      jugador: str('unir, sacar, silenciar: jugador (si no, quien llama)'), tipo: { type: 'string', enum: ['normal', 'open', 'isolated'], description: 'crear_grupo: tipo de grupo' },
+      contrasena: str('crear_grupo: contraseña (opcional)'), persistente: bool('crear_grupo: que no se borre al quedarse vacío'),
+      duracion: str('silenciar: 30s, 10m, 2h, 1d o permanent'), motivo: str('silenciar: motivo'),
+    }),
+    map: (a) => noVacios({ name: a.nombre, group: a.grupo, player: a.jugador, type: a.tipo, password: a.contrasena, persistent: a.persistente === undefined ? undefined : !!a.persistente, duration: a.duracion, reason: a.motivo }) },
+  { name: 'particulas', method: (a) => (a.accion === 'lanzar' ? 'particles.spawn' : 'particles.list'), capability: 'particles | particles.list',
+    description: 'Efectos de AAA Particles (Effekseer): «lista» dice los que hay en los resource packs; «lanzar» lanza uno en una posición y lo ven todos los que estén cerca.' + EN_VIVO,
+    input: S({
+      accion: { type: 'string', enum: ['lista', 'lanzar'], description: 'Qué hacer (por defecto lista)' },
+      efecto: str('lanzar: id del efecto (ns:nombre, de la lista)'), pos: pos3('lanzar: posición [x, y, z]'), dimension: str('lanzar: dimensión, si no es la del jugador'),
+      rotacion: pos3('lanzar: rotación [x, y, z]'), escala: num('lanzar: escala'), velocidad: num('lanzar: velocidad'), alcance: num('lanzar: distancia a la que se ve (por defecto 64)'),
+      filtro: str('lista: texto a buscar'),
+    }),
+    map: (a) => noVacios({ effect: a.efecto, pos: a.pos === undefined ? undefined : nums(a.pos), dimension: a.dimension, rot: a.rotacion === undefined ? undefined : nums(a.rotacion), scale: a.escala === undefined ? undefined : Number(a.escala), speed: a.velocidad === undefined ? undefined : Number(a.velocidad), range: a.alcance === undefined ? undefined : Number(a.alcance), filter: a.filtro }) },
+  { name: 'cielo', method: (a) => ({ lista: 'sky.list', poner: 'sky.set', quitar: 'sky.clear', parar: 'sky.stop' })[a.accion || 'lista'], capability: 'sky',
+    description: 'Cambiar el cielo con Custom Skyboxes: «lista» (tipos, texturas, efectos y presets), «poner», «quitar» o «parar» su animación. Solo cambia el cielo de ESTE cliente, no el de los demás jugadores.' + EN_VIVO,
+    input: S({
+      accion: { type: 'string', enum: ['lista', 'poner', 'quitar', 'parar'], description: 'Qué hacer (por defecto lista)' },
+      tipo: str('poner/quitar: tipo de cielo (de la lista); quitar sin tipo quita todo'), textura: str('poner: nombre o id de la textura (todos los tipos menos stars)'),
+      color: str('poner (tipo stars): color #RRGGBB'), vanilla: bool('poner: usar la textura vanilla'), parametros: { type: 'object', description: 'poner: parámetros extra del tipo' },
+    }),
+    map: (a) => noVacios({ type: a.tipo, texture: a.textura, color: a.color, vanilla: a.vanilla === undefined ? undefined : !!a.vanilla, params: a.parametros }) },
+  { name: 'grabar', method: (a) => ({ estado: 'record.status', empezar: 'record.start', pausar: 'record.pause', seguir: 'record.resume', terminar: 'record.stop', cancelar: 'record.cancel', marcador: 'record.marker' })[a.accion || 'estado'], capability: 'record',
+    description: 'Grabar con Flashback (empezar, pausar, seguir, terminar, cancelar) o poner marcadores. En multijugador «empezar» pide confirmación al jugador porque graba también a los demás (puede tardar hasta 60 s; si lo deniega devuelve -32005). Con ReplayMod solo valen «estado» y «marcador» (graba solo según su configuración).' + EN_VIVO,
+    input: S({
+      accion: { type: 'string', enum: ['estado', 'empezar', 'pausar', 'seguir', 'terminar', 'cancelar', 'marcador'], description: 'Qué hacer (por defecto estado)' },
+      nombre: str('marcador: nombre del marcador'),
+    }),
+    map: (a) => noVacios({ name: a.nombre }) },
 ]
 for (const t of LIVE_TOOLS) TOOLS.push({ ...t, route: 'live/call', timeout: 75000, live: true })
 // Eventos guardados por el launcher (no pasa por el mod)
 TOOLS.push({ name: 'eventos_en_vivo', route: 'live/events',
-  description: 'Los eventos que ha mandado la partida (tras observar_eventos): muertes, cambios de dimensión, cargas, picos de lag, crash inminente y errores de datapacks, con su hora. Con desde, solo los posteriores a esa marca de tiempo (ms).',
+  description: 'Los eventos que ha mandado la partida (tras observar_eventos): muertes, cambios de dimensión, cargas, logros, picos de lag, crash inminente y errores de datapacks, con su hora. Con desde, solo los posteriores a esa marca de tiempo (ms).',
   input: S({ desde: num('marca de tiempo en ms (la «at» del último evento que viste)'), tipos: { type: 'array', items: { type: 'string' } } }),
   map: (a) => noVacios({ since: a.desde === undefined ? undefined : Number(a.desde), types: a.tipos === undefined ? undefined : Array.isArray(a.tipos) ? a.tipos : String(a.tipos).split(/[ ,]+/).filter(Boolean) }) })
 
