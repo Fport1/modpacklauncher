@@ -20,7 +20,8 @@ function SkinAvatar({ uuid, username }: { uuid: string; username: string; size?:
   if (!src) {
     return <span className="text-accent text-sm font-bold">{username[0].toUpperCase()}</span>
   }
-  return <img src={src} alt={username} className="w-full h-full object-cover" style={{ imageRendering: 'pixelated' }} draggable={false} />
+  // Si la imagen no carga (sin conexión, sesión caducada) se vuelve a la inicial en vez de enseñar el texto alternativo
+  return <img src={src} alt="" onError={() => setSrc(null)} className="w-full h-full object-cover" style={{ imageRendering: 'pixelated' }} draggable={false} />
 }
 
 export { SkinAvatar }
@@ -336,10 +337,9 @@ export default function SettingsPage() {
         <div className="flex-1 min-w-0 max-w-3xl space-y-6">
 
       {/* Accounts */}
-      <section id="ajustes-cuentas" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Cuentas
-        </h2>
+      <section id="ajustes-cuentas" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Cuentas</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Tu cuenta de Minecraft para jugar y la de GitHub para publicar.</p>
 
         {accounts.length > 0 && (
           <div className="space-y-2 mb-4">
@@ -401,7 +401,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <div className="bg-bg-card border border-border rounded-xl p-4">
+        <div className="rounded-xl bg-bg-primary/60 border border-border p-4">
           <div className="flex gap-2 mb-4">
             {(['microsoft', 'offline'] as const).map((mode) => (
               <button
@@ -467,13 +467,12 @@ export default function SettingsPage() {
       </section>
 
       {/* Java & Memory */}
-      <section id="ajustes-java" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Java y Memoria
-        </h2>
-        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-5">
+      <section id="ajustes-java" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Java y Memoria</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Qué Java usa el juego y cuánta memoria puede ocupar.</p>
+        <div className="space-y-6">
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5">
+            <label className="block text-sm font-semibold text-text-primary mb-2">
               Ruta de Java{' '}
               <span className="text-text-muted text-xs">(dejar vacío para detectar automáticamente)</span>
             </label>
@@ -482,7 +481,7 @@ export default function SettingsPage() {
               value={localSettings.javaPath}
               onChange={(e) => setLocalSettings({ ...localSettings, javaPath: e.target.value })}
               placeholder="/usr/bin/java  ·  C:\Program Files\Java\...\bin\java.exe"
-              className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+              className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent"
             />
             <p className="text-xs text-text-muted mt-1">
               Si se deja vacío, el launcher detecta Java automáticamente. Si no está instalado, lo descarga solo.
@@ -490,7 +489,7 @@ export default function SettingsPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-text-secondary mb-3">
+            <label className="block text-sm font-semibold text-text-primary mb-3">
               RAM máxima asignada
             </label>
             <RamSlider
@@ -501,7 +500,7 @@ export default function SettingsPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-text-secondary mb-3">
+            <label className="block text-sm font-semibold text-text-primary mb-3">
               RAM mínima
             </label>
             <RamSlider
@@ -514,11 +513,10 @@ export default function SettingsPage() {
       </section>
 
       {/* Launcher options */}
-      <section id="ajustes-launcher" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Launcher
-        </h2>
-        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+      <section id="ajustes-launcher" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Launcher</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Cómo se comporta el launcher al jugar y al arrancar.</p>
+        <div className="divide-y divide-border/70 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
           {[
             {
               key: 'closeOnLaunch' as const,
@@ -530,11 +528,11 @@ export default function SettingsPage() {
             }
           ].map(({ key, label }) => (
             <label key={key} className="flex items-center justify-between cursor-pointer">
-              <span className="text-sm text-text-secondary">{label}</span>
+              <span className="text-sm font-semibold text-text-primary">{label}</span>
               <button
                 onClick={() => setLocalSettings({ ...localSettings, [key]: !localSettings[key] })}
                 className={`relative w-11 h-6 rounded-full transition-colors ${
-                  localSettings[key] ? 'bg-accent' : 'bg-border'
+                  localSettings[key] ? 'bg-accent' : 'bg-white/15'
                 }`}
               >
                 <span
@@ -546,10 +544,10 @@ export default function SettingsPage() {
             </label>
           ))}
           <label className="flex items-center justify-between cursor-pointer">
-            <span className="text-sm text-text-secondary">Sidebar compacto (solo iconos)</span>
+            <span className="text-sm font-semibold text-text-primary">Sidebar compacto (solo iconos)</span>
             <button
               onClick={() => setSidebarCompact(!sidebarCompact)}
-              className={`relative w-11 h-6 rounded-full transition-colors ${sidebarCompact ? 'bg-accent' : 'bg-border'}`}
+              className={`relative w-11 h-6 rounded-full transition-colors ${sidebarCompact ? 'bg-accent' : 'bg-white/15'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${sidebarCompact ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
@@ -558,17 +556,16 @@ export default function SettingsPage() {
       </section>
 
       {/* Modrinth */}
-      <section id="ajustes-modrinth" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Modrinth
-        </h2>
-        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+      <section id="ajustes-modrinth" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Modrinth</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Qué versiones se eligen al instalar mods.</p>
+        <div className="divide-y divide-border/70 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Canal de versiones al instalar mods</label>
+            <label className="block text-sm font-semibold text-text-primary mb-2">Canal de versiones al instalar mods</label>
             <select
               value={localSettings.modInstallChannel ?? 'all'}
               onChange={e => setLocalSettings({ ...localSettings, modInstallChannel: e.target.value as 'all' | 'stable' })}
-              className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent"
+              className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent"
             >
               <option value="all">Todo (release, beta, alpha)</option>
               <option value="stable">Solo estable (release)</option>
@@ -579,13 +576,12 @@ export default function SettingsPage() {
       </section>
 
       {/* GitHub para modpacks */}
-      <section id="ajustes-modpacks" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Creación de Modpacks
-        </h2>
-        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+      <section id="ajustes-modpacks" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Creación de Modpacks</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Publicar tus modpacks en GitHub para compartirlos.</p>
+        <div className="divide-y divide-border/70 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
           <div>
-            <label className="block text-sm text-text-secondary mb-1.5">
+            <label className="block text-sm font-semibold text-text-primary mb-2">
               Token de GitHub
               <span className="text-text-muted text-xs ml-1">(antiguo: ya no hace falta si conectas GitHub en Cuentas)</span>
             </label>
@@ -595,12 +591,12 @@ export default function SettingsPage() {
                 value={localSettings.githubToken ?? ''}
                 onChange={(e) => setLocalSettings({ ...localSettings, githubToken: e.target.value })}
                 placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent font-mono"
+                className="flex-1 h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent font-mono"
               />
               <button
                 onClick={() => setShowToken((v) => !v)}
                 title={showToken ? 'Ocultar token' : 'Ver token'}
-                className="px-3 py-2 border border-border rounded-lg text-text-muted hover:text-text-primary transition-colors"
+                className="w-11 h-11 flex items-center justify-center border border-border rounded-xl text-text-muted hover:text-text-primary hover:border-accent/50 transition-colors"
               >
                 {showToken ? (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -639,19 +635,18 @@ export default function SettingsPage() {
       </section>
 
       {/* Almacenamiento */}
-      <section id="ajustes-almacenamiento" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Almacenamiento
-        </h2>
-        <div className="bg-bg-card border border-border rounded-xl p-4">
+      <section id="ajustes-almacenamiento" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Almacenamiento</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Lo que ocupa el launcher en tu disco.</p>
+        <div className="rounded-xl bg-bg-primary/60 border border-border p-4">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-sm text-text-secondary">Administrar almacenamiento</span>
+              <span className="text-sm font-semibold text-text-primary">Administrar almacenamiento</span>
               <p className="text-xs text-text-muted mt-0.5">Mira qué ocupa cada cosa y libera lo que no necesites.</p>
             </div>
             <button
               onClick={() => setStorageOpen(true)}
-              className="px-3 py-2 border border-border rounded-lg text-sm text-text-secondary hover:text-text-primary transition-colors flex-shrink-0 ml-4"
+              className="h-10 px-4 border border-border rounded-xl text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors flex-shrink-0 ml-4"
             >
               Administrar
             </button>
@@ -660,49 +655,48 @@ export default function SettingsPage() {
       </section>
 
         {/* Sistema */}
-      <section id="ajustes-sistema" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Sistema
-        </h2>
-        <div className="bg-bg-card border border-border rounded-xl p-4 space-y-4">
+      <section id="ajustes-sistema" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Sistema</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Arranque con el equipo, idioma y herramientas para diagnosticar.</p>
+        <div className="divide-y divide-border/70 [&>*]:py-4 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
           <label className="flex items-center justify-between cursor-pointer">
             <div>
-              <span className="text-sm text-text-secondary">{isMac ? 'Iniciar con el sistema' : 'Iniciar con Windows'}</span>
+              <span className="text-sm font-semibold text-text-primary">{isMac ? 'Iniciar con el sistema' : 'Iniciar con Windows'}</span>
               <p className="text-xs text-text-muted mt-0.5">Abre el launcher automáticamente al encender el equipo.</p>
             </div>
             <button
               onClick={() => setLocalSettings({ ...localSettings, launchAtStartup: !localSettings.launchAtStartup })}
-              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.launchAtStartup ? 'bg-accent' : 'bg-border'}`}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.launchAtStartup ? 'bg-accent' : 'bg-white/15'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.launchAtStartup ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </label>
           <label className="flex items-center justify-between cursor-pointer">
             <div>
-              <span className="text-sm text-text-secondary">Mostrar consola del launcher</span>
+              <span className="text-sm font-semibold text-text-primary">Mostrar consola del launcher</span>
               <p className="text-xs text-text-muted mt-0.5">Muestra la consola interna en la barra lateral para ver logs y errores del launcher.</p>
             </div>
             <button
               onClick={() => setLocalSettings({ ...localSettings, showConsole: !localSettings.showConsole })}
-              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.showConsole ? 'bg-accent' : 'bg-border'}`}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.showConsole ? 'bg-accent' : 'bg-white/15'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.showConsole ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </label>
           <label className="flex items-center justify-between cursor-pointer">
             <div>
-              <span className="text-sm text-text-secondary">Herramientas de desarrollo</span>
+              <span className="text-sm font-semibold text-text-primary">Herramientas de desarrollo</span>
               <p className="text-xs text-text-muted mt-0.5">Abre las DevTools de Chromium en una ventana aparte. Muestran el tamaño de la ventana al cambiarlo y ayudan a diagnosticar errores.</p>
             </div>
             <button
               onClick={() => setLocalSettings({ ...localSettings, devTools: !localSettings.devTools })}
-              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.devTools ? 'bg-accent' : 'bg-border'}`}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ml-4 ${localSettings.devTools ? 'bg-accent' : 'bg-white/15'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${localSettings.devTools ? 'translate-x-5' : 'translate-x-0'}`} />
             </button>
           </label>
           <div className="flex items-center justify-between">
-            <span className="text-sm text-text-secondary">Idioma / Language</span>
+            <span className="text-sm font-semibold text-text-primary">Idioma / Language</span>
             <div className="flex gap-1">
               {(['es', 'en'] as const).map(lang => (
                 <button key={lang}
@@ -712,7 +706,7 @@ export default function SettingsPage() {
                     await window.api.settings.set({ language: lang })
                     setSettings({ ...settings, language: lang })
                   }}
-                  className={`px-3 py-1 text-xs rounded-lg border transition-colors ${localSettings.language === lang ? 'bg-accent text-white border-accent' : 'border-border text-text-secondary hover:border-accent/50'}`}
+                  className={`h-9 px-4 text-sm font-semibold rounded-xl border transition-colors ${localSettings.language === lang ? 'bg-accent text-white border-accent' : 'border-border text-text-secondary hover:border-accent/50'}`}
                 >
                   {lang === 'es' ? '🇪🇸 Español' : '🇬🇧 English'}
                 </button>
@@ -723,17 +717,16 @@ export default function SettingsPage() {
       </section>
 
       {/* Privacidad */}
-      <section id="ajustes-privacidad" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-4">
-          Privacidad
-        </h2>
+      <section id="ajustes-privacidad" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
+        <h2 className="text-lg font-bold text-text-primary">Privacidad</h2>
+        <p className="text-sm text-text-muted mt-0.5 mb-5">Qué se comparte para mejorar el launcher y la IA.</p>
         <PrivacySettings />
       </section>
 
       {/* Inteligencia Artificial */}
-      <section id="ajustes-ia" className="scroll-mt-6 p-5 rounded-2xl bg-bg-card/40 border border-border">
+      <section id="ajustes-ia" className="scroll-mt-6 p-6 rounded-2xl bg-bg-card border border-border">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Inteligencia Artificial</h2>
+          <h2 className="text-lg font-bold text-text-primary">Inteligencia Artificial</h2>
           {!aiForm && (
             <button onClick={openAddAiForm}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors">
@@ -811,7 +804,7 @@ export default function SettingsPage() {
             <div>
               <label className="block text-xs text-text-muted mb-1">Nombre</label>
               <input type="text" value={aiForm.label} onChange={e => setAiForm(f => f && ({ ...f, label: e.target.value }))}
-                placeholder="Mi Claude rápido" className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent" />
+                placeholder="Mi Claude rápido" className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -826,7 +819,7 @@ export default function SettingsPage() {
                     }
                     setAiForm(f => f && ({ ...f, provider: p, model: defaults[p] ?? '' }))
                   }}
-                  className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent">
+                  className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent">
                   <option value="claude">🟣 Claude (Anthropic)</option>
                   <option value="openai">🟢 ChatGPT (OpenAI)</option>
                   <option value="gemini">🔵 Gemini (Google)</option>
@@ -839,10 +832,10 @@ export default function SettingsPage() {
                 {aiForm.provider === 'ollama' ? (
                   <input type="text" value={aiForm.model} onChange={e => setAiForm(f => f && ({ ...f, model: e.target.value }))}
                     placeholder="llama3.2 / mistral / deepseek-r1"
-                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent font-mono" />
+                    className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent font-mono" />
                 ) : (
                   <select value={aiForm.model} onChange={e => setAiForm(f => f && ({ ...f, model: e.target.value }))}
-                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent">
+                    className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent">
                     {aiForm.provider === 'claude' && <>
                       <option value="claude-haiku-4-5-20251001">Haiku 4.5 — rápido ⚡</option>
                       <option value="claude-sonnet-4-6">Sonnet 4.6 — equilibrado ⚖️</option>
@@ -880,9 +873,9 @@ export default function SettingsPage() {
                   <input type={showAiKey ? 'text' : 'password'} value={aiForm.apiKey}
                     onChange={e => setAiForm(f => f && ({ ...f, apiKey: e.target.value }))}
                     placeholder="sk-ant-... / sk-... / AIza... / xai-..."
-                    className="flex-1 bg-bg-primary border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:border-accent font-mono" />
+                    className="flex-1 h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent font-mono" />
                   <button onClick={() => setShowAiKey(v => !v)}
-                    className="px-3 py-2 border border-border rounded-lg text-text-muted hover:text-text-primary transition-colors">
+                    className="w-11 h-11 flex items-center justify-center border border-border rounded-xl text-text-muted hover:text-text-primary hover:border-accent/50 transition-colors">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       {showAiKey
                         ? <><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
