@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore, activeAccount } from '../store'
 import * as skinview3d from 'skinview3d'
 import ZoomableImage from '../components/ZoomableImage'
+import SkinCard, { Icon, Svg, Toggle } from '../components/skins/SkinCard'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,7 +113,15 @@ function SkinViewer3D({ skin, cape, width = 160, height = 220, autoRotate = true
     }
     viewerRef.current = v
     return () => { v.dispose(); viewerRef.current = null }
-  }, [skin, cape, width, height, autoRotate, interactive, model])
+  }, [skin, cape, width, height, interactive, model]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Girar o parar sin recrear el visor (cada visor es un contexto WebGL); al parar, vuelve a mirar de frente
+  useEffect(() => {
+    const v = viewerRef.current
+    if (!v) return
+    v.autoRotate = autoRotate
+    if (!autoRotate) v.playerObject.rotation.y = 0
+  }, [autoRotate])
 
   return <canvas ref={canvasRef} className={`rounded-xl ${interactive ? '' : 'pointer-events-none'}`} />
 }
@@ -397,7 +406,6 @@ export default function SkinsPage() {
   // ── Library state ──
   const [library, setLibrary] = useState<LibraryEntry[]>([])
   const [libLoading, setLibLoading] = useState(false)
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [editingLibrarySkin, setEditingLibrarySkin] = useState<LibraryEntry | null>(null)
   const [defaultSkins, setDefaultSkins] = useState<{ name: string; model: SkinModel; data: string }[]>([])
   const [defaultsLoading, setDefaultsLoading] = useState(false)
@@ -446,7 +454,7 @@ export default function SkinsPage() {
     if (!skinData || !canvasRef.current) return
     viewerRef.current?.dispose()
     const viewer = new skinview3d.SkinViewer({
-      canvas: canvasRef.current, width: 300, height: 420,
+      canvas: canvasRef.current, width: 340, height: 470,
       skin: skinData.skin,
       model: skinData.model === 'slim' ? 'slim' : 'default',
       ...(skinData.cape ? { cape: skinData.cape } : {}),
@@ -658,113 +666,122 @@ export default function SkinsPage() {
       {tab === 'mine' && (
         <>
           {loading && (
-            <div className="flex items-center gap-2 text-text-muted text-sm">
+            <div className="flex items-center gap-2 text-text-muted text-sm py-6">
               <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-              Cargando skin...
+              Cargando tu skin…
             </div>
           )}
-          {error && !loading && <p className="text-sm text-red-400">{error}</p>}
+          {error && !loading && (
+            <div className="max-w-lg p-5 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-start gap-4">
+              <span className="text-2xl leading-none">⚠️</span>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-red-200">{error}</p>
+                <p className="text-xs text-red-200/70 mt-1">Puede que la sesión de Microsoft haya caducado o que no haya conexión. Prueba otra vez o vuelve a iniciar sesión en Ajustes › Cuentas.</p>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={loadSkin} className="h-9 px-4 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-100 text-sm font-bold">Reintentar</button>
+                  <button onClick={() => navigate('/settings')} className="h-9 px-4 rounded-xl border border-red-500/30 text-red-100/80 text-sm font-semibold hover:bg-red-500/10">Ir a Cuentas</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {skinData && !loading && (
-            <div className="flex gap-5 items-start">
-              {/* 3D viewer */}
-              <div className="bg-bg-card border border-border rounded-2xl overflow-hidden flex flex-col items-center flex-shrink-0">
-                <canvas ref={canvasRef} className="rounded-t-2xl" />
-                <div className="flex items-center gap-2 px-4 py-2 border-t border-border w-full justify-center">
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-6 items-start">
+              {/* Visor 3D */}
+              <div className="rounded-2xl bg-bg-card border border-border overflow-hidden">
+                <div className="flex items-center justify-center" style={{ background: 'radial-gradient(ellipse at 50% 40%, rgba(99,102,241,0.22), transparent 70%)' }}>
+                  <canvas ref={canvasRef} />
+                </div>
+                <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
                   <button onClick={resetCamera}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary border border-border hover:border-accent/40 rounded-lg transition-colors">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 12a9 9 0 109-9"/><polyline points="3 3 3 9 9 9"/>
-                    </svg>
-                    Restablecer
+                    className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
+                    <Svg size={15}>{Icon.reset}</Svg>Restablecer vista
                   </button>
-                  <span className="text-text-muted/30 text-[11px]">· Rot · Zoom · Pan</span>
+                  {hasCape && (
+                    <button onClick={toggleElytra}
+                      className={`h-9 px-3 rounded-xl text-sm font-semibold transition-colors ${elytra ? 'bg-accent/15 text-accent border border-accent/40' : 'border border-border text-text-secondary hover:text-text-primary hover:border-accent/50'}`}>
+                      {elytra ? 'Ver como capa' : 'Ver como elytra'}
+                    </button>
+                  )}
+                  <span className="ml-auto text-[11px] text-text-muted">Arrastra para girar · rueda: zoom</span>
                 </div>
               </div>
 
-              <div className="flex gap-4 items-start">
-                {/* Filters */}
-                <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
-                  <div className="px-4 pt-3 pb-2">
-                    <p className="text-xs font-semibold text-text-primary uppercase tracking-wider">Partes visibles</p>
+              <div className="grid grid-cols-2 gap-4 content-start">
+                {/* Skin */}
+                <div className="rounded-2xl bg-bg-card border border-border p-4 flex gap-4">
+                  <button onClick={() => setSkinLightbox(true)} title="Ver la textura en grande"
+                    className="w-28 h-28 shrink-0 rounded-xl bg-bg-primary border border-border hover:border-accent/50 p-2 transition-colors">
+                    <img src={skinData.skin} alt="skin" draggable={false} style={{ imageRendering: 'pixelated' }} className="w-full h-full" />
+                  </button>
+                  <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Tu skin</p>
+                      <p className="text-[11px] text-text-muted">{skinData.model === 'slim' ? 'Brazos finos (Alex)' : 'Brazos clásicos (Steve)'}</p>
+                    </div>
+                    <button onClick={downloadSkin} className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
+                      <Svg size={15}>{Icon.download}</Svg>Descargar PNG
+                    </button>
+                    <button onClick={saveCurrentToLibrary} className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
+                      <Svg size={15}>{Icon.save}</Svg>Guardar en la librería
+                    </button>
+                    <button onClick={loadSkin} disabled={loading} className="h-9 px-3 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors disabled:opacity-50">
+                      <Svg size={15} className={loading ? 'animate-spin' : ''}>{Icon.refresh}</Svg>Recargar
+                    </button>
                   </div>
-                  <div className="grid grid-cols-[1fr_44px_44px] text-[10px] text-text-muted uppercase tracking-wider px-4 pb-1.5 border-b border-border/50">
-                    <span>Parte</span><span className="text-center">C1</span><span className="text-center">C2</span>
+                </div>
+
+                {/* Capa */}
+                <div className="rounded-2xl bg-bg-card border border-border p-4 flex gap-4">
+                  <div className="w-28 h-28 shrink-0 rounded-xl bg-bg-primary border border-border flex items-center justify-center">
+                    {skinData.cape ? <CapePreviewCanvas texture={skinData.cape} width={56} height={90} /> : <span className="text-[11px] text-text-muted text-center px-2">Sin capa</span>}
                   </div>
-                  <div className="divide-y divide-border/30">
+                  <div className="flex-1 min-w-0 flex flex-col gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Capa</p>
+                      <p className="text-[11px] text-text-muted">{skinData.cape ? 'Equipada' : 'No llevas ninguna puesta'}</p>
+                    </div>
+                    <button onClick={openCapeSelector} className="h-9 px-3 flex items-center gap-2 rounded-xl bg-accent/15 hover:bg-accent/25 text-accent text-sm font-bold transition-colors">
+                      Cambiar capa
+                    </button>
+                    {hasCape && (
+                      <label className="flex items-center justify-between gap-2 text-sm text-text-secondary mt-1">
+                        Mostrar la capa
+                        <Toggle on={filters.cape} onClick={toggleCape} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+
+                {/* Partes visibles */}
+                <div className="col-span-2 rounded-2xl bg-bg-card border border-border overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Partes visibles en la vista</p>
+                      <p className="text-[11px] text-text-muted">Solo cambia lo que ves aquí, no tu skin.</p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setFilters(f => ({ ...f, ...Object.fromEntries(PARTS.map(p => [p.key, { inner: true, outer: true }])) }))}
+                        className="h-8 px-3 rounded-lg border border-border text-xs font-semibold text-text-secondary hover:text-text-primary">Todo</button>
+                      <button onClick={() => setFilters(f => ({ ...f, ...Object.fromEntries(PARTS.map(p => [p.key, { inner: true, outer: false }])) }))}
+                        className="h-8 px-3 rounded-lg border border-border text-xs font-semibold text-text-secondary hover:text-text-primary">Sin capa exterior</button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto_auto] gap-x-8 px-4 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-text-muted">
+                    <span>Parte</span><span>Base</span><span>Exterior</span>
+                  </div>
+                  <div className="divide-y divide-border/40">
                     {PARTS.map(({ key, label, outerLabel }) => (
-                      <div key={key} className="grid grid-cols-[1fr_44px_44px] items-center px-4 py-2 hover:bg-bg-hover/30 transition-colors">
+                      <div key={key} className="grid grid-cols-[1fr_auto_auto] gap-x-8 items-center px-4 py-2.5">
                         <div>
-                          <p className={`text-xs transition-colors ${filters[key].inner ? 'text-text-primary' : 'text-text-muted/40'}`}>{label}</p>
-                          <p className={`text-[10px] transition-colors ${filters[key].outer ? 'text-text-muted' : 'text-text-muted/30'}`}>{outerLabel}</p>
+                          <p className="text-sm font-semibold text-text-primary">{label}</p>
+                          <p className="text-[11px] text-text-muted">Exterior: {outerLabel.toLowerCase()}</p>
                         </div>
-                        <Checkbox active={filters[key].inner} onClick={() => toggleInner(key)} />
-                        <Checkbox active={filters[key].outer} onClick={() => toggleOuter(key)} />
+                        <Toggle on={filters[key].inner} onClick={() => toggleInner(key)} />
+                        <Toggle on={filters[key].outer} onClick={() => toggleOuter(key)} />
                       </div>
                     ))}
                   </div>
-                  {hasCape && (
-                    <div className="border-t border-border/50 px-4 py-2 space-y-1.5">
-                      <div className="grid grid-cols-[1fr_44px_44px] items-center">
-                        <p className={`text-xs ${filters.cape ? 'text-text-primary' : 'text-text-muted/40'}`}>Capa</p>
-                        <Checkbox active={filters.cape} onClick={toggleCape} />
-                        <div />
-                      </div>
-                      <button onClick={toggleElytra}
-                        className={`flex items-center gap-1.5 w-full px-2 py-1 rounded-lg text-[11px] transition-colors ${elytra ? 'bg-accent/15 text-accent' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'}`}>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2C6 2 2 8 2 12s2 6 4 7l6-7 6 7c2-1 4-3 4-7S18 2 12 2z"/></svg>
-                        {elytra ? 'Mostrar como capa' : 'Ver como elytra'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Skin PNG + cape */}
-                <div className="flex flex-col gap-3">
-                  <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Skin</p>
-                  <div className="relative group cursor-pointer" onClick={() => setSkinLightbox(true)}>
-                    <div className="bg-bg-card border border-border hover:border-accent/40 rounded-xl p-2 transition-colors">
-                      <img src={skinData.skin} alt="skin" draggable={false}
-                        style={{ imageRendering: 'pixelated', width: 96, height: 96 }} className="rounded" />
-                    </div>
-                    <button onClick={e => { e.stopPropagation(); downloadSkin() }} title="Descargar"
-                      className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-accent hover:bg-accent-hover text-white flex items-center justify-center shadow-lg transition-colors z-10">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
-                    </button>
-                  </div>
-
-                  {/* Reload skin */}
-                  <button onClick={loadSkin} disabled={loading}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] border border-border hover:border-accent/40 rounded-lg text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50">
-                    <svg className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-                    </svg>
-                    Recargar
-                  </button>
-
-                  {/* Save to library */}
-                  <button onClick={saveCurrentToLibrary}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] border border-border hover:border-accent/40 rounded-lg text-text-secondary hover:text-text-primary transition-colors">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                    Guardar en librería
-                  </button>
-
-                  {hasCape && (
-                    <>
-                      <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mt-1">Capa</p>
-                      <button onClick={openCapeSelector}
-                        className="bg-bg-card border border-border hover:border-accent/40 rounded-xl overflow-hidden transition-colors group relative flex items-center justify-center p-3">
-                        {skinData.cape
-                          ? <CapePreviewCanvas texture={skinData.cape} width={56} height={90} />
-                          : <div className="w-[56px] h-[90px] rounded bg-bg-hover/50" />}
-                        <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 group-hover:bg-black/40 transition-colors">
-                          <span className="text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">Ver capas</span>
-                        </div>
-                      </button>
-                    </>
-                  )}
-
-                  <p className="text-xs text-text-muted mt-1">{account.username}</p>
                 </div>
               </div>
             </div>
@@ -774,126 +791,71 @@ export default function SkinsPage() {
 
       {/* ── Tab: Librería ── */}
       {tab === 'library' && (
-        <div className="flex-1 overflow-y-auto">
-          <div className="flex items-center justify-between mb-4">
-            <div />
-            <button onClick={() => setNewSkinModal(true)}
-              className="flex items-center gap-2 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Nuevo
-            </button>
-          </div>
-
-          {/* ── Tus skins guardadas ── */}
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest">Tus skins guardadas</p>
+        <div className="flex-1">
+          <div className="flex items-end justify-between gap-4 mb-4">
+            <div>
+              <h2 className="text-base font-bold text-text-primary">Tus skins guardadas {library.length > 0 && <span className="text-text-muted font-medium">· {library.length}</span>}</h2>
+              <p className="text-xs text-text-muted mt-0.5">Pásale el ratón por encima para verla girar. «Aplicar» la pone en tu cuenta.</p>
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              {skinData && (
+                <button onClick={saveCurrentToLibrary}
+                  className="h-10 px-4 flex items-center gap-2 rounded-xl border border-border text-sm font-semibold text-text-secondary hover:text-text-primary hover:border-accent/50 transition-colors">
+                  <Svg>{Icon.save}</Svg>Guardar la actual
+                </button>
+              )}
+              <button onClick={() => setNewSkinModal(true)}
+                className="h-10 px-4 flex items-center gap-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-bold transition-colors shadow-lg shadow-accent/20">
+                <Svg>{Icon.upload}</Svg>Añadir skin
+              </button>
+            </div>
           </div>
 
           {libLoading && (
-            <div className="flex items-center gap-2 text-text-muted text-sm">
+            <div className="flex items-center gap-2 text-text-muted text-sm py-6">
               <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-              Cargando...
+              Cargando…
             </div>
           )}
 
           {!libLoading && library.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-10 text-text-muted gap-3">
-              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="opacity-30">
-                <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>
-              </svg>
-              <p className="text-sm">No tienes skins guardadas</p>
-              <p className="text-xs">Pulsa "Nuevo" para añadir una skin o guarda la actual desde "Mi skin"</p>
+            <div className="flex flex-col items-center justify-center py-12 rounded-2xl border border-dashed border-border text-center gap-2 mb-8">
+              <p className="text-sm font-semibold text-text-secondary">No tienes skins guardadas</p>
+              <p className="text-xs text-text-muted">Añade una desde un PNG, guarda la que llevas puesta o busca la de otro jugador en «Explorar».</p>
             </div>
           )}
 
           {!libLoading && library.length > 0 && (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4 mb-8">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4 mb-10">
               {library.map(entry => (
-                <div key={entry.id} className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col group hover:border-accent/40 transition-colors">
-                  <div className="flex items-center justify-center pt-2 bg-bg-hover/20">
-                    <SkinViewer3D skin={entry.data} width={110} height={150} autoRotate={false} model={entry.model} />
-                  </div>
-                  <div className="px-3 pb-3 flex flex-col gap-2">
-                    <p className="text-xs font-medium text-text-primary truncate mt-1">{entry.name}</p>
-                    <p className="text-[10px] text-text-muted">{entry.model === 'slim' ? 'Brazos delgados' : 'Brazos gruesos'}</p>
-
-                    {confirmDeleteId === entry.id ? (
-                      <div className="flex flex-col gap-1.5">
-                        <p className="text-[10px] text-red-400 text-center">¿Eliminar permanentemente?</p>
-                        <div className="flex gap-1.5">
-                          <button onClick={() => setConfirmDeleteId(null)}
-                            className="flex-1 py-1.5 text-[11px] border border-border hover:border-accent/40 text-text-secondary rounded-lg transition-colors">
-                            Cancelar
-                          </button>
-                          <button onClick={() => { deleteFromLibrary(entry.id); setConfirmDeleteId(null) }}
-                            className="flex-1 py-1.5 text-[11px] bg-red-500/15 hover:bg-red-500/25 text-red-400 rounded-lg transition-colors font-medium">
-                            Eliminar
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setApplyModal(entry.data)}
-                          className="flex-1 py-1.5 text-[11px] bg-accent/15 hover:bg-accent/25 text-accent rounded-lg transition-colors font-medium">
-                          Aplicar
-                        </button>
-                        <button onClick={() => setEditingLibrarySkin(entry)}
-                          title="Editar skin"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 hover:text-accent text-text-muted transition-colors">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-                        </button>
-                        <button onClick={() => {
-                          const a = document.createElement('a')
-                          a.href = entry.data
-                          a.download = `${entry.name}.png`
-                          a.click()
-                        }} title="Guardar PNG en el equipo"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 hover:text-accent text-text-muted transition-colors">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
-                        </button>
-                        <button onClick={() => setConfirmDeleteId(entry.id)} title="Eliminar"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-red-500/40 hover:text-red-400 text-text-muted transition-colors">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <SkinCard key={entry.id} name={entry.name} model={entry.model}
+                  viewer={(rotating) => <SkinViewer3D skin={entry.data} width={130} height={175} autoRotate={rotating} model={entry.model} />}
+                  onApply={() => setApplyModal(entry.data)}
+                  actions={[
+                    { icon: Icon.edit, label: 'Editar', onClick: () => setEditingLibrarySkin(entry) },
+                    { icon: Icon.download, label: 'Guardar PNG en el equipo', onClick: () => { const a = document.createElement('a'); a.href = entry.data; a.download = `${entry.name}.png`; a.click() } },
+                    { icon: Icon.trash, label: 'Eliminar', danger: true, onClick: () => deleteFromLibrary(entry.id) },
+                  ]} />
               ))}
             </div>
           )}
 
           {/* ── Skins por defecto de Minecraft ── */}
-          <div className="mt-8 mb-6">
-            <p className="text-[10px] font-semibold text-text-muted uppercase tracking-widest mb-3">Skins de Minecraft</p>
+          <div className="mb-6">
+            <h2 className="text-base font-bold text-text-primary">Skins de Minecraft</h2>
+            <p className="text-xs text-text-muted mt-0.5 mb-4">Las que trae el juego. Puedes aplicarlas directamente o guardarlas en tu librería.</p>
             {defaultsLoading ? (
               <div className="flex items-center gap-2 text-text-muted text-sm">
                 <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
-                Cargando...
+                Cargando…
               </div>
             ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
                 {defaultSkins.map(skin => (
-                  <div key={skin.name} className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col hover:border-accent/40 transition-colors">
-                    <div className="flex items-center justify-center pt-2 bg-bg-hover/20">
-                      <SkinViewer3D skin={skin.data} width={100} height={140} autoRotate={false} model={skin.model} />
-                    </div>
-                    <div className="px-3 pb-3 flex flex-col gap-2">
-                      <p className="text-xs font-medium text-text-primary truncate mt-1">{skin.name}</p>
-                      <p className="text-[10px] text-text-muted">{skin.model === 'slim' ? 'Brazos delgados' : 'Brazos gruesos'}</p>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => setApplyModal(skin.data)}
-                          className="flex-1 py-1.5 text-[11px] bg-accent/15 hover:bg-accent/25 text-accent rounded-lg transition-colors font-medium">
-                          Aplicar
-                        </button>
-                        <button onClick={() => window.api.skins.saveToLibrary({ name: skin.name, model: skin.model, data: skin.data }).then(e => setLibrary(prev => [...prev, e]))}
-                          title="Guardar en librería"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:border-accent/40 hover:text-accent text-text-muted transition-colors">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <SkinCard key={skin.name} name={skin.name} model={skin.model}
+                    viewer={(rotating) => <SkinViewer3D skin={skin.data} width={130} height={175} autoRotate={rotating} model={skin.model} />}
+                    onApply={() => setApplyModal(skin.data)}
+                    actions={[{ icon: Icon.save, label: 'Guardar en la librería', onClick: () => { window.api.skins.saveToLibrary({ name: skin.name, model: skin.model, data: skin.data }).then(e => setLibrary(prev => [...prev, e])) } }]} />
                 ))}
               </div>
             )}
@@ -911,16 +873,16 @@ export default function SkinsPage() {
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="Nombre de jugador de Minecraft..."
-              className="flex-1 bg-bg-card border border-border focus:border-accent/50 rounded-lg px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted transition-colors" />
+              className="flex-1 h-11 bg-bg-card border border-border focus:border-accent/60 rounded-xl px-4 text-sm text-text-primary outline-none placeholder:text-text-muted transition-colors" />
             <button type="submit" disabled={searching}
-              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2">
+              className="h-11 px-5 bg-accent hover:bg-accent-hover text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50 flex items-center gap-2">
               {searching
                 ? <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg>
                 : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>}
               Buscar
             </button>
             <button type="button" onClick={() => { setSearchQuery(''); doSearch('') }}
-              className="px-3 py-2 border border-border hover:border-accent/40 text-text-secondary hover:text-text-primary text-sm rounded-lg transition-colors">
+              className="h-11 px-4 border border-border hover:border-accent/50 text-text-secondary hover:text-text-primary text-sm font-semibold rounded-xl transition-colors">
               Populares
             </button>
           </form>
@@ -943,17 +905,17 @@ export default function SkinsPage() {
             )}
 
             {searchResults.length > 0 && (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-4">
                 {searchResults.map(skin => (
                   <button key={skin.id}
                     onClick={() => { setSelectedBrowseSkin(skin); setBrowseSaveStatus('idle') }}
-                    className={`bg-bg-card border rounded-xl overflow-hidden flex flex-col items-center hover:border-accent/40 transition-colors ${selectedBrowseSkin?.id === skin.id ? 'border-accent/60' : 'border-border'}`}>
-                    <div className="w-full aspect-square bg-bg-secondary flex items-center justify-center overflow-hidden p-2">
+                    className={`bg-bg-card border rounded-2xl overflow-hidden flex flex-col items-center hover:border-accent/50 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/30 transition-all ${selectedBrowseSkin?.id === skin.id ? 'border-accent/60' : 'border-border'}`}>
+                    <div className="w-full aspect-square flex items-center justify-center overflow-hidden p-4" style={{ background: 'radial-gradient(ellipse at 50% 40%, rgba(99,102,241,0.18), transparent 70%)' }}>
                       {skin.textureData
-                        ? <SkinHeadCanvas skin={skin.textureData} size={80} />
+                        ? <SkinHeadCanvas skin={skin.textureData} size={96} />
                         : <div className="w-full h-full bg-bg-hover/40 rounded" />}
                     </div>
-                    <p className="text-[11px] text-text-primary px-2 py-1.5 w-full text-center truncate font-medium">{skin.name}</p>
+                    <p className="text-sm text-text-primary px-3 py-2.5 w-full text-center truncate font-bold border-t border-border">{skin.name}</p>
                   </button>
                 ))}
               </div>
