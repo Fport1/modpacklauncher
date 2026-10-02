@@ -105,6 +105,28 @@ export const LIVE_METHOD_CAPABILITIES: Record<string, (params: Record<string, un
   'metrics.get': () => ['metrics'],
   'metrics.mark': () => ['metrics'],
   'metrics.compare': () => ['metrics'],
+  // Integraciones con otros mods (solo si están instalados: lo dice la capacidad)
+  'integrations.list': () => ['integrations'],
+  'voice.groups': () => ['voice'],
+  'voice.group.create': () => ['voice'],
+  'voice.group.remove': () => ['voice'],
+  'voice.join': () => ['voice'],
+  'voice.leave': () => ['voice'],
+  'voice.mute': () => ['voice'],
+  'voice.unmute': () => ['voice'],
+  'particles.list': () => ['particles.list'],
+  'particles.spawn': () => ['particles'],
+  'sky.list': () => ['sky'],
+  'sky.set': () => ['sky'],
+  'sky.clear': () => ['sky'],
+  'sky.stop': () => ['sky'],
+  'record.status': () => ['record'],
+  'record.start': () => ['record'],
+  'record.pause': () => ['record'],
+  'record.resume': () => ['record'],
+  'record.stop': () => ['record'],
+  'record.cancel': () => ['record'],
+  'record.marker': () => ['record'],
 }
 
 /** Métodos que valen con cualquiera de estas capacidades (inspeccionar desde el cliente o con acceso al servidor). */
@@ -129,6 +151,13 @@ export function eventActivity(type: string, data: unknown): { text: string; kind
     // El mod manda {reason: "memory", usedMb, maxMb}
     const pct = typeof d.usedMb === 'number' && typeof d.maxMb === 'number' && d.maxMb > 0 ? ` (${Math.round((d.usedMb / d.maxMb) * 100)} % de ${d.maxMb} MB)` : ''
     return { text: `La partida se está quedando sin memoria${pct}: puede cerrarse en cualquier momento`, kind: 'error' }
+  }
+  if (type === 'advancement') {
+    // {id, title, type}; en un servidor dedicado o Paper llega sin el nombre del jugador, a propósito
+    const title = typeof d.title === 'string' && d.title.trim() ? d.title.trim() : typeof d.id === 'string' ? d.id : ''
+    if (!title) return null
+    const kind = d.type === 'challenge' ? ' (desafío)' : d.type === 'goal' ? ' (meta)' : ''
+    return { text: `Logro: ${title.slice(0, 120)}${kind}`, kind: 'info' }
   }
   return null
 }
@@ -179,6 +208,22 @@ export function auditText(data: unknown): string {
     'player.teleport': 'Teletransporte',
     'spark.run': 'Perfil de rendimiento (spark)',
     'metrics.mark': 'Medición antes de un cambio',
+    'voice.group.create': 'Grupo de voz creado',
+    'voice.group.remove': 'Grupo de voz quitado',
+    'voice.join': 'Jugador unido a un grupo de voz',
+    'voice.leave': 'Jugador sacado de un grupo de voz',
+    'voice.mute': 'Jugador silenciado en la voz',
+    'voice.unmute': 'Jugador sin silenciar en la voz',
+    'particles.spawn': 'Efecto de partículas lanzado',
+    'sky.set': 'Cielo cambiado',
+    'sky.clear': 'Cielo quitado',
+    'sky.stop': 'Animación del cielo parada',
+    'record.start': 'Grabación empezada',
+    'record.pause': 'Grabación en pausa',
+    'record.resume': 'Grabación reanudada',
+    'record.stop': 'Grabación terminada',
+    'record.cancel': 'Grabación cancelada',
+    'record.marker': 'Marcador en la grabación',
   }
   const method = String(d.method ?? '?')
   const client = d.client && d.client !== 'modpack-launcher' ? ` (desde ${d.client})` : ''
