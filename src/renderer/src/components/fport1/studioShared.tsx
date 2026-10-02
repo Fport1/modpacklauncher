@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Channel, Fport1License, Fport1Type } from '../../lib/fport1Content'
+import { catLabel } from '../../lib/categoryNames'
 
 // Piezas comunes del panel «Mis creaciones».
 
@@ -109,6 +110,48 @@ export function TagInput({ value, onChange, placeholder, max = 20 }: { value: st
         onBlur={() => text && add(text)}
         placeholder={value.length >= max ? `Máximo ${max}` : placeholder} disabled={value.length >= max}
         className="flex-1 min-w-[120px] bg-transparent text-sm text-text-primary outline-none py-0.5" />
+    </div>
+  )
+}
+
+// ── Categorías (las de Modrinth, que usa Explorar) ──────────────────────────
+
+const CAT_TYPE: Record<Fport1Type, string> = { modpack: 'modpack', mod: 'mod', resourcepack: 'resourcepack', datapack: 'mod', shader: 'shader', plugin: 'plugin' }
+const catCache = new Map<string, Promise<{ name: string; header: string }[]>>()
+function loadCategories(type: string): Promise<{ name: string; header: string }[]> {
+  if (!catCache.has(type)) {
+    catCache.set(type, window.api.modrinth.getCategories(type)
+      .then((all: { name: string; project_type: string; header: string }[]) => {
+        const own = all.filter((c) => c.project_type === type)
+        // Los plugins usan las de mod si Modrinth no tiene propias
+        return (own.length ? own : all.filter((c) => c.project_type === 'mod')).filter((c) => c.header === 'categories' || c.header === 'features' || c.header === 'performance impact' || c.header === 'resolutions')
+      })
+      .catch(() => { catCache.delete(type); return [] }))
+  }
+  return catCache.get(type)!
+}
+
+const HEADER_LABEL: Record<string, string> = { categories: 'Categorías', features: 'Características', 'performance impact': 'Impacto en el rendimiento', resolutions: 'Resolución' }
+
+/** Elegir categorías de la lista fija (no se escriben a mano). */
+export function CategoryPicker({ type, value, onChange }: { type: Fport1Type; value: string[]; onChange: (v: string[]) => void }) {
+  const [cats, setCats] = useState<{ name: string; header: string }[] | null>(null)
+  useEffect(() => { loadCategories(CAT_TYPE[type]).then(setCats) }, [type])
+  if (!cats) return <p className="text-xs text-text-muted">Cargando categorías…</p>
+  if (!cats.length) return <p className="text-xs text-text-muted">No se pudieron cargar las categorías (¿sin conexión?).</p>
+  const groups = [...new Set(cats.map((c) => c.header))]
+  return (
+    <div className="space-y-2">
+      {groups.map((g) => (
+        <div key={g}>
+          {groups.length > 1 && <p className="text-[10px] uppercase tracking-widest text-text-muted mb-1">{HEADER_LABEL[g] ?? g}</p>}
+          <Chips options={cats.filter((c) => c.header === g).map((c) => c.name)} value={value} onChange={onChange}
+            names={Object.fromEntries(cats.map((c) => [c.name, catLabel(c.name)]))} />
+        </div>
+      ))}
+      {value.some((v) => !cats.some((c) => c.name === v)) && (
+        <p className="text-[11px] text-amber-300">Hay categorías antiguas que no están en la lista: {value.filter((v) => !cats.some((c) => c.name === v)).join(', ')}. Quítalas con <button className="underline" onClick={() => onChange(value.filter((v) => cats.some((c) => c.name === v)))}>este botón</button>.</p>
+      )}
     </div>
   )
 }

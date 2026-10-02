@@ -656,6 +656,13 @@ const api = {
       return () => { ipcRenderer.removeListener('github:progress', h) }
     },
     deleteRelease: (repo: string, releaseId: number, tag: string) => ipcRenderer.invoke('github:delete-release', repo, releaseId, tag) as Promise<void>,
+    deleteAsset: (repo: string, assetId: number) => ipcRenderer.invoke('github:delete-asset', repo, assetId) as Promise<void>,
+    updateRelease: (repo: string, releaseId: number, patch: { name?: string; body?: string; prerelease?: boolean; tag?: string; oldTag?: string }) => ipcRenderer.invoke('github:update-release', repo, releaseId, patch) as Promise<void>,
+    // Lee un archivo a publicar (mod, plugin, modpack o pack) y saca versión, loaders, versiones de Minecraft y dependencias
+    analyzeUpload: (fileName: string, data: ArrayBuffer) => ipcRenderer.invoke('fport1:analyze', fileName, data) as Promise<{
+      versionNumber?: string; name?: string; loaders: string[]; minecraftRange?: string; gameVersions: string[]
+      packFormat?: number; packKind?: 'resource' | 'data'; dependencies: { id: string; type: 'required' | 'optional' }[]; notas: string[]
+    }>,
     putMedia: (filePath: string, data: ArrayBuffer, message: string) => ipcRenderer.invoke('github:put-media', filePath, data, message) as Promise<{ url: string; path: string }>,
     deleteMedia: (ghPath: string, message: string) => ipcRenderer.invoke('github:delete-media', ghPath, message) as Promise<void>,
   },

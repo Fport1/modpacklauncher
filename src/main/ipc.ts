@@ -111,10 +111,11 @@ import { listAssetSources, listAssetDir, readAssetFile } from './assets'
 import { analyzeWithAI } from './ai'
 import { getFriends, addFriend, removeFriend } from './friends'
 import { getLogBuffer } from './logger'
+import { analyzeUpload, inMcRange } from './fport1Analyze'
 import { installTool, openInTerminal, resolveCommand, toolMissing, type AiTool } from './aiTools'
 import {
-  githubCreateRepo, githubDeleteMedia, githubDeleteRelease, githubDeviceCancel, githubDeviceStart, githubDeviceWait, githubLogout,
-  githubPublishRelease, githubPutMedia, githubRepos, githubSetToken, githubStatus, githubTokenForMain, githubUpdateRepo, type ReleaseInput, type RepoInput
+  githubCreateRepo, githubDeleteAsset, githubDeleteMedia, githubDeleteRelease, githubDeviceCancel, githubDeviceStart, githubDeviceWait, githubLogout,
+  githubPublishRelease, githubPutMedia, githubRepos, githubSetToken, githubStatus, githubTokenForMain, githubUpdateRelease, githubUpdateRepo, type ReleaseInput, type RepoInput
 } from './github'
 
 interface AccountsStore {
@@ -1602,6 +1603,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('github:update-repo', (_e, repo: string, patch: { description?: string; homepage?: string; topics?: string[] }) => githubUpdateRepo(repo, patch))
   ipcMain.handle('github:publish-release', (e, input: ReleaseInput) =>
     githubPublishRelease(input, (f) => { if (!e.sender.isDestroyed()) e.sender.send('github:progress', f) }))
+  ipcMain.handle('github:update-release', (_e, repo: string, releaseId: number, patch: { name?: string; body?: string; prerelease?: boolean; tag?: string; oldTag?: string }) => githubUpdateRelease(repo, releaseId, patch))
+  // Lee el archivo a publicar: versión, loaders, versiones de Minecraft (cruzadas con la lista oficial) y dependencias
+  ipcMain.handle('fport1:analyze', async (_e, fileName: string, data: ArrayBuffer) => {
+    const a = analyzeUpload(fileName, data)
+    let gameVersions: string[] = a.minecraftExact ?? []
+    if (!gameVersions.length && a.minecraftRange) {
+      const all = await getAvailableVersions().catch(() => [])
+      gameVersions = all.filter((v) => v.type === 'release' && inMcRange(v.id, a.minecraftRange!)).map((v) => v.id)
+    }
+    return { ...a, gameVersions }
+  })
+  ipcMain.handle('github:delete-asset', (_e, repo: string, assetId: number) => githubDeleteAsset(repo, assetId))
   ipcMain.handle('github:delete-release', (_e, repo: string, releaseId: number, tag: string) => githubDeleteRelease(repo, releaseId, tag))
   ipcMain.handle('github:put-media', (_e, filePath: string, data: ArrayBuffer, message: string) => githubPutMedia(filePath, data, message))
   ipcMain.handle('github:delete-media', (_e, ghPath: string, message: string) => githubDeleteMedia(ghPath, message))

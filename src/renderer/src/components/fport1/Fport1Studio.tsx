@@ -8,7 +8,7 @@ import MarkdownEditor, { imageSnippet } from './MarkdownEditor'
 import ImagesTab from './ImagesTab'
 import CodeTab, { type CodeForm } from './CodeTab'
 import VersionsTab from './VersionsTab'
-import { CLOSED_LICENSES, OPEN_LICENSES, SIDES, TYPES, TagInput, cleanErr, inputCls, labelCls } from './studioShared'
+import { CLOSED_LICENSES, CategoryPicker, OPEN_LICENSES, SIDES, TYPES, TagInput, cleanErr, inputCls, labelCls } from './studioShared'
 
 // Panel de @fport1 para publicar sus creaciones en la fuente Fport1 de
 // Explorar (y en fport1web, que lee el mismo catálogo). Solo se abre con la
@@ -235,17 +235,21 @@ function formOf(p: Fport1Project): Form {
   }
 }
 
-function ProjectEditor({ project, mcVersions, flash, github, onChanged, onDeleted }: {
+/** Borradores de la ficha de cada proyecto (se pierden solo al cerrar el launcher) */
+const formDrafts = new Map<string, Form>()
+
+function ProjectEditor({ project, mcVersions: _mcVersions, flash, github, onChanged, onDeleted }: {
   project: Fport1Project; mcVersions: string[]; flash: (m: string) => void; github: NonNullable<ReturnType<typeof useGithubStatus>[0]>
   onChanged: () => void; onDeleted: () => void
 }) {
   const [tab, setTab] = useState<EditorTab>('info')
   const [base, setBase] = useState(() => formOf(project))
-  const [form, setForm] = useState(base)
+  // Lo que se edita queda como borrador por proyecto mientras el launcher esté abierto
+  const [form, setForm] = useState<Form>(() => formDrafts.get(project.id) ?? base)
   const [saving, setSaving] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const dirty = JSON.stringify(form) !== JSON.stringify(base)
-  const set = (patch: Partial<Form>): void => setForm(f => ({ ...f, ...patch }))
+  const set = (patch: Partial<Form>): void => setForm(f => { const next = { ...f, ...patch }; formDrafts.set(project.id, next); return next })
 
   // Cuando el proyecto cambia fuera del formulario (imágenes, versiones), se respeta lo que se está editando
   useEffect(() => {
@@ -274,15 +278,20 @@ function ProjectEditor({ project, mcVersions, flash, github, onChanged, onDelete
         }).catch(e => flash(`Guardado, pero no se pudo actualizar el repo: ${cleanErr(e)}`))
       }
       setBase(form)
+      formDrafts.delete(project.id)
       onChanged(); flash('Guardado')
     } catch (e) { flash(cleanErr(e) || 'No se pudo guardar') }
     finally { setSaving(false) }
   }
 
-  async function togglePublished(): Promise<void> {
-    if (!project.published && !project.latestVersion) { flash('Sube al menos una versión antes de publicarlo'); setTab('versions'); return }
-    try { await updateProject(project.id, { published: !project.published }); onChanged(); flash(project.published ? 'Ahora es un borrador' : '¡Publicado! Ya aparece en Explorar y en la web') }
-    catch { flash('No se pudo cambiar') }
+  async function setPublished(published: boolean): Promise<void> {
+    if (published === project.published) return
+    if (published && !project.latestVersion) { flash('Sube al menos una versión antes de publicarlo'); setTab('versions'); return }
+    try {
+      await updateProject(project.id, { published })
+      onChanged()
+      flash(published ? '¡Publicado! Ya aparece en Explorar y en la web' : 'Ahora es privado (borrador): solo lo ves tú')
+    } catch { flash('No se pudo cambiar') }
   }
 
   /** Imagen subida desde el editor de descripción: va también a la galería. */
@@ -317,10 +326,18 @@ function ProjectEditor({ project, mcVersions, flash, github, onChanged, onDelete
               {' · '}{project.openSource ? 'Código abierto' : 'Código cerrado'}{project.license ? ` · ${project.license.name || project.license.id}` : ''}
             </p>
           </div>
-          <button onClick={togglePublished}
-            className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${project.published ? 'border border-border text-text-secondary hover:text-text-primary' : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-600/25'}`}>
-            {project.published ? 'Pasar a borrador' : 'Publicar'}
-          </button>
+          {/* Estado: privado (borrador, solo tú) o público (Explorar y la web); se puede cambiar cuando quieras */}
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex p-1 rounded-xl bg-bg-primary border border-border">
+              {([[false, 'Privado', 'Borrador: solo lo ves tú'], [true, 'Público', 'Sale en Explorar y en la web']] as const).map(([pub, label, hint]) => (
+                <button key={label} onClick={() => setPublished(pub)} title={hint}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${project.published === pub ? (pub ? 'bg-green-600 text-white shadow-lg shadow-green-600/25' : 'bg-bg-hover text-text-primary') : 'text-text-muted hover:text-text-primary'}`}>
+                  {pub ? '🌍 ' : '🔒 '}{label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[10px] text-text-muted">{project.published ? 'Visible para todos' : 'Solo lo ves tú (borrador)'}</span>
+          </div>
         </div>
         <div className="flex gap-1">
           {tabs.map(([k, l]) => (
@@ -333,7 +350,8 @@ function ProjectEditor({ project, mcVersions, flash, github, onChanged, onDelete
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {tab === 'info' && (
+        {/* Todas las pestañas quedan montadas: cambiar de pestaña no pierde nada de lo que se está haciendo */}
+        <div className={tab === 'info' ? '' : 'hidden'}>
           <div className="max-w-3xl space-y-4">
             <div>
               <label className={labelCls}>Nombre</label>
@@ -348,10 +366,10 @@ function ProjectEditor({ project, mcVersions, flash, github, onChanged, onDelete
                 <label className={labelCls}>Etiquetas</label>
                 <TagInput value={form.tags} onChange={tags => set({ tags })} placeholder="Enter para añadir" />
               </div>
-              <div>
-                <label className={labelCls}>Categorías de Explorar (separadas por comas)</label>
-                <input value={form.categories} onChange={e => set({ categories: e.target.value })} className={inputCls} placeholder="adventure, magic, technology" />
-              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Categorías (las mismas de Explorar)</label>
+              <CategoryPicker type={project.type} value={form.categories.split(',').map(c => c.trim()).filter(Boolean)} onChange={v => set({ categories: v.join(', ') })} />
             </div>
             {(project.type === 'mod' || project.type === 'modpack') && (
               <div className="grid grid-cols-2 gap-4">
@@ -378,24 +396,24 @@ function ProjectEditor({ project, mcVersions, flash, github, onChanged, onDelete
               <button onClick={() => setConfirmDelete(true)} className="text-sm text-red-300 hover:text-red-200">Eliminar proyecto</button>
             </div>
           </div>
-        )}
-        {tab === 'description' && (
+        </div>
+        <div className={tab === 'description' ? '' : 'hidden'}>
           <div className="max-w-6xl">
             <MarkdownEditor value={form.description} onChange={description => set({ description })} gallery={project.gallery} onUploadImage={uploadForDescription} />
           </div>
-        )}
-        {tab === 'images' && (
+        </div>
+        <div className={tab === 'images' ? '' : 'hidden'}>
           <ImagesTab project={{ ...project, hosting: form.hosting }} flash={flash} onChanged={onChanged}
             onInsert={img => { set({ description: `${form.description.replace(/\s+$/, '')}${form.description.trim() ? '\n\n' : ''}${imageSnippet(img, 'center', 600)}\n` }); setTab('description'); flash('Imagen añadida al final de la descripción: muévela donde quieras') }} />
-        )}
-        {tab === 'code' && <CodeTab project={project} form={form} onChange={set} github={github} />}
-        {tab === 'versions' && <VersionsTab project={project} mcVersions={mcVersions} flash={flash} onChanged={onChanged} dirty={dirty} />}
+        </div>
+        <div className={tab === 'code' ? '' : 'hidden'}><CodeTab project={project} form={form} onChange={set} github={github} /></div>
+        <div className={tab === 'versions' ? '' : 'hidden'}><VersionsTab project={project} flash={flash} onChanged={onChanged} dirty={dirty} /></div>
       </div>
 
       {(dirty || saving) && tab !== 'versions' && (
         <div className="shrink-0 px-6 py-3 border-t border-border bg-bg-primary/60 flex items-center justify-end gap-3">
           <span className="text-xs text-amber-300 mr-auto">Cambios sin guardar</span>
-          <button onClick={() => setForm(base)} disabled={saving} className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary">Descartar</button>
+          <button onClick={() => { formDrafts.delete(project.id); setForm(base) }} disabled={saving} className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary">Descartar</button>
           <button onClick={save} disabled={saving} className="px-5 py-2 rounded-xl bg-[#a855f7] hover:bg-[#9333ea] disabled:opacity-40 text-white text-sm font-semibold">
             {saving ? 'Guardando…' : 'Guardar cambios'}
           </button>

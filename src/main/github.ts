@@ -245,6 +245,24 @@ export async function githubPublishRelease(input: ReleaseInput, onProgress?: (f:
   return { repo, tag: input.tag, releaseId: rel.id, assetId: asset.id, url: asset.browser_download_url, htmlUrl: rel.html_url }
 }
 
+/** Cambia el nombre, las notas o el canal de una release ya publicada (sin tocar el archivo). */
+export async function githubUpdateRelease(repo: string, releaseId: number, patch: { name?: string; body?: string; prerelease?: boolean; tag?: string; oldTag?: string }): Promise<void> {
+  const { tag, oldTag, ...rest } = patch
+  const meta = tag ? await gh('get', `/repos/${repo}`) : null
+  await gh('patch', `/repos/${repo}/releases/${releaseId}`, {
+    ...rest, ...(rest.body !== undefined ? { body: rest.body.slice(0, 120_000) } : {}),
+    ...(rest.prerelease !== undefined ? { make_latest: rest.prerelease ? 'false' : 'true' } : {}),
+    // Cambiar la etiqueta crea la nueva; la vieja se borra después
+    ...(tag ? { tag_name: tag, target_commitish: meta.default_branch } : {}),
+  })
+  if (tag && oldTag && oldTag !== tag) await gh('delete', `/repos/${repo}/git/refs/tags/${encodeURIComponent(oldTag)}`).catch(() => {})
+}
+
+/** Borra un archivo de una release (sin borrar la release). */
+export async function githubDeleteAsset(repo: string, assetId: number): Promise<void> {
+  await gh('delete', `/repos/${repo}/releases/assets/${assetId}`)
+}
+
 /** Borra una release y su etiqueta (los archivos se van con ella). */
 export async function githubDeleteRelease(repo: string, releaseId: number, tag: string): Promise<void> {
   await gh('delete', `/repos/${repo}/releases/${releaseId}`).catch((e) => { if (!/no encuentra/.test(e.message)) throw e })

@@ -280,33 +280,38 @@ export function releaseTag(project: Pick<Fport1Project, 'slug' | 'github'>, vers
   return project.github?.releasesRepo ? `v${v}` : `${project.slug}-v${v}`
 }
 
-/** Sube el archivo y crea la versión; actualiza loaders/versiones del proyecto. */
-export async function publishVersion(project: Fport1Project, input: VersionInput, file: File, onProgress?: (f: number) => void): Promise<string> {
-  const vref = doc(collection(socialDb, PROJECTS, project.id, 'versions'))
+const releaseName = (project: Fport1Project, input: VersionInput): string =>
+  `${project.title} ${input.name && input.name !== input.versionNumber ? `${input.name} (${input.versionNumber})` : input.versionNumber}`
+const releaseBody = (input: VersionInput): string =>
+  `${input.changelog || ''}\n\n---\nMinecraft ${input.gameVersions.join(', ')}${input.loaders.length ? ` · ${input.loaders.join(', ')}` : ''}\n\nPublicado con Modpack Launcher by Fport1.`.trim()
+
+/** Sube el archivo de una versión donde toque (release de GitHub o Storage). */
+async function uploadVersionFile(project: Fport1Project, input: VersionInput, file: File, versionId: string, onProgress?: (f: number) => void): Promise<Fport1File> {
   const filename = cleanName(file.name)
   const sha1 = await sha1Of(file)
-  let entry: Fport1File
   if (project.hosting === 'github') {
     const off = window.api.github.onProgress((f) => onProgress?.(f))
     try {
       const r = await window.api.github.publishRelease({
-        repo: project.github?.releasesRepo || undefined,
-        tag: releaseTag(project, input.versionNumber),
-        name: `${project.title} ${input.name && input.name !== input.versionNumber ? `${input.name} (${input.versionNumber})` : input.versionNumber}`,
-        body: `${input.changelog || ''}\n\n---\nMinecraft ${input.gameVersions.join(', ')}${input.loaders.length ? ` · ${input.loaders.join(', ')}` : ''}\n\nPublicado con Modpack Launcher by Fport1.`.trim(),
-        prerelease: input.channel !== 'release',
+        repo: project.github?.releasesRepo || undefined, tag: releaseTag(project, input.versionNumber),
+        name: releaseName(project, input), body: releaseBody(input), prerelease: input.channel !== 'release',
         file: { name: filename, data: await file.arrayBuffer(), contentType: file.type || 'application/octet-stream' },
       })
-      entry = {
+      return {
         url: r.url, path: `gh-release:${r.repo}:${r.releaseId}:${r.tag}`, filename, size: file.size, sha1, primary: true,
         host: 'github', github: { repo: r.repo, tag: r.tag, releaseId: r.releaseId, assetId: r.assetId, htmlUrl: r.htmlUrl },
       }
     } finally { off() }
-  } else {
-    const path = `fport1/projects/${project.id}/versions/${vref.id}/${filename}`
-    const url = await uploadFile(path, file, file.type || 'application/octet-stream', onProgress)
-    entry = { url, path, filename, size: file.size, sha1, primary: true, host: 'storage' }
   }
+  const path = `fport1/projects/${project.id}/versions/${versionId}/${filename}`
+  const url = await uploadFile(path, file, file.type || 'application/octet-stream', onProgress)
+  return { url, path, filename, size: file.size, sha1, primary: true, host: 'storage' }
+}
+
+/** Sube el archivo y crea la versión; actualiza loaders/versiones del proyecto. */
+export async function publishVersion(project: Fport1Project, input: VersionInput, file: File, onProgress?: (f: number) => void): Promise<string> {
+  const vref = doc(collection(socialDb, PROJECTS, project.id, 'versions'))
+  const entry = await uploadVersionFile(project, input, file, vref.id, onProgress)
   await setDoc(vref, { ...input, files: [entry], downloads: 0, publishedAt: serverTimestamp() })
   await refreshProjectMeta(project.id)
   return vref.id
@@ -315,6 +320,39 @@ export async function publishVersion(project: Fport1Project, input: VersionInput
 export async function updateVersion(projectId: string, versionId: string, patch: Partial<VersionInput>): Promise<void> {
   await updateDoc(doc(socialDb, PROJECTS, projectId, 'versions', versionId), patch)
   await refreshProjectMeta(projectId)
+}
+
+/**
+ * Edita una versión ya publicada: sus datos y, si se pasa, un archivo nuevo.
+ * En GitHub también cambia la release (nombre, notas, canal y, si cambia el
+ * número de versión, su etiqueta). El archivo viejo se borra al subir el nuevo.
+ */
+export async function editVersion(project: Fport1Project, v: Fport1Version, input: VersionInput, newFile?: File | null, onProgress?: (f: number) => void): Promise<void> {
+  const old = v.files[0]
+  let files = v.files
+  if (newFile) {
+    const entry = await uploadVersionFile(project, input, newFile, v.id, onProgress)
+    if (old && old.path !== entry.path) {
+      // Misma release (misma etiqueta): publishRelease ya cambió un archivo con el mismo nombre; si se llamaba distinto, se quita el viejo
+      if (old.github && entry.github && old.github.releaseId === entry.github.releaseId) {
+        if (old.filename !== entry.filename) await window.api.github.deleteAsset(old.github.repo, old.github.assetId).catch(() => {})
+      } else await removeFile(old.path)
+    }
+    files = [entry]
+  } else if (old?.github) {
+    const tag = releaseTag(project, input.versionNumber)
+    const tagChanged = tag !== old.github.tag
+    await window.api.github.updateRelease(old.github.repo, old.github.releaseId, {
+      name: releaseName(project, input), body: releaseBody(input), prerelease: input.channel !== 'release',
+      ...(tagChanged ? { tag, oldTag: old.github.tag } : {}),
+    })
+    if (tagChanged) {
+      const url = old.url.split(`/download/${old.github.tag}/`).join(`/download/${tag}/`)
+      files = [{ ...old, url, path: `gh-release:${old.github.repo}:${old.github.releaseId}:${tag}`, github: { ...old.github, tag, htmlUrl: old.github.htmlUrl.replace(/\/tag\/[^/]+$/, `/tag/${tag}`) } }]
+    }
+  }
+  await updateDoc(doc(socialDb, PROJECTS, project.id, 'versions', v.id), noUndefined({ ...input, files }))
+  await refreshProjectMeta(project.id)
 }
 
 export async function deleteVersion(projectId: string, v: Fport1Version): Promise<void> {
