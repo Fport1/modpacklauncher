@@ -38,7 +38,9 @@ const { MCP_SCRIPT } = createRequire(import.meta.url)(mcpOut)
 
 const ALL_CAPS = ['state', 'perf', 'command', 'command.server', 'nbt', 'perf.server',
   // fase 5 y 6
-  'reload.datapacks', 'reload.resources', 'capture', 'camera', 'registry', 'inspect', 'structure', 'teleport', 'spark', 'events', 'metrics']
+  'reload.datapacks', 'reload.resources', 'capture', 'camera', 'registry', 'inspect', 'structure', 'teleport', 'spark', 'events', 'metrics',
+  // integraciones con otros mods
+  'integrations', 'voice', 'particles', 'particles.list', 'sky', 'record']
 // Carpeta donde el mod falso deja sus capturas (como screenshots/ de la instancia)
 const shotDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canal-en-vivo-capturas-'))
 // PNG mínimo válido de 1×1
@@ -67,6 +69,7 @@ function fakeMod({ instance = 'prueba', caps = ALL_CAPS } = {}) {
       }
       if (!greeted) return fail(id, -32006, 'Falta el saludo')
       mod.calls.push({ method, params })
+      if (/^(integrations|voice|particles|sky|record)\./.test(method)) return reply(id, { ok: true, method, params })
       switch (method) {
         case 'reload.datapacks': {
           const problems = ['Failed to load function prueba:roto']
@@ -94,6 +97,7 @@ function fakeMod({ instance = 'prueba', caps = ALL_CAPS } = {}) {
             emit(ws, 'death', { cause: 'minecraft:fall' })
             emit(ws, 'lag_spike', { ms: 230 })
             emit(ws, 'crash_imminent', { reason: 'memory', usedMb: 3880, maxMb: 4000 })
+            emit(ws, 'advancement', { id: 'minecraft:story/upgrade_tools', title: 'La Edad de Piedra', type: 'task' })
           }, 20)
           return
         }
@@ -251,6 +255,9 @@ for (let i = 0; i < 50 && !live3.events('prueba').some((e) => e.type === 'crash_
 const evs = live3.events('prueba')
 check('eventos guardados (death, lag_spike, crash_imminent)', ['death', 'lag_spike', 'crash_imminent'].every((t) => evs.some((e) => e.type === t)), evs)
 check('audit no se guarda como evento', !evs.some((e) => e.type === 'audit'))
+for (let i = 0; i < 40 && !live3.events('prueba').some((e) => e.type === 'advancement'); i++) await sleep(25)
+check('advancement → actividad «Logro: …»', h3.activity.some((a) => a.kind === 'info' && a.text === 'Logro: La Edad de Piedra'), h3.activity)
+check('advancement se guarda con los demás eventos (sin nombre de jugador)', live3.events('prueba', undefined, ['advancement']).length >= 1 && !('player' in live3.events('prueba', undefined, ['advancement'])[0].data), live3.events('prueba', undefined, ['advancement']))
 check('crash_imminent → actividad «error»', h3.activity.some((a) => a.kind === 'error' && /sin memoria \(97 % de 4000 MB\)/.test(a.text)), h3.activity)
 check('lag_spike y death no llenan la actividad', !h3.activity.some((a) => /lag_spike|death/.test(a.text)))
 check('eventos por tipo', live3.events('prueba', undefined, ['death']).length === 1)
@@ -274,6 +281,7 @@ await sleep(50)
 const noIns = await live3.call('prueba', 'inspect.entity', { uuid: 'x' })
 check('inspect sin inspect ni inspect.server: -32002', noIns.error?.code === LIVE_ERRORS.CAPABILITY && /inspect o inspect\.server/.test(noIns.error.message), noIns)
 check('auditText de métodos nuevos', auditText({ method: 'structure.place', detail: 'minecraft:igloo/top', ok: true }) === 'Estructura colocada: minecraft:igloo/top')
+check('auditText de integraciones', auditText({ method: 'record.start', ok: true }) === 'Grabación empezada' && auditText({ method: 'voice.group.create', detail: 'Escenario', ok: true }) === 'Grupo de voz creado: Escenario' && auditText({ method: 'sky.set', detail: 'aurora', ok: false }) === 'Cielo cambiado: aurora (falló)')
 // Otra partida (otro proceso): los eventos empiezan de cero; la misma partida que se reconecta los conserva
 await live3.register('prueba', reg(mod3, { pid: 111 }))
 check('reconexión del mismo proceso conserva los eventos', live3.events('prueba').length > 0)
@@ -523,6 +531,45 @@ check('MCP comparar_cambio → metrics.compare', lastCall(mod2)?.method === 'met
 await tool('metricas_en_vivo', { minutos: 15 })
 check('MCP metricas_en_vivo → metrics.get', lastCall(mod2)?.method === 'metrics.get' && lastCall(mod2).params.minutes === 15)
 
+// Integraciones con otros mods
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+await tool('integraciones', {})
+check('MCP integraciones → integrations.list', lastCall(mod2)?.method === 'integrations.list', lastCall(mod2))
+await tool('voz', {})
+check('MCP voz (sin acción) → voice.groups', lastCall(mod2)?.method === 'voice.groups', lastCall(mod2))
+await tool('voz', { accion: 'crear_grupo', nombre: 'Escenario', tipo: 'isolated', contrasena: 'x1', persistente: true })
+check('MCP voz crear_grupo → voice.group.create {name, type, password, persistent}', lastCall(mod2)?.method === 'voice.group.create' && same(lastCall(mod2).params, { name: 'Escenario', type: 'isolated', password: 'x1', persistent: true }), lastCall(mod2))
+await tool('voz', { accion: 'quitar_grupo', grupo: 'Escenario' })
+check('MCP voz quitar_grupo → voice.group.remove {group}', lastCall(mod2)?.method === 'voice.group.remove' && same(lastCall(mod2).params, { group: 'Escenario' }), lastCall(mod2))
+await tool('voz', { accion: 'unir', jugador: 'Alex', grupo: 'Escenario' })
+check('MCP voz unir → voice.join {player, group}', lastCall(mod2)?.method === 'voice.join' && same(lastCall(mod2).params, { group: 'Escenario', player: 'Alex' }), lastCall(mod2))
+await tool('voz', { accion: 'sacar', jugador: 'Alex', grupo: 'Escenario' })
+check('MCP voz sacar → voice.leave', lastCall(mod2)?.method === 'voice.leave', lastCall(mod2))
+await tool('voz', { accion: 'silenciar', jugador: 'Alex', duracion: '10m', motivo: 'ensayo' })
+check('MCP voz silenciar → voice.mute {player, duration, reason}', lastCall(mod2)?.method === 'voice.mute' && same(lastCall(mod2).params, { player: 'Alex', duration: '10m', reason: 'ensayo' }), lastCall(mod2))
+await tool('voz', { accion: 'quitar_silencio', jugador: 'Alex' })
+check('MCP voz quitar_silencio → voice.unmute', lastCall(mod2)?.method === 'voice.unmute' && same(lastCall(mod2).params, { player: 'Alex' }), lastCall(mod2))
+await tool('particulas', { filtro: 'fuego' })
+check('MCP particulas (sin acción) → particles.list {filter}', lastCall(mod2)?.method === 'particles.list' && same(lastCall(mod2).params, { filter: 'fuego' }), lastCall(mod2))
+await tool('particulas', { accion: 'lanzar', efecto: 'aaa:fuego', pos: [1, 64, 2], dimension: 'minecraft:overworld', rotacion: [0, 90, 0], escala: 2, velocidad: 1.5, alcance: 32 })
+check('MCP particulas lanzar → particles.spawn {effect, pos, dimension, rot, scale, speed, range}', lastCall(mod2)?.method === 'particles.spawn' && same(lastCall(mod2).params, { effect: 'aaa:fuego', pos: [1, 64, 2], dimension: 'minecraft:overworld', rot: [0, 90, 0], scale: 2, speed: 1.5, range: 32 }), lastCall(mod2))
+await tool('cielo', {})
+check('MCP cielo (sin acción) → sky.list', lastCall(mod2)?.method === 'sky.list', lastCall(mod2))
+await mcpCall('cielo', { accion: 'poner', tipo: 'sky', textura: 'aurora', parametros: { speed: 2 } })
+check('MCP cielo poner → sky.set {type, texture, params}', lastCall(mod2)?.method === 'sky.set' && same(lastCall(mod2).params, { type: 'sky', texture: 'aurora', params: { speed: 2 } }), lastCall(mod2))
+await tool('cielo', { accion: 'poner', tipo: 'stars', color: '#FFAA00', vanilla: false })
+check('MCP cielo poner estrellas → {type, color, vanilla}', same(lastCall(mod2).params, { type: 'stars', color: '#FFAA00', vanilla: false }), lastCall(mod2))
+await tool('cielo', { accion: 'quitar', tipo: 'sky' })
+check('MCP cielo quitar → sky.clear {type}', lastCall(mod2)?.method === 'sky.clear' && same(lastCall(mod2).params, { type: 'sky' }), lastCall(mod2))
+await tool('cielo', { accion: 'parar' })
+check('MCP cielo parar → sky.stop', lastCall(mod2)?.method === 'sky.stop', lastCall(mod2))
+for (const [accion, metodo] of [['estado', 'record.status'], ['empezar', 'record.start'], ['pausar', 'record.pause'], ['seguir', 'record.resume'], ['terminar', 'record.stop'], ['cancelar', 'record.cancel']]) {
+  await tool('grabar', { accion })
+  check(`MCP grabar ${accion} → ${metodo}`, lastCall(mod2)?.method === metodo, lastCall(mod2))
+}
+await tool('grabar', { accion: 'marcador', nombre: 'Entra el jefe' })
+check('MCP grabar marcador → record.marker {name}', lastCall(mod2)?.method === 'record.marker' && same(lastCall(mod2).params, { name: 'Entra el jefe' }), lastCall(mod2))
+
 // Captura: vuelve como imagen MCP leída del disco (no por el WebSocket)
 const cap = await mcpCall('captura', { ocultar_hud: true, rotacion: [30, 15] })
 check('MCP captura → capture.screenshot {hideHud, rot}', lastCall(mod2)?.method === 'capture.screenshot' && JSON.stringify(lastCall(mod2).params) === JSON.stringify({ hideHud: true, rot: [30, 15] }), lastCall(mod2))
@@ -554,6 +601,15 @@ const oc = await postBridge('live/outcome', { kind: 'config', target: 'prueba:zo
 check('live/outcome responde (en la prueba no se sube nada)', oc.status === 200 && oc.json?.subida === 'desactivado', oc)
 check('live/outcome se muestra como actividad', h.activity.some((a) => a.text === 'La IA cambió config prueba:zombis: peor · FPS 90 → 60' && a.kind === 'error'), h.activity.slice(-3))
 
+mod2.capabilitiesChanged(['state', 'perf', 'particles.list'])
+await sleep(50)
+let n0 = mod2.calls.length
+const sinVoz = await tool('voz', { accion: 'grupos' })
+check('MCP voz sin la capacidad voice: -32002 y no se llama al mod', sinVoz.json?.code === -32002 && mod2.calls.length === n0, sinVoz.json)
+await tool('particulas', { accion: 'lista' })
+check('MCP particulas lista vale con solo particles.list', lastCall(mod2)?.method === 'particles.list' && mod2.calls.length === n0 + 1, lastCall(mod2))
+const sinParticulas = await tool('particulas', { accion: 'lanzar', efecto: 'aaa:x', pos: [0, 0, 0] })
+check('MCP particulas lanzar sin particles (solo cliente): -32002', sinParticulas.json?.code === -32002, sinParticulas.json)
 mod2.capabilitiesChanged(['state', 'perf'])
 await sleep(50)
 const sinCap = await tool('ejecutar_comando', { comando: 'say hola' })
