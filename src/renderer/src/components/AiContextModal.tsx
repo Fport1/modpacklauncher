@@ -3,21 +3,18 @@ import type { AiActivity, Instance } from '../../../shared/types'
 import { useStore } from '../store'
 import AiToolPicker from './ai/AiToolPicker'
 
-// Prepara la carpeta de una instancia para trabajar con Claude Code u otra IA:
-// AGENTS.md / CLAUDE.md / GEMINI.md, fichas de cada mod en .ai/ y habilidades
-// de Claude Code en .claude/skills/.
+// La IA de una instancia: prepara su carpeta y abre Claude Code, Codex, Gemini o
+// Grok ya conectados al launcher. Aquí se enseña qué puede hacer, no cómo está
+// hecho por dentro: eso no le hace falta al jugador.
 
 type Status = Awaited<ReturnType<typeof window.api.aiContext.status>>
 
-const GENERATED = [
-  ['AGENTS.md', 'Versión de Minecraft, loader, pack_format y reglas. Lo leen Codex, Cursor, Copilot, Gemini y otras.'],
-  ['CLAUDE.md · GEMINI.md', 'Apuntan a AGENTS.md para Claude Code y Gemini CLI (más tus notas de NOTAS.md).'],
-  ['.ai/mods/', 'Una ficha por mod: descripción del autor (comandos, configuración), wiki, fallos conocidos, dependencias, incompatibilidades, sus configs e ids de bloques e ítems.'],
-  ['.ai/worlds.md · packs.md', 'Mundos con sus datapacks, resource packs y shaders.'],
-  ['.claude/skills/', 'Habilidades de Claude Code: arreglar crashes y rendimiento, y construir datapacks, mundos (dimensiones, biomas, estructuras), mobs, mecánicas, resource packs, shaders y mods con el juego al lado.'],
-  ['.mcp.json · .codex · .gemini · .grok · .cursor · .vscode', 'Conectan cada IA con el launcher (servidor MCP «modpack-launcher»): lanzar el juego, leer crashes, instalar o cambiar mods y packs, editar configs, ver todo lo que existe en el juego, leer mundos y crear y validar proyectos.'],
-  ['.ai/lecciones.md', 'Lo que la IA aprende (arreglos, configs, cómo se construye cada cosa en esta versión); lo lee antes de empezar.'],
-] as const
+const CAN_DO: { icon: string; title: string; hint: string }[] = [
+  { icon: '🩺', title: 'Arreglar crashes', hint: 'Encuentra el mod o la config que rompe la partida y lo arregla' },
+  { icon: '⚡', title: 'Rendimiento', hint: 'Mira por qué va lento y ajusta memoria, mods y opciones' },
+  { icon: '🧩', title: 'Mods, packs y configs', hint: 'Instala, cambia o quita mods, resource packs, shaders y datapacks' },
+  { icon: '🌍', title: 'Crear y probar', hint: 'Datapacks, mundos, mobs, packs y mods, con el juego al lado' },
+]
 
 const clean = (e: unknown): string => e instanceof Error ? e.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '') : 'Algo ha fallado'
 
@@ -27,14 +24,11 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
   const [status, setStatus] = useState<Status | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [dir, setDir] = useState('')
-  const [copied, setCopied] = useState(false)
   const [auto, setAuto] = useState(!!instance.aiAutoContext)
   const [activity, setActivity] = useState<AiActivity[]>([])
 
   useEffect(() => {
     window.api.aiContext.status(instance.id).then(setStatus).catch(() => setStatus({ exists: false }))
-    window.api.instances.savesPath(instance.id).then((p) => window.api.ftp.localParent(p)).then(setDir).catch(() => {})
   }, [instance.id])
 
   useEffect(() => {
@@ -62,8 +56,6 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
     updateInstanceStore(updated)
   }
 
-  const command = dir ? `cd "${dir}"; claude` : ''
-
   return (
     <div className="fixed inset-0 z-[260] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6" onClick={onClose}>
       <div className="w-[720px] max-h-[90vh] flex flex-col bg-bg-secondary border border-border rounded-3xl shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
@@ -79,13 +71,25 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          <div className="grid grid-cols-2 gap-2.5">
+            {CAN_DO.map((c) => (
+              <div key={c.title} className="flex gap-3 p-3 rounded-2xl bg-bg-card border border-border">
+                <span className="text-xl leading-none mt-0.5">{c.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">{c.title}</p>
+                  <p className="text-[11px] text-text-muted mt-0.5 leading-snug">{c.hint}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
           <div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Abrir la IA ya conectada al launcher</p>
             <AiToolPicker onError={setError}
               beforeOpen={async () => { if (!status?.exists) setStatus(await window.api.aiContext.prepare(instance.id)) }}
               open={(tool) => window.api.aiAgent.openTerminal(instance.id, tool)}
               extra={<button onClick={() => window.api.instances.openFolder(instance.id)} className="px-4 py-2 rounded-xl border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover">Abrir carpeta</button>} />
-            <p className="text-xs text-text-muted mt-2">Los permisos los gestiona tu IA: antes de abrir el juego o cambiar mods, packs o configs te pedirá permiso, y puedes decirle que no vuelva a preguntar. Se abre en la carpeta del juego con las herramientas del launcher cargadas. Prueba a pedirle «el juego crashea, arréglalo» o «enlaza mi resource pack de C:\proyectos\mipack».</p>
+            <p className="text-xs text-text-muted mt-2">Los permisos los gestiona tu IA: antes de abrir el juego o cambiar mods, packs o configs te pedirá permiso, y puedes decirle que no vuelva a preguntar. Se abre en la carpeta del juego, ya conectada al launcher (que tiene que seguir abierto). Prueba a pedirle «el juego crashea, arréglalo» o «enlaza mi resource pack de C:\proyectos\mipack».</p>
           </div>
 
           {activity.length > 0 && (
@@ -122,38 +126,6 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
             Actualizarlo solo cuando cambien los mods (al abrir los detalles de la instancia)
           </label>
 
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Contexto que se crea en la carpeta del juego</p>
-            <div className="space-y-1.5">
-              {GENERATED.map(([file, what]) => (
-                <div key={file} className="flex gap-3 px-3 py-2 rounded-xl bg-bg-card border border-border">
-                  <code className="text-xs text-[#e8a488] shrink-0 w-44 pt-0.5">{file}</code>
-                  <p className="text-xs text-text-secondary">{what}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">Cómo usarlo</p>
-            <ol className="list-decimal pl-5 space-y-1.5 text-sm text-text-secondary">
-              <li>Prepara la instancia (arriba).</li>
-              <li>Usa los botones de arriba, o abre esa carpeta con tu IA. Con Claude Code, en una terminal:</li>
-            </ol>
-            {command && (
-              <div className="mt-2 flex items-center gap-2">
-                <code className="flex-1 px-3 py-2 rounded-xl bg-bg-primary border border-border text-xs text-text-primary truncate">{command}</code>
-                <button onClick={() => { navigator.clipboard.writeText(command).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-                  className="px-3 py-2 rounded-xl border border-border text-xs text-text-secondary hover:text-text-primary">{copied ? 'Copiado ✓' : 'Copiar'}</button>
-                <button onClick={() => window.api.instances.openFolder(instance.id)}
-                  className="px-3 py-2 rounded-xl border border-border text-xs text-text-secondary hover:text-text-primary">Abrir carpeta</button>
-              </div>
-            )}
-            <p className="text-xs text-text-muted mt-2">
-              En VS Code, Cursor o Windsurf abre la carpeta como proyecto: cogen AGENTS.md / .cursor/rules solos. En Claude Code las habilidades
-              (arreglar-crash, rendimiento, desarrollo, datapack, mundo, mobs, mecanicas, resourcepack, shader, mod, configs…) se activan solas según lo que pidas. Las herramientas del launcher necesitan que el launcher esté abierto. Tus notas para la IA van en <code>NOTAS.md</code>.
-            </p>
-          </div>
         </div>
       </div>
     </div>
