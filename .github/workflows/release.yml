@@ -152,7 +152,23 @@ jobs:
           if [ -f "repo/release-notes/v${VERSION}.md" ]; then cp "repo/release-notes/v${VERSION}.md" notes.md
           else echo "Nueva versión disponible." > notes.md; fi
 
-      - name: Create GitHub Release
+      # Las descargas viven en el repositorio público modpacklauncher-updates: el del
+      # código puede ser privado sin romper las actualizaciones (electron-builder.yml).
+      - name: Create GitHub Release (descargas)
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Fport1/modpacklauncher-updates
+          token: ${{ secrets.UPDATES_REPO_TOKEN }}
+          tag_name: v${{ needs.build-windows.outputs.version }}
+          name: ModpackLauncher ${{ needs.build-windows.outputs.version }}
+          files: dist/*
+          body_path: notes.md
+          generate_release_notes: false
+
+      # Transición: los launchers hasta la 1.10.7 buscan las actualizaciones en este
+      # repositorio. Mientras sea público se publica también aquí para que lleguen a
+      # una versión que ya mira el de descargas. Quitar al poner el repositorio privado.
+      - name: Create GitHub Release (transición)
         uses: softprops/action-gh-release@v2
         with:
           name: ModpackLauncher ${{ needs.build-windows.outputs.version }}
@@ -166,7 +182,7 @@ jobs:
           VERSION: ${{ needs.build-windows.outputs.version }}
         run: |
           WIN_EXE="ModpackLauncher-Setup-${VERSION}.exe"
-          WIN_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${WIN_EXE// /.}"
+          WIN_URL="https://github.com/Fport1/modpacklauncher-updates/releases/download/v${VERSION}/${WIN_EXE// /.}"
 
           # El actualizador de 1.8.x admite una sola URL por plataforma. El DMG
           # de Intel arranca en todos los Mac (en Apple Silicon, con Rosetta), y
@@ -174,10 +190,10 @@ jobs:
           # version arm64 en la siguiente actualizacion. El de arm64 en cambio no
           # arranca en un Mac Intel, y es el que salia primero al listar.
           MAC_DMG=$(ls dist/ModpackLauncher*.dmg | grep -v arm64 | head -1 | xargs basename)
-          MAC_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${MAC_DMG// /.}"
+          MAC_URL="https://github.com/Fport1/modpacklauncher-updates/releases/download/v${VERSION}/${MAC_DMG// /.}"
 
           LINUX_APPIMAGE=$(ls dist/ModpackLauncher*.AppImage | head -1 | xargs basename)
-          LINUX_URL="https://github.com/Fport1/modpacklauncher/releases/download/v${VERSION}/${LINUX_APPIMAGE// /.}"
+          LINUX_URL="https://github.com/Fport1/modpacklauncher-updates/releases/download/v${VERSION}/${LINUX_APPIMAGE// /.}"
 
           JSON=$(jq -n \
             --arg version "$VERSION" \

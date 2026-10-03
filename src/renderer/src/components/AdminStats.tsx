@@ -74,8 +74,19 @@ async function loadStats(): Promise<Stats> {
 
   let downloads: Stats['downloads'] = null
   try {
-    const rel = await window.api.content.getJson('https://api.github.com/repos/Fport1/modpacklauncher/releases?per_page=100') as { tag_name: string; assets: { name: string; download_count: number }[] }[]
-    const byRelease = rel.map((r) => ({ tag: r.tag_name, n: r.assets.filter((a) => /\.(exe|dmg|zip|AppImage)$/i.test(a.name)).reduce((s, a) => s + a.download_count, 0) }))
+    // Las versiones nuevas se publican en el repositorio de descargas; las viejas siguen en el del código mientras sea público
+    type Rel = { tag_name: string; assets: { name: string; download_count: number }[] }
+    const repos = ['modpacklauncher-updates', 'modpacklauncher']
+    const lists = await Promise.all(repos.map((r) => (window.api.content.getJson(`https://api.github.com/repos/Fport1/${r}/releases?per_page=100`) as Promise<Rel[]>).catch(() => [] as Rel[])))
+    // Mientras se publique en los dos, una misma versión suma las descargas de ambos
+    const perTag = new Map<string, number>()
+    for (const r of lists.flat()) {
+      if (!Array.isArray(r.assets)) continue
+      const n = r.assets.filter((x) => /\.(exe|dmg|zip|AppImage)$/i.test(x.name)).reduce((t, x) => t + x.download_count, 0)
+      perTag.set(r.tag_name, (perTag.get(r.tag_name) ?? 0) + n)
+    }
+    if (!perTag.size) throw new Error('sin releases')
+    const byRelease = [...perTag].map(([tag, n]) => ({ tag, n }))
     downloads = { total: byRelease.reduce((s, r) => s + r.n, 0), byRelease }
   } catch { /* sin red o límite de la API de GitHub */ }
 

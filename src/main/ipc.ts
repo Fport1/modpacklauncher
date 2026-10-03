@@ -1032,7 +1032,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // ── Announcements ───────────────────────────────────────────────────────────
 
-  const ANNOUNCEMENTS_URL = 'https://raw.githubusercontent.com/Fport1/modpacklauncher/main/announcements.json'
+  // En el repositorio público de descargas: el del código puede ser privado
+  const ANNOUNCEMENTS_URL = 'https://raw.githubusercontent.com/Fport1/modpacklauncher-updates/main/announcements.json'
   let announcementsCache: { data: any; fetchedAt: number } | null = null
   const visibilityPath = path.join(app.getPath('userData'), 'announcement-visibility.json')
 
@@ -1072,7 +1073,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     if (!token) throw new Error('No hay token de GitHub configurado en Ajustes')
     const axiosLib = (await import('axios')).default
     const headers = { Authorization: `Bearer ${token}`, 'User-Agent': 'ModpackLauncher/1.0', Accept: 'application/vnd.github+json' }
-    const apiUrl = 'https://api.github.com/repos/Fport1/modpacklauncher/contents/announcements.json'
+    const apiUrl = 'https://api.github.com/repos/Fport1/modpacklauncher-updates/contents/announcements.json'
     const getRes = await axiosLib.get(apiUrl, { headers })
     const sha: string = getRes.data.sha
     const content = Buffer.from(JSON.stringify({ announcements }, null, 2) + '\n').toString('base64')

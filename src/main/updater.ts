@@ -20,7 +20,8 @@ export interface UpdateCheckResult {
   manifest?: UpdateManifest
 }
 
-const RELEASES_PAGE = 'https://github.com/Fport1/modpacklauncher/releases/latest'
+// Repositorio público solo de descargas (el del código puede ser privado)
+const RELEASES_PAGE = 'https://github.com/Fport1/modpacklauncher-updates/releases/latest'
 
 // Comportamiento de Discord, Steam o el launcher oficial: en cuanto se detecta
 // una versión nueva se descarga en segundo plano, y se aplica sola al cerrar la

@@ -1,11 +1,13 @@
 appId: com.modpacklauncher.app
 
 # De aqui sale app-update.yml dentro de la app y los latest*.yml de la release,
-# que son el feed que consulta electron-updater.
+# que son el feed que consulta electron-updater. Las descargas viven en un
+# repositorio público aparte: el del código puede ser privado sin romper las
+# actualizaciones ni la descarga desde la web.
 publish:
   provider: github
   owner: Fport1
-  repo: modpacklauncher
+  repo: modpacklauncher-updates
 productName: ModpackLauncher
 copyright: Copyright © 2024
 
