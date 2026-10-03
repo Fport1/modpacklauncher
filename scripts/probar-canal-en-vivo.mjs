@@ -7,6 +7,7 @@
 //
 // Uso: node scripts/probar-canal-en-vivo.mjs
 import { build } from 'esbuild'
+import { minifyMcpScript } from './mcp-minify.mjs'
 import { createRequire } from 'node:module'
 import { WebSocketServer } from 'ws'
 import { spawn } from 'node:child_process'
@@ -32,7 +33,8 @@ const liveData = createRequire(import.meta.url)(dataOut)
 // El servidor MCP que usan las IAs (es un texto dentro de aiMcpScript.ts)
 const mcpOut = path.join(path.dirname(outFile), 'aiMcpScript.cjs')
 await build({ entryPoints: [path.join(root, 'src/main/aiMcpScript.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: mcpOut, logLevel: 'error' })
-const { MCP_SCRIPT } = createRequire(import.meta.url)(mcpOut)
+// Se prueba el script compactado, el mismo que se distribuye con la app
+const MCP_SCRIPT = minifyMcpScript(createRequire(import.meta.url)(mcpOut).MCP_SCRIPT)
 
 // ── Mod falso ───────────────────────────────────────────────────────────────
 
