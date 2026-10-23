@@ -16,7 +16,6 @@ export default function ZoomableImage({ src, alt, onClose, toolbar, footer, onPr
   const [scale, setScale]       = useState(1)
   const [offset, setOffset]     = useState({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
-  const [imgCtx, setImgCtx]     = useState<{ x: number; y: number } | null>(null)
   const isDragging  = useRef(false)
   const dragStart   = useRef({ mx: 0, my: 0, ox: 0, oy: 0 })
 
@@ -27,7 +26,7 @@ export default function ZoomableImage({ src, alt, onClose, toolbar, footer, onPr
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setImgCtx(null); onClose() }
+      if (e.key === 'Escape') onClose()
       if (e.key === 'ArrowLeft')  { reset(); onPrev?.() }
       if (e.key === 'ArrowRight') { reset(); onNext?.() }
     }
@@ -76,37 +75,6 @@ export default function ZoomableImage({ src, alt, onClose, toolbar, footer, onPr
     setOffset({ x: 0, y: 0 })
   }
 
-  const ctxItems: { label: string; icon: React.ReactNode; action: () => void }[] = [
-    {
-      label: 'Copiar imagen',
-      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>,
-      action: async () => {
-        try {
-          const res = await fetch(src)
-          const blob = await res.blob()
-          await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
-        } catch {}
-        setImgCtx(null)
-      }
-    },
-    {
-      label: 'Guardar imagen',
-      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>,
-      action: () => {
-        const a = document.createElement('a')
-        a.href = src
-        a.download = src.split('/').pop()?.split('?')[0] ?? 'image.png'
-        a.click()
-        setImgCtx(null)
-      }
-    },
-    {
-      label: 'Copiar dirección',
-      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>,
-      action: () => { navigator.clipboard.writeText(src); setImgCtx(null) }
-    },
-  ]
-
   const pct = Math.round(scale * 100)
 
   return createPortal(
@@ -145,11 +113,7 @@ export default function ZoomableImage({ src, alt, onClose, toolbar, footer, onPr
               userSelect: 'none',
             }}
             onClick={e => e.stopPropagation()}
-            onContextMenu={e => {
-              e.preventDefault()
-              e.stopPropagation()
-              setImgCtx({ x: e.clientX, y: e.clientY })
-            }}
+            // Clic derecho: menú nativo (copiar imagen, copiar dirección, guardar)
           />
 
           {/* Prev */}
@@ -212,31 +176,6 @@ export default function ZoomableImage({ src, alt, onClose, toolbar, footer, onPr
         </div>
       </div>
 
-      {/* Right-click context menu */}
-      {imgCtx && (
-        <div
-          className="fixed inset-0 z-[600]"
-          onClick={() => setImgCtx(null)}
-          onContextMenu={e => { e.preventDefault(); setImgCtx(null) }}
-        >
-          <div
-            className="absolute bg-bg-secondary border border-border rounded-lg shadow-2xl py-1 min-w-[180px]"
-            style={{ left: imgCtx.x, top: imgCtx.y }}
-            onClick={e => e.stopPropagation()}
-          >
-            {ctxItems.map(item => (
-              <button
-                key={item.label}
-                onClick={item.action}
-                className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors text-left"
-              >
-                <span className="text-text-muted flex-shrink-0">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </>,
     document.body
   )

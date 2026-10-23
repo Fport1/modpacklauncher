@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus, TransferPlan, TransferRequest, TransferResult } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -72,6 +72,12 @@ const api = {
   // Instances
   instances: {
     list: () => ipcRenderer.invoke('instances:list') as Promise<Instance[]>,
+    /** El proceso principal cambió una instancia (p. ej. la puso en la última versión). */
+    onUpdated: (cb: (instance: Instance) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, inst: Instance) => cb(inst)
+      ipcRenderer.on('instances:updated', handler)
+      return () => { ipcRenderer.removeListener('instances:updated', handler) }
+    },
     create: (data: Omit<Instance, 'id' | 'createdAt'>) =>
       ipcRenderer.invoke('instances:create', data) as Promise<Instance>,
     update: (instance: Instance) => ipcRenderer.invoke('instances:update', instance),
@@ -113,6 +119,9 @@ const api = {
     deleteWorld: (instanceId: string, worldName: string) => ipcRenderer.invoke('instances:delete-world', instanceId, worldName),
     deleteScreenshot: (instanceId: string, filename: string) => ipcRenderer.invoke('instances:delete-screenshot', instanceId, filename),
     duplicate: (instanceId: string, newName: string) => ipcRenderer.invoke('instances:duplicate', instanceId, newName) as Promise<Instance>,
+    /** Qué se puede pasar de una instancia a otra (y qué ya existe en el destino). */
+    transferPlan: (sourceId: string, targetId: string) => ipcRenderer.invoke('transfer:plan', sourceId, targetId) as Promise<TransferPlan>,
+    transfer: (req: TransferRequest) => ipcRenderer.invoke('transfer:run', req) as Promise<TransferResult>,
     onDuplicateProgress: (cb: (step: number) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, step: number) => cb(step)
       ipcRenderer.on('instances:duplicate-progress', handler)
@@ -150,6 +159,7 @@ const api = {
     launch: (instanceId: string) => ipcRenderer.invoke('launcher:launch', instanceId),
     launchExtra: (instanceId: string) => ipcRenderer.invoke('launcher:launch-extra', instanceId) as Promise<void>,
     kill: (instanceId: string) => ipcRenderer.invoke('launcher:kill', instanceId),
+    running: () => ipcRenderer.invoke('launcher:running') as Promise<{ id: string; logs: string[] }[]>,
     repair: (instanceId: string) => ipcRenderer.invoke('launcher:repair', instanceId) as Promise<void>,
     installVersion: (version: string, modloader?: string, modloaderVersion?: string) =>
       ipcRenderer.invoke('launcher:install-version', version, modloader, modloaderVersion),
@@ -157,6 +167,8 @@ const api = {
       ipcRenderer.invoke('launcher:get-mc-versions') as Promise<
         Array<{ id: string; type: string; releaseTime: string }>
       >,
+    getLatestVersions: () =>
+      ipcRenderer.invoke('launcher:get-latest-versions') as Promise<{ release: string; snapshot: string }>,
     getForgeVersions: (minecraft: string) =>
       ipcRenderer.invoke('launcher:get-forge-versions', minecraft) as Promise<string[]>,
     getFabricVersions: () =>
@@ -191,7 +203,7 @@ const api = {
       changelog: string; repoName: string; githubToken: string
       minecraft: string; modloader: string; modloaderVersion?: string
       selectedPaths: string[]; accessKey?: string
-      gameOptions?: { controls: 'default' | 'mine'; settings: 'default' | 'mine'; activePacks: boolean }; serverList?: boolean
+      gameOptions?: { controls: 'default' | 'mine'; settings: 'default' | 'mine'; groups?: Partial<Record<'video' | 'sound' | 'language' | 'input' | 'other', boolean>>; activePacks: boolean }; serverList?: boolean
     }) => ipcRenderer.invoke('modpacks:export', params) as Promise<string>,
     // Qué se puede exportar, explicado (modo fácil)
     exportPlan: (instanceId: string) => ipcRenderer.invoke('modpacks:export-plan', instanceId) as Promise<{
@@ -720,10 +732,17 @@ const api = {
     ipcRenderer.on('game:started', handler)
     return () => { ipcRenderer.removeListener('game:started', handler) }
   },
-  onGameLog: (cb: (instanceId: string, line: string) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, id: string, line: string) => cb(id, line)
-    ipcRenderer.on('game:log', handler)
-    return () => { ipcRenderer.removeListener('game:log', handler) }
+  /** Líneas nuevas del registro de una partida, agrupadas (llegan unas pocas veces por segundo). */
+  onGameLog: (cb: (instanceId: string, lines: string[]) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, id: string, lines: string[]) => cb(id, lines)
+    ipcRenderer.on('game:log-batch', handler)
+    return () => { ipcRenderer.removeListener('game:log-batch', handler) }
+  },
+  /** Empieza una partida nueva de esa instancia: su registro se vacía. */
+  onGameLogReset: (cb: (instanceId: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, id: string) => cb(id)
+    ipcRenderer.on('game:log-reset', handler)
+    return () => { ipcRenderer.removeListener('game:log-reset', handler) }
   },
   onGameExit: (cb: (instanceId: string, code: number | null) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, id: string, code: number | null) => cb(id, code)

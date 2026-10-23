@@ -53,7 +53,8 @@ interface AppState {
   removeOperation: (id: string) => void
   setPendingUpdate: (update: UpdateInfo | null) => void
   setUpdateModalOpen: (open: boolean) => void
-  appendGameLog: (instanceId: string, line: string) => void
+  appendGameLogs: (instanceId: string, lines: string[]) => void
+  setGameLogs: (instanceId: string, lines: string[]) => void
   clearGameLog: (instanceId: string) => void
   setInstanceRunning: (instanceId: string, running: boolean) => void
   setOpenDetailInstanceId: (id: string | null) => void
@@ -116,9 +117,21 @@ export const useStore = create<AppState>((set) => ({
   clearProgress: () => set({ progress: null, progressStartedAt: null }),
   upsertOperation: (update) => set((s) => {
     const existing = s.operations.get(update.id)
+    const now = Date.now()
     const merged: Operation = existing
       ? { ...existing, ...update }
-      : { name: '', type: 'install-modpack' as OperationType, status: 'running', startedAt: Date.now(), ...update } as Operation
+      : { name: '', type: 'install-modpack' as OperationType, status: 'running', startedAt: now, ...update } as Operation
+    merged.updatedAt = now
+    // Historial de pasos: cada mensaje distinto queda apuntado con su hora. Los que solo
+    // cambian en números («...hace 12 s», «3/40») no se repiten.
+    const text = update.error ?? update.message
+    if (text) {
+      const log = existing?.log ?? []
+      const key = (t: string): string => t.replace(/\d+([.,]\d+)?/g, '#')
+      if (!log.length || key(log[log.length - 1].text) !== key(text)) {
+        merged.log = [...log, { at: now, text }].slice(-80)
+      }
+    }
     const next = new Map(s.operations)
     next.set(update.id, merged)
     if (merged.status === 'done') {
@@ -133,12 +146,13 @@ export const useStore = create<AppState>((set) => ({
   }),
   setPendingUpdate: (update) => set({ pendingUpdate: update }),
   setUpdateModalOpen: (open) => set({ updateModalOpen: open }),
-  appendGameLog: (instanceId, line) =>
+  appendGameLogs: (instanceId, lines) =>
     set((s) => {
-      const prev = s.gameLogs[instanceId] ?? []
-      const next = prev.length > 2000 ? prev.slice(-1900) : prev
-      return { gameLogs: { ...s.gameLogs, [instanceId]: [...next, line] } }
+      const merged = [...(s.gameLogs[instanceId] ?? []), ...lines]
+      return { gameLogs: { ...s.gameLogs, [instanceId]: merged.length > 2000 ? merged.slice(-2000) : merged } }
     }),
+  setGameLogs: (instanceId, lines) =>
+    set((s) => ({ gameLogs: { ...s.gameLogs, [instanceId]: lines.slice(-2000) } })),
   clearGameLog: (instanceId) =>
     set((s) => ({ gameLogs: { ...s.gameLogs, [instanceId]: [] } })),
   setInstanceRunning: (instanceId, running) =>

@@ -2,9 +2,18 @@ import axios from 'axios'
 import fs from 'fs-extra'
 import path from 'path'
 import crypto from 'crypto'
+import type { OpDetail } from '../shared/types'
 import { getAbortSignal, CancelError } from './cancelToken'
+import { TransferMeter } from './transferMeter'
 
-export type ProgressCallback = (current: number, total: number, message: string) => void
+export type ProgressCallback = (current: number, total: number, message: string, detail?: OpDetail) => void
+
+/**
+ * Si no llega ningún dato en este tiempo, la descarga se da por colgada y se reintenta.
+ * Sin esto, una conexión que se queda a medias deja la barra parada para siempre: el
+ * timeout de axios solo cubre hasta que empiezan a llegar datos.
+ */
+const STALL_TIMEOUT_MS = 45_000
 
 async function downloadFileOnce(
   url: string,
@@ -25,20 +34,41 @@ async function downloadFileOnce(
 
   const writer = fs.createWriteStream(destPath)
   const hash = expectedSha256 ? crypto.createHash('sha256') : null
+  const meter = new TransferMeter()
+  const name = path.basename(destPath)
+  let lastReport = 0
 
   await new Promise<void>((resolve, reject) => {
+    let stall: ReturnType<typeof setTimeout> | undefined
+    const armStall = (): void => {
+      clearTimeout(stall)
+      stall = setTimeout(() => {
+        response.data.destroy(new Error(`La descarga de ${name} se quedó parada ${STALL_TIMEOUT_MS / 1000} s sin recibir datos`))
+      }, STALL_TIMEOUT_MS)
+    }
+    armStall()
     response.data.on('data', (chunk: Buffer) => {
+      armStall()
       current += chunk.length
       hash?.update(chunk)
-      if (onProgress && total > 0) {
-        onProgress(current, total, path.basename(destPath))
+      const now = Date.now()
+      if (onProgress && (now - lastReport > 250 || current === total)) {
+        lastReport = now
+        const speed = meter.sample(current, now)
+        onProgress(current, total || current, name, {
+          bytes: current,
+          totalBytes: total || undefined,
+          speed,
+          eta: TransferMeter.eta(current, total, speed),
+          file: name
+        })
       }
     })
 
     response.data.pipe(writer)
-    writer.on('finish', resolve)
-    writer.on('error', reject)
-    response.data.on('error', reject)
+    writer.on('finish', () => { clearTimeout(stall); resolve() })
+    writer.on('error', (e) => { clearTimeout(stall); reject(e) })
+    response.data.on('error', (e: Error) => { clearTimeout(stall); writer.destroy(); reject(e) })
   })
 
   if (hash && expectedSha256) {
@@ -70,6 +100,7 @@ export async function downloadFile(
       }
       lastError = e
       if (attempt < maxRetries - 1) {
+        console.warn(`[descargas] ${path.basename(destPath)}: intento ${attempt + 1} fallido (${(e as Error)?.message ?? e}), reintentando...`)
         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)))
       }
     }

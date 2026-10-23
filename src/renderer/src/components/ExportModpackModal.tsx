@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
 import FpackSaveModal from './FpackSaveModal'
 import QRDisplay from './QRDisplay'
-import { ExportContentPicker, ExportStartOptions, ExportStartPicker, presetFor, type ExportPlanData, type ExportStart, type StartOptions } from './export/ExportEasy'
+import { ExportContentPicker, ExportStartOptions, ExportStartPicker, presetFor, toGameOptions, NO_GROUPS, type ExportPlanData, type ExportStart, type StartOptions } from './export/ExportEasy'
 
 interface Props {
   instance: Instance
@@ -175,7 +175,7 @@ function TreeNode({
 
 /* ─── Main modal ─────────────────────────────────────────────── */
 export default function ExportModpackModal({ instance, onClose }: Props) {
-  const { settings } = useStore()
+  const settings = useStore(s => s.settings)
 
   // Metadata form
   const [name, setName] = useState(instance.name)
@@ -200,7 +200,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const [start, setStart] = useState<ExportStart>('fresh')
   const [chosen, setChosen] = useState<Set<string>>(new Set())
   const [worlds, setWorlds] = useState<Set<string>>(new Set())
-  const [startOpts, setStartOpts] = useState<StartOptions>({ controls: 'default', settings: 'default', activePacks: false, serverList: false })
+  const [startOpts, setStartOpts] = useState<StartOptions>({ controls: 'default', groups: { ...NO_GROUPS }, activePacks: false, serverList: false })
 
   // Export state
   const [accessKey, setAccessKey] = useState('')
@@ -346,7 +346,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
         modloaderVersion: instance.modloaderVersion,
         selectedPaths: paths,
         accessKey: accessKey.trim() || undefined,
-        gameOptions: { controls: startOpts.controls, settings: startOpts.settings, activePacks: startOpts.activePacks || startOpts.settings === 'mine' },
+        gameOptions: toGameOptions(startOpts),
         serverList: startOpts.serverList
       })
       setResultUrl(url)
@@ -684,6 +684,8 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
       <FpackSaveModal
         instance={instance}
         outputPath={fpackSavePath}
+        modpackUrl={resultUrl || undefined}
+        accessKey={accessKey.trim() || undefined}
         onClose={() => setFpackSavePath(null)}
       />
     )}

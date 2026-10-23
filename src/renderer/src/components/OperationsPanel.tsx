@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from '../store'
+import { shallow } from 'zustand/shallow'
 import type { Operation, OperationType } from '../../../shared/types'
 
 /* ── per-type metadata ─────────────────────────────────────────── */
@@ -19,6 +20,7 @@ const OP_META: Record<OperationType, { label: string; icon: React.ReactNode }> =
   'delete-instance':    { label: 'Eliminando',   icon: <TrashIcon /> },
   'ftp-upload':         { label: 'Subiendo',     icon: <UploadIcon /> },
   'ftp-download':       { label: 'Descargando',  icon: <DownloadIcon /> },
+  'transfer-content':   { label: 'Transfiriendo', icon: <CopyIcon /> },
 }
 
 function InstallIcon() {
@@ -55,10 +57,30 @@ function TrashIcon() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
 }
 
+function fmtBytes(b: number): string {
+  if (b < 1024) return `${b} B`
+  if (b < 1024 ** 2) return `${(b / 1024).toFixed(0)} KB`
+  if (b < 1024 ** 3) return `${(b / 1024 ** 2).toFixed(1)} MB`
+  return `${(b / 1024 ** 3).toFixed(2)} GB`
+}
+function fmtDuration(s: number): string {
+  if (s < 60) return `${Math.max(1, Math.round(s))} s`
+  if (s < 3600) return `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`
+  return `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min`
+}
+function fmtClock(t: number): string {
+  return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+/** A partir de cuántos segundos sin novedades se avisa de que parece parada. */
+const STALL_WARN_S = 20
+
 /* ── single chip ───────────────────────────────────────────────── */
 function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
   const [expanded, setExpanded] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [now, setNow] = useState(Date.now())
 
   const meta = OP_META[op.type] ?? { label: 'Procesando', icon: <GearIcon /> }
   const pct = op.current != null && op.total != null && op.total > 0
@@ -68,9 +90,39 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
   const isError = op.status === 'error'
   const isRunning = op.status === 'running'
 
+  // Reloj para el tiempo transcurrido y el aviso de «parece parada»
+  useEffect(() => {
+    if (!isRunning) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [isRunning])
+
+  const d = op.detail
+  const idle = isRunning && op.updatedAt ? Math.floor((now - op.updatedAt) / 1000) : 0
+  const stalled = idle >= STALL_WARN_S
+  const elapsed = Math.max(0, (now - op.startedAt) / 1000)
+  const transfer = d?.bytes != null
+    ? [
+        d.totalBytes ? `${fmtBytes(d.bytes)} de ${fmtBytes(d.totalBytes)}` : fmtBytes(d.bytes),
+        d.speed ? `${fmtBytes(d.speed)}/s` : null,
+        d.eta ? `quedan ${fmtDuration(d.eta)}` : null,
+      ].filter(Boolean).join(' · ')
+    : null
+
   function cancel() {
     setCancelling(true)
     window.api.cancel().catch(() => {})
+  }
+
+  function copyLog() {
+    const lines = [
+      `${op.name} (${meta.label})`,
+      ...(op.log ?? []).map((l) => `[${fmtClock(l.at)}] ${l.text}`),
+      op.error ? `Error: ${op.error}` : '',
+    ].filter(Boolean)
+    window.api.clipboard.writeText(lines.join('\n'))
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+      .catch(() => {})
   }
 
   /* ── small (default) ── */
@@ -79,6 +131,7 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
       <div className={`w-72 rounded-xl shadow-2xl border overflow-hidden transition-all ${
         isDone ? 'bg-green-950/80 border-green-700/50'
         : isError ? 'bg-red-950/80 border-red-700/50'
+        : stalled ? 'bg-bg-secondary border-amber-600/50'
         : 'bg-bg-secondary border-border'
       }`}>
         <div className="flex items-center gap-2.5 px-3 py-2.5">
@@ -105,6 +158,11 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
                 }
               </div>
             )}
+            {isRunning && (
+              <p className={`text-[10px] truncate mt-0.5 ${stalled ? 'text-amber-400' : 'text-text-muted'}`}>
+                {stalled ? `Sin novedades desde hace ${fmtDuration(idle)}` : transfer ?? op.message ?? ''}
+              </p>
+            )}
             {isDone && op.message && (
               <p className="text-[10px] text-green-400/70 truncate mt-0.5">{op.message}</p>
             )}
@@ -119,8 +177,8 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
           {isRunning && (
             <span className="text-[11px] text-text-muted flex-shrink-0 font-mono">{pct}%</span>
           )}
-          {isRunning && (
-            <button onClick={() => setExpanded(true)} title="Expandir"
+          {(isRunning || isError) && (
+            <button onClick={() => setExpanded(true)} title="Ver detalles"
               className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-text-primary flex-shrink-0">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="18 15 12 9 6 15"/></svg>
             </button>
@@ -138,17 +196,19 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
 
   /* ── large (expanded) ── */
   return (
-    <div className="w-80 bg-bg-secondary border border-border rounded-xl shadow-2xl overflow-hidden">
+    <div className={`w-96 bg-bg-secondary border rounded-xl shadow-2xl overflow-hidden ${isError ? 'border-red-700/50' : stalled ? 'border-amber-600/50' : 'border-border'}`}>
       {/* header */}
       <div className="flex items-center gap-2.5 px-3 py-2.5 border-b border-border/50">
-        <span className="text-accent flex-shrink-0">
+        <span className={`flex-shrink-0 ${isError ? 'text-red-400' : 'text-accent'}`}>
           {isRunning
             ? <span className={cancelling ? '' : 'animate-spin block'}>{meta.icon}</span>
             : meta.icon}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-text-primary truncate">{meta.label}</p>
-          <p className="text-[10px] text-text-muted truncate">{op.name}</p>
+          <p className="text-xs font-semibold text-text-primary truncate">{op.name}</p>
+          <p className="text-[10px] text-text-muted truncate">
+            {meta.label}{d?.phase ? ` · ${d.phase}` : ''} · {fmtDuration(elapsed)}
+          </p>
         </div>
         <button onClick={() => setExpanded(false)} title="Contraer"
           className="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-text-primary flex-shrink-0">
@@ -157,23 +217,78 @@ function OpChip({ op, onDismiss }: { op: Operation; onDismiss: () => void }) {
       </div>
 
       {/* body */}
-      <div className="px-3 py-2.5 space-y-2">
-        {op.message && (
-          <p className="text-[11px] text-text-secondary truncate">{op.message}</p>
+      <div className="px-3 py-2.5 space-y-2 select-text">
+        {op.message && isRunning && (
+          <p className="text-[11px] text-text-secondary break-words">{op.message}</p>
+        )}
+        {isError && (
+          <p className="text-[11px] text-red-300 break-words">{op.error || 'Error desconocido'}</p>
         )}
 
-        {op.total != null && op.total > 0 && (
+        {isRunning && (
           <>
             <div className="h-1.5 bg-bg-hover rounded-full overflow-hidden">
-              <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+              {pct > 0
+                ? <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                : <div className="h-full bg-accent/60 rounded-full animate-pulse w-full" />}
             </div>
             <div className="flex justify-between text-[10px] text-text-muted">
-              <span>{op.current} / {op.total} {op.total > 500_000 ? 'bytes' : 'archivos'}</span>
-              <span className="font-medium text-text-secondary">{pct}%</span>
+              <span>{pct}% del total</span>
+              {d?.eta ? <span>Quedan {fmtDuration(d.eta)}</span> : <span />}
             </div>
           </>
         )}
 
+        {isRunning && (d?.bytes != null || d?.filesTotal != null || d?.file) && (
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] bg-bg-primary/60 rounded-lg px-2.5 py-2">
+            {d?.bytes != null && (<>
+              <span className="text-text-muted">Descargado</span>
+              <span className="text-text-secondary text-right font-mono">{fmtBytes(d.bytes)}{d.totalBytes ? ` / ${fmtBytes(d.totalBytes)}` : ''}</span>
+              <span className="text-text-muted">Velocidad</span>
+              <span className={`text-right font-mono ${d.speed ? 'text-text-secondary' : 'text-amber-400'}`}>{d.speed ? `${fmtBytes(d.speed)}/s` : 'sin datos ahora mismo'}</span>
+            </>)}
+            {d?.filesTotal != null && (<>
+              <span className="text-text-muted">Archivos</span>
+              <span className="text-text-secondary text-right font-mono">{d.filesDone ?? 0} / {d.filesTotal}</span>
+            </>)}
+            {d?.file && (<>
+              <span className="text-text-muted">Archivo</span>
+              <span className="text-text-secondary text-right truncate" title={d.file}>{d.file}</span>
+            </>)}
+          </div>
+        )}
+
+        {stalled && (
+          <p className="text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
+            Sin novedades desde hace {fmtDuration(idle)}. Si no avanza, el launcher lo reintenta solo; el historial de abajo dice en qué paso está.
+          </p>
+        )}
+
+        {(op.log?.length ?? 0) > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] uppercase tracking-wide text-text-muted">Historial</span>
+              <button onClick={copyLog} className="text-[10px] text-text-muted hover:text-text-primary">
+                {copied ? 'Copiado' : 'Copiar'}
+              </button>
+            </div>
+            <div className="max-h-36 overflow-y-auto rounded-lg bg-bg-primary/60 px-2 py-1.5 font-mono text-[10px] leading-relaxed space-y-0.5">
+              {[...(op.log ?? [])].reverse().map((l, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="text-text-muted flex-shrink-0">{fmtClock(l.at)}</span>
+                  <span className="text-text-secondary break-words min-w-0">{l.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {isError && (
+          <button onClick={onDismiss}
+            className="w-full py-1 text-[11px] text-text-muted hover:text-text-primary border border-border/50 rounded-lg transition-colors">
+            Cerrar
+          </button>
+        )}
         {isRunning && !cancelling && (
           <button onClick={cancel}
             className="w-full py-1 text-[11px] text-text-muted hover:text-red-400 border border-border/50 hover:border-red-500/40 rounded-lg transition-colors">
@@ -193,7 +308,7 @@ export default function OperationsPanel() {
   const { operations, removeOperation } = useStore((s) => ({
     operations: s.operations,
     removeOperation: s.removeOperation,
-  }))
+  }), shallow)
 
   const ops = [...operations.values()]
   if (ops.length === 0) return null

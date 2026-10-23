@@ -2,10 +2,11 @@ import { app, BrowserWindow } from 'electron'
 import path from 'path'
 import fs from 'fs-extra'
 import type { ChildProcess } from 'child_process'
-import type { Instance, MinecraftAccount, Settings } from '../shared/types'
+import type { Instance, MinecraftAccount, OpDetail, Settings } from '../shared/types'
 import { getSharedDir, getInstanceGameDir } from './instances'
 import { ensureJava } from './java'
-import { checkCancel } from './cancelToken'
+import { checkCancel, getAbortSignal } from './cancelToken'
+import { TransferMeter } from './transferMeter'
 import { EventEmitter } from 'events'
 
 const runningProcesses = new Map<string, ChildProcess>()
@@ -27,6 +28,56 @@ function sendToWindow(window: BrowserWindow, channel: string, ...args: unknown[]
   if (window.isDestroyed() || window.webContents.isDestroyed()) return false
   window.webContents.send(channel, ...args)
   return true
+}
+
+// ── Registro de las partidas ────────────────────────────────────────────────
+// Minecraft escribe miles de líneas al arrancar. Mandarlas una a una a la ventana hacía
+// que la interfaz se redibujara miles de veces por segundo y el launcher se arrastraba
+// con el juego abierto: ahora se agrupan y salen como mucho unas pocas veces por segundo.
+// Además se guardan las últimas aquí, para que si la ventana se recarga no se pierdan.
+
+const LOG_KEEP = 2000
+const LOG_FLUSH_MS = 150
+const gameLogBuffers = new Map<string, string[]>()
+const pendingLogLines = new Map<string, string[]>()
+let logFlushTimer: ReturnType<typeof setTimeout> | null = null
+let logWindow: BrowserWindow | null = null
+
+function flushGameLogs(): void {
+  logFlushTimer = null
+  if (logWindow) {
+    for (const [id, lines] of pendingLogLines) sendToWindow(logWindow, 'game:log-batch', id, lines.slice(-LOG_KEEP))
+  }
+  pendingLogLines.clear()
+}
+
+function queueGameLog(window: BrowserWindow, instanceId: string, lines: string[]): void {
+  if (lines.length === 0) return
+  const kept = gameLogBuffers.get(instanceId) ?? []
+  kept.push(...lines)
+  if (kept.length > LOG_KEEP) kept.splice(0, kept.length - LOG_KEEP)
+  gameLogBuffers.set(instanceId, kept)
+  const pending = pendingLogLines.get(instanceId) ?? []
+  pending.push(...lines)
+  pendingLogLines.set(instanceId, pending)
+  logWindow = window
+  if (!logFlushTimer) logFlushTimer = setTimeout(flushGameLogs, LOG_FLUSH_MS)
+}
+
+/** Partidas abiertas ahora mismo con su registro, para que la ventana se ponga al día al cargar. */
+export function getRunningSnapshot(): { id: string; logs: string[] }[] {
+  return [...runningProcesses.keys()].map((id) => ({ id, logs: gameLogBuffers.get(id) ?? [] }))
+}
+
+/** Parte la salida en líneas completas: un trozo puede acabar a mitad de línea. */
+function lineSplitter(onLines: (lines: string[]) => void): (buf: Buffer) => void {
+  let rest = ''
+  return (buf) => {
+    const parts = (rest + buf.toString()).split(/\r?\n/)
+    rest = parts.pop() ?? ''
+    if (rest.length > 8192) { parts.push(rest); rest = '' }
+    onLines(parts.filter(Boolean))
+  }
 }
 
 /**
@@ -112,8 +163,75 @@ function logDownloadFailures(errors: unknown[], note?: (msg: string) => void): v
 }
 
 /**
- * installDependencies con reintentos. Entre intentos borra los ficheros que
- * quedaron a 0 bytes, que es lo que deja una descarga cortada a medias.
+ * Tiempo sin recibir ni un byte tras el cual una ronda de descarga se da por colgada.
+ * Antes una conexión que se quedaba a medias dejaba la barra en 33% para siempre.
+ */
+const DEPS_STALL_MS = 60_000
+/** Rondas colgadas seguidas tras las que se deja de insistir. */
+const MAX_STALLED_ROUNDS = 3
+
+/** Cuenta los ficheros que faltan o no tienen el tamaño esperado (sin calcular hashes). */
+async function countMismatched(items: { file: string; size?: number }[]): Promise<number> {
+  let bad = 0
+  for (let i = 0; i < items.length; i += 200) {
+    const res = await Promise.all(items.slice(i, i + 200).map(async (it) => {
+      const st = await fs.stat(it.file).catch(() => null)
+      return !st || (it.size ? st.size !== it.size : st.size === 0)
+    }))
+    bad += res.filter(Boolean).length
+  }
+  return bad
+}
+
+/**
+ * Comprobación rápida de assets y librerías mirando solo si existen y su tamaño.
+ *
+ * La verificación completa calcula el hash de miles de ficheros (≈600 MB en versiones
+ * modernas) y tarda bastante: hacerla en cada arranque es lo que dejaba «Verificando
+ * assets y librerías» un buen rato en instancias que ya lo tenían todo. Si el tamaño de
+ * todo cuadra se arranca directamente; Reparar sigue haciendo la verificación completa.
+ *
+ * Devuelve null si ni siquiera está el índice de assets (instalación nueva).
+ */
+async function quickDependencyCheck(
+  v: ResolvedVersion,
+  sharedDir: string
+): Promise<{ missingAssets: number; missingLibraries: number } | null> {
+  const indexes = path.join(sharedDir, 'assets', 'indexes')
+  const candidates = [v.assetIndex?.sha1, v.assetIndex?.id, v.assets].filter((x): x is string => !!x)
+  let objects: Record<string, { hash: string; size: number }> | null = null
+  for (const id of candidates) {
+    try { objects = (await fs.readJson(path.join(indexes, `${id}.json`))).objects ?? null } catch { /* siguiente */ }
+    if (objects) break
+  }
+  if (!objects) return null
+
+  const assetItems = Object.values(objects).map((o) => ({
+    file: path.join(sharedDir, 'assets', 'objects', o.hash.slice(0, 2), o.hash),
+    size: o.size
+  }))
+  const libItems = v.libraries
+    .filter((l) => l.download?.path)
+    // Fabric/Quilt no dicen el tamaño de sus librerías (viene como -1): entonces basta con que exista
+    .map((l) => ({ file: path.join(sharedDir, 'libraries', l.download.path), size: l.download.size > 0 ? l.download.size : undefined }))
+
+  return {
+    missingAssets: await countMismatched(assetItems),
+    missingLibraries: await countMismatched(libItems)
+  }
+}
+
+interface DepsReporter {
+  /** Hechos sueltos que merece la pena dejar escritos (van también a la consola). */
+  note?: (msg: string) => void
+  /** Progreso continuo: fracción 0..1 (o null si aún no se sabe el total) y detalle. */
+  progress?: (msg: string, fraction: number | null, detail?: OpDetail) => void
+}
+
+/**
+ * Instala assets y librerías con reintentos y progreso real (bytes, velocidad, tiempo
+ * restante). Entre intentos borra los ficheros que quedaron a 0 bytes, que es lo que
+ * deja una descarga cortada a medias, y baja el número de descargas a la vez.
  *
  * Un fallo en una librería net.minecraft aborta de inmediato: sin ella el juego
  * no arranca y reintentar no aporta nada.
@@ -121,12 +239,29 @@ function logDownloadFailures(errors: unknown[], note?: (msg: string) => void): v
 async function installDependenciesWithRetry(
   resolvedVersion: ResolvedVersion,
   sharedDir: string,
-  note?: (msg: string) => void
+  report: DepsReporter = {},
+  opts: { full?: boolean } = {}
 ): Promise<void> {
-  const { installDependencies } = await import('@xmcl/installer')
+  const { note, progress } = report
+
+  if (!opts.full) {
+    progress?.('Comprobando assets y librerías...', null, { phase: 'Comprobación rápida' })
+    const quick = await quickDependencyCheck(resolvedVersion, sharedDir)
+    if (quick && quick.missingAssets === 0 && quick.missingLibraries === 0) {
+      note?.('Assets y librerías ya instalados, no hace falta descargar nada.')
+      progress?.('Assets y librerías listos', 1)
+      return
+    }
+    note?.(quick
+      ? `Faltan ${quick.missingAssets} assets y ${quick.missingLibraries} librerías: se descargan.`
+      : 'Primera vez con esta versión: se descargan los assets y librerías.')
+  }
+
+  const { installDependenciesTask } = await import('@xmcl/installer')
   let lastError: unknown
   let previousFailures = Infinity
   let rounds = 0
+  let stalledRounds = 0
 
   for (let round = 0; round < MAX_ASSET_ROUNDS; round++) {
     rounds = round + 1
@@ -135,16 +270,76 @@ async function installDependenciesWithRetry(
       ASSET_CONCURRENCY_STEPS[Math.min(round, ASSET_CONCURRENCY_STEPS.length - 1)]
     const pruned = await pruneEmptyAssets(sharedDir)
     if (pruned > 0) note?.(`${pruned} asset(s) vacíos, se vuelven a descargar...`)
+    if (round > 0) note?.(`Ronda ${rounds}: ${concurrency} descarga(s) a la vez.`)
+
+    const task = installDependenciesTask(resolvedVersion, {
+      assetsDownloadConcurrency: concurrency,
+      librariesDownloadConcurrency: concurrency,
+      skipRevalidate: false
+    })
+    const meter = new TransferMeter()
+    let lastBytes = -1
+    let lastMoveAt = Date.now()
+    const roundStart = Date.now()
+    let verifyShare = 0
+    let stalled = false
+    const signal = getAbortSignal()
+    const onAbort = (): void => { task.cancel().catch(() => {}) }
+    signal?.addEventListener('abort', onAbort)
+    const tick = setInterval(() => {
+      const bytes = task.progress
+      const total = task.total
+      if (bytes !== lastBytes) { lastBytes = bytes; lastMoveAt = Date.now() }
+      const speed = meter.sample(bytes)
+      const idle = Math.round((Date.now() - lastMoveAt) / 1000)
+      // Mientras comprueba los archivos que ya hay (hash de cada uno) los bytes no se mueven:
+      // con el disco «frío» puede tardar un rato y no es un atasco. El vigilante solo cuenta
+      // cuando ya han empezado a llegar datos.
+      const verifying = bytes === 0
+      const elapsed = Math.round((Date.now() - roundStart) / 1000)
+      // La verificación no dice cuánto le falta: la barra avanza poco a poco (hasta un 60%
+      // de este tramo) para que se vea que sigue; las descargas llenan el resto.
+      if (verifying) verifyShare = 0.6 * (1 - Math.exp(-elapsed / 20))
+      const fraction = verifying
+        ? verifyShare
+        : verifyShare + (1 - verifyShare) * (total > 0 ? Math.min(1, bytes / total) : 0)
+      progress?.(
+        verifying
+          ? `Verificando los archivos que ya tienes... (${elapsed} s)`
+          : idle >= 10
+            ? `Sin recibir datos desde hace ${idle} s...`
+            : `Descargando assets y librerías${round > 0 ? ` (ronda ${rounds})` : ''}...`,
+        fraction,
+        verifying
+          ? { phase: 'Verificación de archivos' }
+          : { phase: 'Assets y librerías', bytes, totalBytes: total || undefined, speed, eta: TransferMeter.eta(bytes, total, speed) }
+      )
+      if (!verifying && Date.now() - lastMoveAt > DEPS_STALL_MS && !stalled) {
+        stalled = true
+        task.cancel().catch(() => {})
+      }
+    }, 500)
 
     try {
-      await installDependencies(resolvedVersion, {
-        assetsDownloadConcurrency: concurrency,
-        skipRevalidate: false
-      })
+      await task.startAndWait()
+      note?.(`Assets y librerías listos (${((Date.now() - roundStart) / 1000).toFixed(1)} s).`)
       lastError = undefined
       break
     } catch (e) {
       checkCancel()
+      if (stalled) {
+        stalledRounds++
+        lastError = e
+        note?.(`La descarga lleva ${DEPS_STALL_MS / 1000} s sin recibir datos: se reintenta con menos descargas a la vez.`)
+        if (stalledRounds >= MAX_STALLED_ROUNDS) {
+          throw new Error(
+            `La descarga de assets y librerías se quedó parada ${MAX_STALLED_ROUNDS} veces seguidas. ` +
+              'Suele ser la conexión, un antivirus o un firewall bloqueando resources.download.minecraft.net.'
+          )
+        }
+        continue
+      }
+      stalledRounds = 0
       const errors = aggregateErrors(e)
       if (!errors) throw e
 
@@ -165,6 +360,9 @@ async function installDependenciesWithRetry(
       }
       previousFailures = errors.length
       note?.(`Ronda ${rounds}: quedan ${errors.length} por descargar, reintentando...`)
+    } finally {
+      clearInterval(tick)
+      signal?.removeEventListener('abort', onAbort)
     }
   }
 
@@ -288,35 +486,65 @@ export async function launchInstance(
   account: MinecraftAccount,
   settings: Settings,
   mainWindow: BrowserWindow,
-  onProgress?: (current: number, total: number, msg: string) => void,
+  onProgress?: (current: number, total: number, msg: string, detail?: OpDetail) => void,
   onExit?: (sessionMs: number) => void,
   options?: { suppressEvents?: boolean }
 ): Promise<void> {
-  onProgress?.(0, 6, 'Preparando lanzamiento...')
+  // La barra va de 0 a 100 y solo avanza: cada fase tiene su tramo y el 100 llega cuando
+  // el juego ya está abierto, no al lanzar el proceso. Antes saltaba por pasos (33%… y de
+  // golpe se abría) sin decir nada mientras tanto.
+  //   0-2 preparar · 2-20 Minecraft · 20-30 Java · 30-38 loader · 38-80 assets y librerías
+  //   80-85 lanzar · 85-100 el juego cargando hasta el menú principal
+  let shown = 0
+  const report = (pct: number, msg: string, detail?: OpDetail): void => {
+    shown = Math.max(shown, Math.min(100, pct))
+    onProgress?.(Math.round(shown * 10) / 10, 100, msg, detail)
+  }
+  report(1, 'Preparando lanzamiento...')
 
   const sharedDir = getSharedDir()
+  if (!options?.suppressEvents) {
+    // Partida nueva: el registro empieza de cero (también en la ventana)
+    gameLogBuffers.set(instance.id, [])
+    pendingLogLines.delete(instance.id)
+    sendToWindow(mainWindow, 'game:log-reset', instance.id)
+  }
+  // Cada paso queda escrito con su hora en la consola del juego y en la del launcher:
+  // si algo se atasca, se ve exactamente en qué punto.
+  const startedAt = Date.now()
+  const note = (msg: string): void => {
+    const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
+    console.log(`[Arranque ${instance.name}] +${secs}s ${msg}`)
+    if (!options?.suppressEvents) queueGameLog(mainWindow, instance.id, [`[Launcher +${secs}s] ${msg}`])
+  }
 
   // 1. Ensure Minecraft version JSON + jar are installed
   const versionJson = path.join(sharedDir, 'versions', instance.minecraft, `${instance.minecraft}.json`)
   const versionJar  = path.join(sharedDir, 'versions', instance.minecraft, `${instance.minecraft}.jar`)
   if (!(await fs.pathExists(versionJson)) || !(await fs.pathExists(versionJar))) {
-    await installMinecraftVersion(instance.minecraft, onProgress)
+    note(`Minecraft ${instance.minecraft} no está instalado: se descarga.`)
+    await installMinecraftVersion(instance.minecraft, (c, t, msg) => report(2 + 18 * (c / Math.max(t, 1)), msg, { phase: 'Minecraft' }))
+  } else {
+    note(`Minecraft ${instance.minecraft} ya instalado.`)
   }
 
   checkCancel()
 
   // 2. Resolve Java early — NeoForge post-processors need it during install
-  onProgress?.(1, 6, 'Verificando Java...')
+  report(20, 'Verificando Java...', { phase: 'Java' })
   let javaPath = instance.javaPath || settings.javaPath
   if (javaPath && path.isAbsolute(javaPath) && !(await fs.pathExists(javaPath))) {
+    note(`El Java configurado ya no existe (${javaPath}): se busca otro.`)
     javaPath = ''
   }
   if (!javaPath) {
     javaPath = await ensureJava(instance.minecraft, (current, total, msg) => {
-      onProgress?.(1, 6, msg)
+      report(20 + (total > 0 ? Math.min(1, current / total) : 0) * 10, msg, { phase: 'Java' })
     })
   }
   if (!javaPath) throw new Error('No se pudo encontrar ni instalar Java. Configúralo manualmente en Ajustes.')
+  note(`Java: ${javaPath}`)
+  report(30, 'Java listo', { phase: 'Java' })
 
   checkCancel()
 
@@ -325,47 +553,35 @@ export async function launchInstance(
     const loaderVersionId = resolveVersionId(instance)
     const loaderJson = path.join(sharedDir, 'versions', loaderVersionId, `${loaderVersionId}.json`)
     if (!(await fs.pathExists(loaderJson))) {
-      await installModloader(instance, onProgress, javaPath)
+      note(`Instalando ${instance.modloader} ${instance.modloaderVersion}...`)
+      report(31, `Instalando ${instance.modloader}...`, { phase: instance.modloader })
+      await installModloader(instance, (c, t, msg) => report(31 + 7 * (c / Math.max(t, 1)), msg, { phase: instance.modloader }), javaPath)
     }
   }
+  report(38, 'Comprobando assets y librerías...')
 
   checkCancel()
 
-  // 4. Always verify + download assets & libraries (idempotent — skips valid files)
+  // 4. Assets y librerías: comprobación rápida y, si falta algo, descarga con progreso real.
   const { Version } = await import('@xmcl/core')
   const versionId = resolveVersionId(instance)
   const resolvedVersion = await Version.parse(sharedDir, versionId)
 
-  let elapsed = 0
-  const timer = setInterval(() => {
-    elapsed += 3
-    onProgress?.(2, 6, `Descargando assets y librerías... (${elapsed}s)`)
-  }, 3000)
-  onProgress?.(2, 6, 'Verificando assets y librerías...')
-
-  try {
-    await installDependenciesWithRetry(resolvedVersion, sharedDir, (msg) => {
-      sendToWindow(mainWindow, 'game:log', instance.id, `[Launcher] ${msg}`)
-      onProgress?.(2, 6, msg)
-    })
-  } finally {
-    clearInterval(timer)
-  }
-
-  checkCancel()
-
-  // Java already resolved in step 2 — javaPath is guaranteed non-empty here
-  onProgress?.(4, 6, 'Java listo.')
+  await installDependenciesWithRetry(resolvedVersion, sharedDir, {
+    note,
+    progress: (msg, fraction, detail) => report(38 + 42 * (fraction ?? 0), msg, detail)
+  })
 
   checkCancel()
 
   // 5. Prepare instance game directory
-  onProgress?.(5, 6, 'Preparando directorios...')
+  report(81, 'Preparando directorios...')
   const gameDir = await getInstanceGameDir(instance.id)
   await fs.ensureDir(path.join(gameDir, 'mods'))
 
   // 6. Launch
-  onProgress?.(6, 6, 'Lanzando juego...')
+  report(83, 'Lanzando el juego...', { phase: 'Abriendo Minecraft' })
+  note('Lanzando el juego...')
   const { launch } = await import('@xmcl/core')
 
   // Parse extra JVM args per instance
@@ -418,27 +634,84 @@ export async function launchInstance(
   }
 
   const sessionStart = Date.now()
-  const sendLog = (line: string) => {
-    if (!extra) sendToWindow(mainWindow, 'game:log', instance.id, line)
-    gameEvents.emit('log', instance.id, line)
+  const onLines = (lines: string[]): void => {
+    if (!extra) queueGameLog(mainWindow, instance.id, lines)
+    for (const line of lines) gameEvents.emit('log', instance.id, line)
   }
   if (!extra) sendToWindow(mainWindow, 'game:started', instance.id)
   gameEvents.emit('start', instance.id)
 
-  proc.stdout?.on('data', (buf) =>
-    buf.toString().split('\n').filter(Boolean).forEach(sendLog)
-  )
-  proc.stderr?.on('data', (buf) =>
-    buf.toString().split('\n').filter(Boolean).forEach(sendLog)
-  )
+  proc.stdout?.on('data', lineSplitter(onLines))
+  proc.stderr?.on('data', lineSplitter(onLines))
   proc.on('exit', (code) => {
     gameEvents.emit('exit', instance.id, code)
     if (!extra) {
       runningProcesses.delete(instance.id)
+      flushGameLogs()
       sendToWindow(mainWindow, 'game:exit', instance.id, code)
       if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.restore()
     }
     onExit?.(Date.now() - sessionStart)
+  })
+
+  if (extra) return
+  report(85, 'Abriendo Minecraft...', { phase: 'Cargando el juego' })
+  note('Proceso del juego en marcha; esperando a que cargue.')
+  await waitUntilLoaded(instance.id, proc, (pct, msg) => report(pct, msg, { phase: 'Cargando el juego' }))
+  note('El juego terminó de cargar.')
+}
+
+/** Líneas que el juego escribe cuando ya está en el menú principal (vanilla, Fabric, Forge…). */
+const GAME_READY = /Sound engine started|OpenAL initialized|Created: \d+x\d+x\d+ minecraft:textures\/atlas\/(blocks|gui)|Narrator library (successfully loaded|for .* successfully loaded)/i
+/** Si no aparece ninguna, se da por abierto pasado este tiempo. */
+const GAME_READY_TIMEOUT_MS = 4 * 60_000
+
+/**
+ * Espera a que el juego llegue al menú principal leyendo su registro, y mientras tanto
+ * va subiendo la barra de 85 a 99 según avanza (cada línea es un paso más de la carga).
+ * Si el juego se cierra antes, con error, se avisa en vez de decir «abierto».
+ */
+function waitUntilLoaded(
+  instanceId: string,
+  proc: ChildProcess,
+  report: (pct: number, msg: string) => void
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    let lines = 0
+    let mods: number | null = null
+    let settled = false
+    const finish = (err?: Error): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      gameEvents.off('log', onLog)
+      proc.off('exit', onExit)
+      if (err) reject(err)
+      else resolve()
+    }
+    const onLog = (id: string, line: string): void => {
+      if (id !== instanceId) return
+      lines++
+      const m = line.match(/Loading (\d+) mods/i)
+      if (m) mods = Number(m[1])
+      if (GAME_READY.test(line)) {
+        report(100, '¡Minecraft abierto!')
+        finish()
+        return
+      }
+      // Sube rápido al principio y cada vez más despacio, sin llegar nunca al 100 por sí sola
+      const pct = 85 + 14 * (1 - Math.exp(-lines / 350))
+      report(pct, mods ? `Cargando ${mods} mods...` : 'Cargando Minecraft...')
+    }
+    const onExit = (code: number | null): void => {
+      if (code === 0) { report(100, 'Minecraft se cerró'); finish(); return }
+      finish(new Error(`Minecraft se cerró mientras arrancaba (código ${code ?? '?'}). Mira la consola de la instancia para ver el motivo.`))
+    }
+    const timer = setTimeout(() => { report(100, 'Minecraft abierto'); finish() }, GAME_READY_TIMEOUT_MS)
+    gameEvents.on('log', onLog)
+    proc.once('exit', onExit)
+    // Cancelar aquí solo deja de esperar: el juego ya está abierto y sigue
+    getAbortSignal()?.addEventListener('abort', () => finish(), { once: true })
   })
 }
 
@@ -454,7 +727,7 @@ function resolveVersionId(instance: Instance): string {
 export async function repairInstance(
   instance: Instance,
   settings: Settings,
-  onProgress?: (current: number, total: number, msg: string) => void
+  onProgress?: (current: number, total: number, msg: string, detail?: OpDetail) => void
 ): Promise<void> {
   const sharedDir = getSharedDir()
   const hasModpack = !!(instance.modpackUrl)
@@ -490,16 +763,51 @@ export async function repairInstance(
   const { Version } = await import('@xmcl/core')
   const versionId = resolveVersionId(instance)
   const resolvedVersion = await Version.parse(sharedDir, versionId)
-  await installDependenciesWithRetry(resolvedVersion, sharedDir, (msg) =>
-    onProgress?.(3, STEPS, msg)
-  )
+  // Reparar hace siempre la verificación completa (hash de cada fichero)
+  await installDependenciesWithRetry(resolvedVersion, sharedDir, {
+    note: (msg) => console.log(`[Reparar ${instance.name}] ${msg}`),
+    progress: (msg, fraction, detail) => onProgress?.(3 + (fraction ?? 0) * 0.99, STEPS, msg, detail)
+  }, { full: true })
 
   // 5. Re-verify modpack files (re-downloads corrupt or missing ones)
   if (hasModpack) {
     onProgress?.(4, STEPS, 'Verificando archivos del modpack...')
     const { fetchManifest, installModpack } = await import('./modpacks')
     const manifest = await fetchManifest(instance.modpackUrl!, instance.modpackKey)
-    await installModpack(instance.id, manifest, (c, t, msg) => onProgress?.(4, STEPS, msg))
+    await installModpack(instance.id, manifest, (c, t, msg, detail) => onProgress?.(4 + (t > 0 ? c / t : 0) * 0.99, STEPS, msg, detail))
+  }
+}
+
+let latestCache: { at: number; release: string; snapshot: string } | null = null
+
+/** Última release y última snapshot de Minecraft (se recuerdan 10 minutos). */
+export async function getLatestVersions(): Promise<{ release: string; snapshot: string }> {
+  if (latestCache && Date.now() - latestCache.at < 10 * 60_000) return latestCache
+  const axios = (await import('axios')).default
+  const { data } = await axios.get(
+    'https://piston-meta.mojang.com/mc/game/version_manifest_v2.json',
+    { timeout: 10_000, headers: { 'User-Agent': 'ModpackLauncher/1.0' } }
+  )
+  latestCache = { at: Date.now(), release: data.latest.release, snapshot: data.latest.snapshot }
+  return latestCache
+}
+
+/**
+ * Si la instancia sigue «la última versión», la pone al día antes de jugar. Con Forge o
+ * NeoForge no se hace: su versión depende de la de Minecraft y se rompería.
+ * Devuelve true si cambió algo. Sin internet se juega con la que había.
+ */
+export async function applyVersionTrack(instance: Instance): Promise<boolean> {
+  if (!instance.versionTrack || instance.modloader === 'forge' || instance.modloader === 'neoforge') return false
+  try {
+    const latest = await getLatestVersions()
+    const target = latest[instance.versionTrack]
+    if (!target || target === instance.minecraft) return false
+    console.log(`[Versiones] ${instance.name}: ${instance.minecraft} → ${target} (sigue la última ${instance.versionTrack === 'snapshot' ? 'snapshot' : 'versión'})`)
+    instance.minecraft = target
+    return true
+  } catch {
+    return false
   }
 }
 

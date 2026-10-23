@@ -2,6 +2,7 @@ import { BrowserWindow, screen, shell } from 'electron'
 import path from 'path'
 import fs from 'fs-extra'
 import { nativeTitleBar } from './titleBar'
+import { attachContextMenu } from './contextMenu'
 
 // Los dos cuadros de Servidores (este equipo y el servidor) se pueden sacar,
 // cada uno por su lado, a una ventana propia: uno en una pantalla con lo que
@@ -75,6 +76,7 @@ export function openPaneWindow(side: PaneSide, from: BrowserWindow | null): void
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (e) => e.preventDefault())
+  attachContextMenu(win)
 
   const hash = `/ftp-pane?side=${side}`
   if (process.env['ELECTRON_RENDERER_URL']) win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}#${hash}`)

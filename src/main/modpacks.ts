@@ -154,12 +154,15 @@ export async function installModpack(
     const tmpZip = path.join(os.tmpdir(), `modpack-${instanceId}-${Date.now()}.zip`)
     try {
       checkCancel()
-      onProgress?.(0, 2, 'Descargando modpack...')
-      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip, onProgress)
+      onProgress?.(0, 2, 'Descargando modpack...', { phase: 'Descarga del modpack' })
+      console.log(`[modpack] Descargando ${manifest.name} ${manifest.version} desde ${manifest.filesZip}`)
+      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip, (c, t, _name, detail) =>
+        onProgress?.(c, t, 'Descargando modpack...', { ...detail, phase: 'Descarga del modpack' }))
       checkCancel()
       const zip = new AdmZip(tmpZip)
       const entries = zip.getEntries().filter(e => !e.isDirectory)
-      onProgress?.(0, entries.length, 'Extrayendo archivos...')
+      console.log(`[modpack] Descargado, extrayendo ${entries.length} archivos`)
+      onProgress?.(0, entries.length, 'Extrayendo archivos...', { phase: 'Extracción', filesDone: 0, filesTotal: entries.length })
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i]
         const destPath = trySafeJoin(gameDir, entry.entryName)
@@ -167,10 +170,14 @@ export async function installModpack(
           console.warn(`[modpack] Entrada de ZIP insegura ignorada: ${entry.entryName}`)
           continue
         }
-        await fs.ensureDir(path.dirname(destPath))
-        await fs.writeFile(destPath, entry.getData())
-        if (i % 100 === 0 || i === entries.length - 1) {
-          onProgress?.(i + 1, entries.length, `Extrayendo ${path.basename(entry.entryName)}...`)
+        if (!(await isPlayerOwned(entry.entryName, destPath))) {
+          await fs.ensureDir(path.dirname(destPath))
+          await fs.writeFile(destPath, entry.getData())
+        }
+        if (i % 50 === 0 || i === entries.length - 1) {
+          onProgress?.(i + 1, entries.length, 'Extrayendo archivos...', {
+            phase: 'Extracción', filesDone: i + 1, filesTotal: entries.length, file: entry.entryName
+          })
         }
       }
     } finally {
@@ -182,7 +189,9 @@ export async function installModpack(
       checkCancel()
       const file = files[i]
       const destPath = safeJoin(gameDir, file.path)
-      onProgress?.(i, files.length, `Descargando ${path.basename(file.path)}...`)
+      onProgress?.(i, files.length, `Descargando ${path.basename(file.path)}...`, {
+        phase: 'Archivos del modpack', filesDone: i, filesTotal: files.length, file: file.path
+      })
       await fs.ensureDir(path.dirname(destPath))
       const exists = await fileExists(destPath)
       const valid = exists && file.sha256 ? await fileMatchesHash(destPath, file.sha256) : exists
@@ -241,10 +250,11 @@ export async function updateModpack(
     const tmpZip = path.join(os.tmpdir(), `modpack-update-${instanceId}-${Date.now()}.zip`)
     try {
       checkCancel()
-      onProgress?.(0, 2, 'Descargando actualización...')
-      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip)
+      onProgress?.(0, 2, 'Descargando actualización...', { phase: 'Descarga de la actualización' })
+      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip, (c, t, _name, detail) =>
+        onProgress?.(c, t, 'Descargando actualización...', { ...detail, phase: 'Descarga de la actualización' }))
       checkCancel()
-      onProgress?.(1, 2, 'Extrayendo archivos...')
+      onProgress?.(1, 2, 'Extrayendo archivos...', { phase: 'Extracción' })
       const zip = new AdmZip(tmpZip)
       for (const entry of zip.getEntries()) {
         if (entry.isDirectory) continue
@@ -253,6 +263,7 @@ export async function updateModpack(
           console.warn(`[modpack] Entrada de ZIP insegura ignorada: ${entry.entryName}`)
           continue
         }
+        if (await isPlayerOwned(entry.entryName, destPath)) continue
         await fs.ensureDir(path.dirname(destPath))
         await fs.writeFile(destPath, entry.getData())
       }
@@ -367,8 +378,24 @@ export interface GameOptionsExport {
   controls: 'default' | 'mine'
   /** Vídeo, sonido, idioma, accesibilidad…: por defecto o los del creador */
   settings: 'default' | 'mine'
+  /**
+   * Qué grupos de ajustes van con los valores del creador (solo con settings 'mine').
+   * Sin esto van todos, como antes.
+   */
+  groups?: Partial<Record<OptionGroup, boolean>>
   /** Que los resource packs del creador empiecen activos */
   activePacks: boolean
+}
+
+export type OptionGroup = 'video' | 'sound' | 'language' | 'input' | 'other'
+
+/** Grupo de una línea de options.txt, para poder exportar unos ajustes sí y otros no. */
+export function optionGroup(key: string): OptionGroup {
+  if (/^(soundCategory_|soundDevice|directionalAudio|showSubtitles)/.test(key)) return 'sound'
+  if (key === 'lang' || key === 'forceUnicodeFont' || key === 'japaneseGlyphVariants') return 'language'
+  if (/^(graphicsMode|fancyGraphics|graphics|renderDistance|simulationDistance|fov|fovEffectScale|gamma|maxFps|enableVsync|vsync|fullscreen|fullscreenResolution|guiScale|particles|entityShadows|entityDistanceScaling|ao|biomeBlendRadius|renderClouds|cloudRange|mipmapLevels|bobView|screenEffectScale|darknessEffectScale|glintSpeed|glintStrength|prioritizeChunkUpdates|chunkUpdates|attackIndicator|menuBackgroundBlurriness|inactivityFpsLimit|useVbo|textureFiltering|maxAnisotropyBit|improvedTransparency|weatherRadius|cutoutLeaves|vignette|chunkSectionFadeInTime)\b/.test(key)) return 'video'
+  if (/^(sensitivity|mouseSensitivity|autoSuggestions|invertYMouse|mouseWheelSensitivity|discrete_mouse_scroll|rawMouseInput|touchscreen|autoJump|toggleCrouch|toggleSprint|operatorItemsTab|chat\w*|narrator|highContrast|highContrastBlockOutline|textBackgroundOpacity|backgroundForChatOnly|hideLightningFlashes|darkMojangStudiosBackground|panoramaScrollSpeed|reducedDebugInfo|notificationDisplayTime|showAutosaveIndicator|allowServerListing|onlyShowSecureChat|hideMatchedNames|damageTiltStrength|hideSplashTexts|advancedItemTooltips|heldItemTooltips|pauseOnLostFocus)\b/.test(key)) return 'input'
+  return 'other'
 }
 
 // ── Valores iniciales (primer arranque) ─────────────────────────────────────
@@ -394,9 +421,13 @@ export function buildDefaultOptions(text: string, opt: GameOptionsExport): strin
   const keep = lines.filter((l) => {
     if (l.startsWith('version:')) return false
     if (l.startsWith('key_')) return opt.controls === 'mine'
-    if (/^(resourcePacks|incompatibleResourcePacks):/.test(l)) return opt.activePacks || opt.settings === 'mine'
+    // Con grupos, los packs activos van solo si se pidieron; sin grupos (versiones
+    // anteriores), «mis ajustes» los incluía
+    if (/^(resourcePacks|incompatibleResourcePacks):/.test(l)) return opt.activePacks || (opt.settings === 'mine' && !opt.groups)
     if (PERSONAL_OPTIONS.test(l)) return false
-    return opt.settings === 'mine'
+    if (opt.settings !== 'mine') return false
+    if (!opt.groups) return true
+    return !!opt.groups[optionGroup(l.slice(0, l.indexOf(':')))]
   })
   if (!keep.length) return null
   // Sin «version» el juego cree que es un options.txt antiquísimo e intenta convertirlo
@@ -410,6 +441,15 @@ export function buildDefaultOptions(text: string, opt: GameOptionsExport): strin
  */
 function keepOnUpdate(relPath: string): boolean {
   return FIRST_RUN_FILES.has(relPath) || relPath.startsWith('saves/')
+}
+
+/**
+ * Modpacks antiguos llevan options.txt / servers.dat dentro del zip. Si el jugador ya
+ * tiene los suyos, no se pisan: antes cada actualización (y cada «Reparar») le
+ * devolvía los ajustes del creador y perdía los que había cambiado.
+ */
+async function isPlayerOwned(entryName: string, destPath: string): Promise<boolean> {
+  return FIRST_RUN_FILES.has(entryName.replace(/\\/g, '/')) && await fs.pathExists(destPath)
 }
 
 /** Copia los valores iniciales que el jugador todavía no tiene. */
@@ -998,8 +1038,18 @@ export async function saveFpackLocally(
   const instances = await loadInstances()
   const instance = instances.find(i => i.id === instanceId)
 
-  const effectiveUrl = modpackUrlOverride ?? instance?.modpackUrl
-  const effectiveKey = accessKeyOverride ?? instance?.modpackKey
+  // La instancia de la que se publicó un modpack no tiene modpackUrl (no se instaló desde
+  // él): se usa la última publicación hecha desde ella. Sin esto, «Guardar .fpack» desde
+  // Mis instancias fallaba con «Esta instancia no tiene un manifiesto de modpack».
+  const published = (!modpackUrlOverride && !instance?.modpackUrl)
+    ? await (async () => {
+        const list = await getPublishedModpacks()
+        // Publicaciones antiguas no guardaban la instancia: se busca por el nombre
+        return list.find(m => m.instanceId === instanceId) ?? list.find(m => !m.instanceId && m.name === instance?.name)
+      })()
+    : undefined
+  const effectiveUrl = modpackUrlOverride ?? instance?.modpackUrl ?? published?.url
+  const effectiveKey = accessKeyOverride ?? instance?.modpackKey ?? published?.accessKey
 
   // URL-based instances: save as tiny shortcut file instead of ZIP
   if (effectiveUrl) {

@@ -1,9 +1,11 @@
-import { app } from 'electron'
+import { app, nativeImage } from 'electron'
 import fs from 'fs-extra'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import AdmZip from 'adm-zip'
 import axios from 'axios'
+import os from 'os'
+import { DOT_MINECRAFT_ID } from '../shared/types'
 import type {
   Instance,
   ModMeta,
@@ -15,6 +17,7 @@ import type {
   GameDirEntry
 } from '../shared/types'
 import { safeJoin, trySafeJoin } from './paths'
+import { activeResourcePacks, setResourcePackActive, selectedShader, setShaderSelected } from './packActivation'
 
 export type { ModMeta, ModFile, WorldFolder, ScreenshotFile, ConfigFile, CrashReport, GameDirEntry }
 
@@ -50,8 +53,72 @@ async function getUniqueDirName(base: string): Promise<string> {
   return name
 }
 
+// Carpeta de cada instancia ya encontrada. Casi todas las operaciones empiezan resolviendo
+// la carpeta, y sin esto cada una leía el instance.json de todas las instancias.
+const instanceDirCache = new Map<string, string>()
+
+async function dirBelongsTo(dir: string, instanceId: string): Promise<boolean> {
+  try { return (await fs.readJson(path.join(dir, 'instance.json'))).id === instanceId } catch { return false }
+}
+
+// ── La carpeta .minecraft del launcher oficial, como una instancia más ─────────
+// Sus datos de juego (mods, mundos, ajustes…) son los de .minecraft; su ficha (nombre,
+// versión, RAM, icono) se guarda aparte en la carpeta del launcher para no tocar nada
+// del launcher oficial. Assets y librerías siguen saliendo de la carpeta compartida.
+
+/** Carpeta .minecraft del launcher oficial en este sistema. */
+export function dotMinecraftDir(): string {
+  if (process.platform === 'win32') return path.join(process.env.APPDATA || app.getPath('appData'), '.minecraft')
+  if (process.platform === 'darwin') return path.join(os.homedir(), 'Library', 'Application Support', 'minecraft')
+  return path.join(os.homedir(), '.minecraft')
+}
+
+function dotMinecraftMetaDir(): string {
+  return path.join(getLauncherDir(), 'special', DOT_MINECRAFT_ID)
+}
+
+/** Versión vanilla más nueva que ya tenga el launcher oficial, para empezar con algo real. */
+async function newestOfficialVersion(): Promise<string | null> {
+  const dirs = await fs.readdir(path.join(dotMinecraftDir(), 'versions')).catch(() => [] as string[])
+  const releases = dirs.filter((d) => /^1\.\d+(\.\d+)?$/.test(d))
+  releases.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+  return releases[0] ?? null
+}
+
+/** Ficha de la instancia .minecraft (se crea la primera vez), o null si no hay .minecraft. */
+async function loadDotMinecraft(): Promise<Instance | null> {
+  if (!(await fs.pathExists(dotMinecraftDir()))) return null
+  const metaFile = path.join(dotMinecraftMetaDir(), 'instance.json')
+  try {
+    return { ...(await fs.readJson(metaFile)), id: DOT_MINECRAFT_ID, kind: 'dotminecraft' } as Instance
+  } catch { /* primera vez */ }
+  const inst: Instance = {
+    id: DOT_MINECRAFT_ID,
+    kind: 'dotminecraft',
+    name: 'Minecraft (.minecraft)',
+    description: 'La carpeta del launcher oficial de Minecraft',
+    minecraft: (await newestOfficialVersion()) ?? '1.21.1',
+    modloader: 'vanilla',
+    versionTrack: 'release',
+    maxMemory: 4096,
+    minMemory: 512,
+    createdAt: Date.now()
+  }
+  await fs.ensureDir(dotMinecraftMetaDir())
+  await fs.writeJson(metaFile, inst, { spaces: 2 })
+  return inst
+}
+
 export async function resolveInstanceDir(instanceId: string): Promise<string> {
+  if (instanceId === DOT_MINECRAFT_ID) {
+    await fs.ensureDir(dotMinecraftMetaDir())
+    return dotMinecraftMetaDir()
+  }
   const instancesDir = getInstancesDir()
+  const cached = instanceDirCache.get(instanceId)
+  if (cached && await dirBelongsTo(cached, instanceId)) return cached
+  instanceDirCache.delete(instanceId)
+
   let entries: import('fs').Dirent[] = []
   try {
     entries = await fs.readdir(instancesDir, { withFileTypes: true })
@@ -61,12 +128,10 @@ export async function resolveInstanceDir(instanceId: string): Promise<string> {
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
-    const metaPath = path.join(instancesDir, entry.name, 'instance.json')
-    try {
-      const data = await fs.readJson(metaPath)
-      if (data.id === instanceId) return path.join(instancesDir, entry.name)
-    } catch {
-      continue
+    const dir = path.join(instancesDir, entry.name)
+    if (await dirBelongsTo(dir, instanceId)) {
+      instanceDirCache.set(instanceId, dir)
+      return dir
     }
   }
 
@@ -75,6 +140,7 @@ export async function resolveInstanceDir(instanceId: string): Promise<string> {
 }
 
 export async function getInstanceGameDir(instanceId: string): Promise<string> {
+  if (instanceId === DOT_MINECRAFT_ID) return dotMinecraftDir()
   const dir = await resolveInstanceDir(instanceId)
   return path.join(dir, 'minecraft')
 }
@@ -97,10 +163,15 @@ export async function loadInstances(): Promise<Instance[]> {
     }
   }
 
-  return instances.sort((a, b) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0))
+  instances.sort((a, b) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0))
+  // La de .minecraft va siempre la primera
+  const dot = await loadDotMinecraft().catch(() => null)
+  if (dot) instances.unshift(dot)
+  return instances
 }
 
 export async function duplicateInstance(instanceId: string, newName: string, send?: (step: number) => void): Promise<Instance> {
+  if (instanceId === DOT_MINECRAFT_ID) throw new Error('La carpeta .minecraft no se duplica: usa «Transferir contenido» para pasar lo que quieras a otra instancia.')
   send?.(0) // Leyendo instancia
   const srcDir = await resolveInstanceDir(instanceId)
   const srcMeta = await fs.readJson(path.join(srcDir, 'instance.json')) as Instance
@@ -267,6 +338,8 @@ export async function updateInstance(instance: Instance): Promise<void> {
 }
 
 export async function deleteInstance(instanceId: string): Promise<void> {
+  // Borrar la "instancia" de .minecraft borraría la carpeta del launcher oficial
+  if (instanceId === DOT_MINECRAFT_ID) throw new Error('La instancia de .minecraft no se puede eliminar desde aquí.')
   const dir = await resolveInstanceDir(instanceId)
   await fs.remove(dir)
 }
@@ -296,12 +369,51 @@ let modMetaDirty = false
 let modMetaSaveTimer: ReturnType<typeof setTimeout> | null = null
 const modMetaFile = (): string => path.join(app.getPath('userData'), 'cache', 'mod-meta.json')
 
+/**
+ * Los iconos de los mods se guardan y se mandan a la ventana a 64 px.
+ *
+ * Venían a tamaño original (hasta ~850 KB cada uno): con una instancia de 300+ mods,
+ * abrir los detalles mandaba más de 20 MB de imágenes y la ventana tenía que decodificar
+ * cientos de imágenes grandes a la vez, lo bastante para que se cayera.
+ */
+const ICON_PX = 64
+const ICON_MAX_CHARS = 24_000
+
+function shrinkIcon(buf: Buffer, mime: string): string | undefined {
+  try {
+    const img = nativeImage.createFromBuffer(buf)
+    const asIs = (): string => `data:${mime};base64,${buf.toString('base64')}`
+    if (img.isEmpty()) {
+      // Formato que nativeImage no entiende: se deja solo si es pequeño
+      return buf.length < 16_000 ? asIs() : undefined
+    }
+    const { width, height } = img.getSize()
+    if (width <= ICON_PX && height <= ICON_PX && buf.length < 16_000) return asIs()
+    const resized = width >= height
+      ? img.resize({ width: ICON_PX, quality: 'best' })
+      : img.resize({ height: ICON_PX, quality: 'best' })
+    return resized.toDataURL()
+  } catch {
+    return undefined
+  }
+}
+
 async function loadModMetaCache(): Promise<void> {
   if (modMetaLoaded) return
   modMetaLoaded = true
   try {
     const data = await fs.readJson(modMetaFile()) as Record<string, ModMeta>
-    for (const [k, v] of Object.entries(data)) if (!modMetaCache.has(k)) modMetaCache.set(k, v)
+    for (const [k, v] of Object.entries(data)) {
+      if (modMetaCache.has(k)) continue
+      // Iconos guardados por versiones anteriores a tamaño original: se reducen una vez
+      if (v.iconBase64 && v.iconBase64.length > ICON_MAX_CHARS) {
+        const m = v.iconBase64.match(/^data:([^;]+);base64,(.*)$/)
+        v.iconBase64 = m ? shrinkIcon(Buffer.from(m[2], 'base64'), m[1]) : undefined
+        modMetaDirty = true
+      }
+      modMetaCache.set(k, v)
+    }
+    if (modMetaDirty) saveModMetaCacheSoon()
   } catch { /* primera vez */ }
 }
 
@@ -355,7 +467,7 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
         meta.author = d.authors.map((a: string | { name: string }) => typeof a === 'string' ? a : a.name).join(', ')
       if (typeof d.icon === 'string') {
         const ic = zip.getEntry(d.icon)
-        if (ic) meta.iconBase64 = `data:image/png;base64,${ic.getData().toString('base64')}`
+        if (ic) meta.iconBase64 = shrinkIcon(ic.getData(), 'image/png')
       }
     }
 
@@ -373,7 +485,7 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
           .map((x: string | { id: string }) => (typeof x === 'string' ? x : x.id)).filter((x: string) => !NOT_MODS.has(x))
         if (qm.icon) {
           const ic = zip.getEntry(qm.icon)
-          if (ic) meta.iconBase64 = `data:image/png;base64,${ic.getData().toString('base64')}`
+          if (ic) meta.iconBase64 = shrinkIcon(ic.getData(), 'image/png')
         }
       }
     }
@@ -394,7 +506,7 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
           if (ic) {
             const ext = logo.split('.').pop()?.toLowerCase()
             const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : 'image/png'
-            meta.iconBase64 = `data:${mime};base64,${ic.getData().toString('base64')}`
+            meta.iconBase64 = shrinkIcon(ic.getData(), mime)
           }
         }
       }
@@ -411,7 +523,7 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
           meta.author = Array.isArray(mod.authorList) ? mod.authorList.join(', ') : mod.authors
           if (mod.logoFile) {
             const ic = zip.getEntry(mod.logoFile)
-            if (ic) meta.iconBase64 = `data:image/png;base64,${ic.getData().toString('base64')}`
+            if (ic) meta.iconBase64 = shrinkIcon(ic.getData(), 'image/png')
           }
         }
       }
@@ -483,6 +595,10 @@ export async function listResourcepacks(instanceId: string): Promise<ModFile[]> 
   if (!(await fs.pathExists(rpDir))) return []
   const entries = await fs.readdir(rpDir, { withFileTypes: true })
   const result: ModFile[] = []
+  // «Activo» = en la lista resourcePacks de options.txt, que es lo que usa el juego. Sin
+  // options.txt (el juego nunca se abrió) se toma como activo todo lo que no esté .disabled.
+  const hasOptions = await fs.pathExists(path.join(gameDir, 'options.txt'))
+  const active = new Set(await activeResourcePacks(gameDir))
   for (const entry of entries) {
     const lower = entry.name.toLowerCase()
     const valid = (entry.isFile() && (lower.endsWith('.zip') || lower.endsWith('.pack') || lower.endsWith('.disabled'))) || entry.isDirectory()
@@ -500,17 +616,15 @@ export async function listResourcepacks(instanceId: string): Promise<ModFile[]> 
       if (entry.isFile() && (lower.endsWith('.zip') || lower.endsWith('.pack') || lower.endsWith('.zip.disabled'))) {
         const zip = new AdmZip(fullPath)
         const icon = zip.getEntry('pack.png')
-        if (icon) iconBase64 = `data:image/png;base64,${icon.getData().toString('base64')}`
+        if (icon) iconBase64 = shrinkIcon(icon.getData(), 'image/png')
       } else if (entry.isDirectory()) {
         const iconPath = path.join(fullPath, 'pack.png')
-        if (await fs.pathExists(iconPath)) {
-          const buf = await fs.readFile(iconPath)
-          iconBase64 = `data:image/png;base64,${buf.toString('base64')}`
-        }
+        if (await fs.pathExists(iconPath)) iconBase64 = shrinkIcon(await fs.readFile(iconPath), 'image/png')
       }
     } catch { /* ignore */ }
     const meta = iconBase64 ? { iconBase64 } : undefined
-    result.push({ filename: entry.name, size, enabled: !lower.endsWith('.disabled'), date, meta })
+    const enabled = !lower.endsWith('.disabled') && (!hasOptions || active.has(`file/${entry.name}`))
+    result.push({ filename: entry.name, size, enabled, date, meta })
   }
   return result.sort((a, b) => a.filename.localeCompare(b.filename))
 }
@@ -545,12 +659,15 @@ export async function listShaderpacks(instanceId: string): Promise<ModFile[]> {
   if (!(await fs.pathExists(dir))) return []
   const entries = await fs.readdir(dir, { withFileTypes: true })
   const result: ModFile[] = []
+  // Con Iris u OptiFine el activo es el seleccionado en su configuración (solo uno)
+  const sel = await selectedShader(gameDir)
   for (const entry of entries) {
     const lower = entry.name.toLowerCase()
     if (!entry.isDirectory() && !lower.endsWith('.zip') && !lower.endsWith('.zip.disabled')) continue
     const entryPath = path.join(dir, entry.name)
     const stat = await fs.stat(entryPath)
-    result.push({ filename: entry.name, size: stat.isDirectory() ? 0 : stat.size, enabled: !lower.endsWith('.disabled'), date: stat.mtimeMs })
+    const enabled = !lower.endsWith('.disabled') && (!sel.loader || (sel.enabled && sel.pack === entry.name))
+    result.push({ filename: entry.name, size: stat.isDirectory() ? 0 : stat.size, enabled, date: stat.mtimeMs })
   }
   return result.sort((a, b) => a.filename.localeCompare(b.filename))
 }
@@ -770,22 +887,70 @@ export async function deleteMod(instanceId: string, filename: string): Promise<v
   await fs.remove(safeJoin(path.join(await getInstanceGameDir(instanceId), 'mods'), filename))
 }
 
+// Activar un pack toca options.txt: dos cambios a la vez (activar varios de golpe) podían
+// leer el mismo archivo y pisarse. Se hacen de uno en uno por instancia.
+const packQueues = new Map<string, Promise<unknown>>()
+function inPackQueue<T>(instanceId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = packQueues.get(instanceId) ?? Promise.resolve()
+  const run = prev.catch(() => {}).then(fn)
+  packQueues.set(instanceId, run)
+  return run
+}
+
+/**
+ * Activa o desactiva un resource pack DE VERDAD.
+ *
+ * Antes solo se renombraba el archivo a .disabled, pero el juego decide qué packs usa por
+ * la lista `resourcePacks` de options.txt: activarlo desde el launcher dejaba el archivo
+ * en su sitio sin que el juego lo usara. Ahora:
+ * - activar: si estaba como .disabled vuelve a su nombre, y se añade a la lista (encima);
+ * - desactivar: se quita de la lista; el archivo se queda para poder elegirlo en el juego.
+ */
 export async function toggleResourcepack(instanceId: string, filename: string): Promise<string> {
-  const dir = path.join(await getInstanceGameDir(instanceId), 'resourcepacks')
-  const next = toggledFilename(filename)
-  await fs.rename(safeJoin(dir, filename), safeJoin(dir, next))
-  return next
+  return inPackQueue(instanceId, async () => {
+    const gameDir = await getInstanceGameDir(instanceId)
+    const dir = path.join(gameDir, 'resourcepacks')
+    const plain = filename.replace(/\.disabled$/, '')
+    const active = !filename.endsWith('.disabled') && (await activeResourcePacks(gameDir)).includes(`file/${plain}`)
+    if (active) {
+      await setResourcePackActive(gameDir, plain, false)
+      return filename
+    }
+    if (filename !== plain) await fs.rename(safeJoin(dir, filename), safeJoin(dir, plain))
+    await setResourcePackActive(gameDir, plain, true)
+    return plain
+  })
 }
 
 export async function deleteResourcepack(instanceId: string, filename: string): Promise<void> {
   await fs.remove(safeJoin(path.join(await getInstanceGameDir(instanceId), 'resourcepacks'), filename))
 }
 
+/**
+ * Activa o desactiva un shader. Con Iris u OptiFine solo puede haber uno: activarlo lo
+ * selecciona en su configuración (y deja de estar el anterior); desactivar el que está en
+ * uso apaga los shaders. Sin gestor de shaders se mantiene lo de antes (renombrar).
+ */
 export async function toggleShaderpack(instanceId: string, filename: string): Promise<string> {
-  const dir = path.join(await getInstanceGameDir(instanceId), 'shaderpacks')
-  const next = toggledFilename(filename)
-  await fs.rename(safeJoin(dir, filename), safeJoin(dir, next))
-  return next
+  return inPackQueue(instanceId, async () => {
+    const gameDir = await getInstanceGameDir(instanceId)
+    const dir = path.join(gameDir, 'shaderpacks')
+    const plain = filename.replace(/\.disabled$/, '')
+    const sel = await selectedShader(gameDir)
+    if (!sel.loader) {
+      const next = toggledFilename(filename)
+      await fs.rename(safeJoin(dir, filename), safeJoin(dir, next))
+      return next
+    }
+    const isSelected = !filename.endsWith('.disabled') && sel.enabled && sel.pack === plain
+    if (isSelected) {
+      await setShaderSelected(gameDir, null)
+      return filename
+    }
+    if (filename !== plain) await fs.rename(safeJoin(dir, filename), safeJoin(dir, plain))
+    await setShaderSelected(gameDir, plain)
+    return plain
+  })
 }
 
 export async function deleteShaderpack(instanceId: string, filename: string): Promise<void> {

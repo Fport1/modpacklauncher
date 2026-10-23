@@ -5,7 +5,7 @@ import fs from 'fs'
 import FormData from 'form-data'
 import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
-import type { Instance, MinecraftAccount, Settings, ModpackManifest, Friend } from '../shared/types'
+import type { Instance, MinecraftAccount, Settings, ModpackManifest, Friend, OpDetail } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
@@ -79,7 +79,9 @@ import {
   getForgeVersions,
   getFabricVersions,
   getQuiltVersions,
-  getNeoForgeVersions
+  getNeoForgeVersions,
+  applyVersionTrack,
+  getLatestVersions
 } from './launcher'
 import { searchMods, getModVersions, installModFromUrl, getModrinthCategories, getInstalledProjectIds, getInstalledProjectIcons, getProjectVersionForInstall, getProject, getProjects, getInstalledModsMeta, getInstalledProjectInfo, getProjectMembers } from './modrinth'
 import { requestCancel, runCancellable, CancelError } from './cancelToken'
@@ -100,9 +102,10 @@ import { serverDetect, serverSetOverride, serverListJars, serverIdentifyJars, se
 import type { FtpSiteInput, RemoteEntry, ServerOverride, NbtDocument, AssistInstanceInfo, BedrockEdition } from '../shared/types'
 import { scanStorage, listStorageChildren, deleteStoragePath, openStoragePath, revealStoragePath, getDiskInfo } from './storage'
 import { safeJoin } from './paths'
+import { planTransfer, runTransfer, type TransferRequest } from './transfer'
 import { cfGet as cfFetch, cfPost } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled, deleteWorldDatapack, addWorldDatapacks } from './worldDatapacks'
-import { hasRunningInstances } from './launcher'
+import { hasRunningInstances, getRunningSnapshot } from './launcher'
 import { aiContextStatus, prepareAiContext, prepareLauncherWorkspace, writeToolConfigs } from './aiContext'
 import { startAiBridge } from './aiBridge'
 import { setTelemetryEnabled, startTelemetry } from './telemetry'
@@ -176,8 +179,8 @@ function makeOpEmitter(name: string, type: string) {
   broadcast('ops:update', { id, name, type, status: 'running', startedAt: Date.now() })
   return {
     id,
-    progress: (message: string, current: number, total: number) =>
-      broadcast('ops:update', { id, message, current, total }),
+    progress: (message: string, current: number, total: number, detail?: OpDetail) =>
+      broadcast('ops:update', { id, message, current, total, detail }),
     done: (msg?: string) =>
       broadcast('ops:update', { id, status: 'done', message: msg }),
     error: (err: string) =>
@@ -303,6 +306,25 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:delete-shaderpack', (_e, instanceId: string, filename: string) => deleteShaderpack(instanceId, filename))
   ipcMain.handle('instances:delete-world', (_e, instanceId: string, worldName: string) => deleteWorld(instanceId, worldName))
   ipcMain.handle('instances:delete-screenshot', (_e, instanceId: string, filename: string) => deleteScreenshot(instanceId, filename))
+
+  // Pasar contenido entre instancias (también con .minecraft)
+  ipcMain.handle('transfer:plan', (_e, sourceId: string, targetId: string) => planTransfer(sourceId, targetId))
+  ipcMain.handle('transfer:run', async (_e, req: TransferRequest) => {
+    const instances = await loadInstances()
+    const name = (id: string): string => instances.find((i) => i.id === id)?.name ?? 'instancia'
+    const op = makeOpEmitter(`${req.mode === 'move' ? 'Moviendo' : 'Copiando'}: ${name(req.sourceId)} → ${name(req.targetId)}`, 'transfer-content')
+    try {
+      const result = await runCancellable(() => runTransfer(req, (message, current, total, detail) => op.progress(message, current, total, detail)))
+      if (result.failed.length) op.error(`${result.failed.length} elemento(s) no se pudieron pasar: ${result.failed[0].name} (${result.failed[0].error})`)
+      else op.done(`${result.done} pasado(s)${result.skipped ? `, ${result.skipped} ya estaban` : ''}`)
+      return result
+    } catch (e) {
+      if (e instanceof CancelError) { op.done('Cancelado'); return { done: 0, skipped: 0, failed: [] } }
+      op.error(describeError(e, 'No se pudo transferir'))
+      throw e
+    }
+  })
+
   ipcMain.handle('instances:duplicate', async (e, instanceId: string, newName: string) => {
     const op = makeOpEmitter(`Duplicando → ${newName}`, 'duplicate-instance')
     const steps = ['Preparando...', 'Copiando archivos...', 'Finalizando...']
@@ -373,11 +395,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     account = await freshAccount(account)
 
+    // «Siempre la última versión»: se pone al día antes de arrancar
+    if (await applyVersionTrack(instance)) {
+      await updateInstance(instance)
+      broadcast('instances:updated', instance)
+    }
+
     const op = makeOpEmitter(`Iniciando ${instance.name}`, 'install-minecraft')
     try {
       await runCancellable(() => launchInstance(
         instance, account, settings, getMainWindow(),
-        (current, total, message) => op.progress(message, current, total),
+        (current, total, message, detail) => op.progress(message, current, total, detail),
         async (sessionMs) => {
           instance.playtime = (instance.playtime ?? 0) + sessionMs
           await updateInstance(instance)
@@ -441,6 +469,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('launcher:kill', (_e, instanceId: string) => killInstance(instanceId))
+  // Partidas abiertas y su registro: la ventana lo pide al cargar (también tras recargarse)
+  ipcMain.handle('launcher:running', () => getRunningSnapshot())
 
   ipcMain.handle('launcher:repair', async (_e, instanceId: string) => {
     const instances = await loadInstances()
@@ -449,7 +479,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const settings = settingsStore.getAll()
     const op = makeOpEmitter(`Reparando ${instance.name}`, 'install-minecraft')
     try {
-      await runCancellable(() => repairInstance(instance, settings, (current, total, message) => op.progress(message, current, total)))
+      await runCancellable(() => repairInstance(instance, settings, (current, total, message, detail) => op.progress(message, current, total, detail)))
       op.done('Instancia reparada correctamente')
     } catch (err) {
       op.error(describeError(err, 'Error al reparar la instancia'))
@@ -457,6 +487,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
   ipcMain.handle('launcher:get-mc-versions', () => getAvailableVersions())
+  ipcMain.handle('launcher:get-latest-versions', () => getLatestVersions())
   ipcMain.handle('launcher:get-forge-versions', (_e, mc: string) => getForgeVersions(mc))
   ipcMain.handle('launcher:get-fabric-versions', () => getFabricVersions())
   ipcMain.handle('launcher:get-quilt-versions', () => getQuiltVersions())
@@ -469,7 +500,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modpacks:install', async (_e, instanceId: string, manifest: ModpackManifest) => {
     const op = makeOpEmitter(`Instalando ${manifest.name}`, 'install-modpack')
     try {
-      await runCancellable(() => installModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total)))
+      await runCancellable(() => installModpack(instanceId, manifest, (current, total, message, detail) => op.progress(message, current, total, detail)))
       op.done('¡Modpack instalado!')
     } catch (e) {
       if (e instanceof CancelError) { op.done(); return }
@@ -494,7 +525,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     const op = makeOpEmitter(`Actualizando ${instance.name}`, 'update-modpack')
     try {
-      const result = await runCancellable(() => updateModpack(instanceId, manifest, (current, total, message) => op.progress(message, current, total)))
+      const result = await runCancellable(() => updateModpack(instanceId, manifest, (current, total, message, detail) => op.progress(message, current, total, detail)))
       instance.modpackVersion = manifest.version
       await updateInstance(instance)
       op.done('¡Actualización completada!')
@@ -525,7 +556,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         modloader: params.modloader,
         url,
         publishedAt: Date.now(),
-        accessKey: params.accessKey || undefined
+        accessKey: params.accessKey || undefined,
+        instanceId: params.instanceId
       })
       op.done()
       return url
@@ -666,7 +698,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:install-mrpack', async (_e, instanceId: string, mrpackUrl: string) => {
     const op = makeOpEmitter('Instalando desde Modrinth', 'install-mrpack')
     try {
-      const meta = await runCancellable(() => installMrpackFiles(instanceId, mrpackUrl, (current, total, message) => op.progress(message, current, total)))
+      const meta = await runCancellable(() => installMrpackFiles(instanceId, mrpackUrl, (current, total, message, detail) => op.progress(message, current, total, detail)))
       op.done('¡Modpack instalado!')
       return meta
     } catch (e) {

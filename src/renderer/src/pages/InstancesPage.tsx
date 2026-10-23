@@ -9,6 +9,7 @@ import InstanceDetailModal from '../components/InstanceDetailModal'
 import RamSlider from '../components/RamSlider'
 import ExportModpackModal from '../components/ExportModpackModal'
 import FpackSaveModal from '../components/FpackSaveModal'
+import TransferModal from '../components/TransferModal'
 import FpackImportModal from '../components/FpackImportModal'
 import type { Instance, LiveStatus, Modloader, ModpackManifest } from '../../../shared/types'
 import { useT } from '../i18n'
@@ -17,6 +18,17 @@ type ModalStep = 'choose' | 'modpack' | 'manual'
 type EditMode = 'edit'
 
 const MODLOADERS: Modloader[] = ['vanilla', 'forge', 'fabric', 'quilt', 'neoforge']
+const LOADER_INFO: Record<Modloader, string> = {
+  vanilla: 'Sin mods',
+  forge: 'El clásico',
+  fabric: 'Ligero y rápido',
+  quilt: 'Basado en Fabric',
+  neoforge: 'Sucesor de Forge',
+}
+type VersionMode = 'release' | 'snapshot' | 'custom'
+/** Con Forge y NeoForge la versión del loader va atada a la de Minecraft: no puede seguir sola a la última */
+const LOADER_FIXED_MC = new Set<Modloader>(['forge', 'neoforge'])
+const isReleaseId = (id: string): boolean => /^\d+\.\d+(\.\d+)?$/.test(id)
 /** Color de cada loader, el mismo que en las tarjetas. */
 const LOADER_DOT: Record<string, string> = { vanilla: '#4ade80', forge: '#fb923c', fabric: '#38bdf8', quilt: '#c084fc', neoforge: '#fbbf24' }
 
@@ -387,7 +399,8 @@ function NewInstanceBurst() {
 
 export default function InstancesPage() {
   const t = useT()
-  const { instances, setInstances, addInstance, updateInstance, removeInstance } = useStore()
+  const instances = useStore(s => s.instances)
+  const { setInstances, addInstance, updateInstance, removeInstance } = useStore.getState()
   const account = useStore(activeAccount)
   const runningInstances = useStore(s => s.runningInstances)
   // Partidas conectadas al launcher por el canal en vivo del mod fport1-social
@@ -423,6 +436,7 @@ export default function InstancesPage() {
   const [fullDetailInstance, setFullDetailInstance] = useState<Instance | null>(null)
   const [exportInstance, setExportInstance] = useState<Instance | null>(null)
   const [duplicateSource, setDuplicateSource] = useState<Instance | null>(null)
+  const [transferSource, setTransferSource] = useState<Instance | null>(null)
   const [duplicateStep, setDuplicateStep] = useState(-1)
   const [duplicateMinimized, setDuplicateMinimized] = useState(false)
   const [iconPickInstance, setIconPickInstance] = useState<Instance | null>(null)
@@ -433,6 +447,9 @@ export default function InstancesPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [systemRam, setSystemRam] = useState(8192)
   const [updateMap, setUpdateMap] = useState<Map<string, boolean>>(new Map())
+  /** Versión nueva de cada modpack con actualización, para enseñarla en la tarjeta */
+  const [latestMap, setLatestMap] = useState<Map<string, string>>(new Map())
+  const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   // Non-blocking toasts
   const [toasts, setToasts] = useState<{ id: string; message: string; type: 'info'|'success'|'error' }[]>([])
@@ -479,6 +496,8 @@ export default function InstancesPage() {
   const [loadingMc, setLoadingMc] = useState(false)
   const [loadingLoader, setLoadingLoader] = useState(false)
   const loaderFetchKey = useRef(0)
+  /** Al editar, la versión del loader que ya tenía (para no cambiarla por la última al abrir) */
+  const keepLoaderVersion = useRef('')
 
   const [displays, setDisplays] = useState<{ id: number; label: string; bounds: { x: number; y: number; width: number; height: number }; isPrimary: boolean }[]>([])
 
@@ -565,7 +584,9 @@ export default function InstancesPage() {
 
   const [form, setForm] = useState({
     name: '',
-    minecraft: '1.20.1',
+    minecraft: '',
+    /** «Última versión» y «Última snapshot» siguen solas a la más nueva; «custom» es una fija */
+    versionMode: 'release' as VersionMode,
     modloader: 'vanilla' as Modloader,
     modloaderVersion: '',
     description: '',
@@ -609,11 +630,13 @@ export default function InstancesPage() {
     for (const inst of modpackInstances) {
       window.api.modpacks.checkUpdate(inst.id, inst.modpackUrl!)
         .then(r => {
-          if (!cancelled) setUpdateMap(prev => {
+          if (cancelled) return
+          setUpdateMap(prev => {
             const next = new Map(prev)
             next.set(inst.id, r.hasUpdate)
             return next
           })
+          if (r.manifest?.version) setLatestMap(prev => new Map(prev).set(inst.id, r.manifest.version))
         })
         .catch(() => {})
     }
@@ -638,9 +661,22 @@ export default function InstancesPage() {
       .finally(() => setLoadingMc(false))
   }, [modalStep])
 
+  // Lo más nuevo de cada tipo: la lista viene ordenada de más nueva a más vieja
+  const latestRelease = mcVersions.find(v => v.type === 'release')?.id ?? ''
+  const latestSnapshot = mcVersions[0]?.id ?? ''
+
+  // «Última versión» / «Última snapshot»: la versión elegida es siempre la más nueva
+  useEffect(() => {
+    if (modalStep !== 'manual' && modalStep !== 'edit') return
+    if (form.versionMode === 'custom') return
+    const target = form.versionMode === 'release' ? latestRelease : latestSnapshot
+    if (target && target !== form.minecraft) setForm(f => ({ ...f, minecraft: target }))
+  }, [form.versionMode, latestRelease, latestSnapshot, modalStep])
+
   useEffect(() => {
     if (modalStep !== 'manual' && modalStep !== 'edit') return
     if (form.modloader === 'vanilla') { setLoaderVersions([]); return }
+    if (!form.minecraft) return
 
     const key = ++loaderFetchKey.current
     setLoadingLoader(true)
@@ -660,7 +696,10 @@ export default function InstancesPage() {
     fetch().then(versions => {
       if (loaderFetchKey.current !== key) return
       setLoaderVersions(versions)
-      if (versions.length > 0) setForm(f => ({ ...f, modloaderVersion: versions[0] }))
+      // Al editar se mantiene la versión del loader que ya tenía; si no, la más nueva
+      const keep = keepLoaderVersion.current
+      keepLoaderVersion.current = ''
+      if (versions.length > 0) setForm(f => ({ ...f, modloaderVersion: keep && versions.includes(keep) ? keep : versions[0] }))
     }).catch(() => {
       if (loaderFetchKey.current !== key) return
       setLoaderVersions([])
@@ -671,6 +710,7 @@ export default function InstancesPage() {
 
   useEffect(() => {
     if (modalStep !== 'manual' && modalStep !== 'edit') return
+    if (!form.minecraft) return
     let cancelled = false
     setJavaStatus(null)
     window.api.java.check(form.minecraft).then(s => {
@@ -687,7 +727,10 @@ export default function InstancesPage() {
   }
 
   function openManual() {
-    setForm({ name: '', minecraft: mcVersions[0]?.id ?? '1.20.1', modloader: 'vanilla', modloaderVersion: '', description: '', maxMemory: 4096, minMemory: 512, javaPath: '', width: 0, height: 0, resPreset: 0, jvmArgs: '', displayId: 0, group: '', groupColor: '' })
+    // Por defecto, la última versión de Minecraft (y que siga siéndolo)
+    setForm({ name: '', minecraft: latestRelease, versionMode: 'release', modloader: 'vanilla', modloaderVersion: '', description: '', maxMemory: 4096, minMemory: 512, javaPath: '', width: 0, height: 0, resPreset: 0, jvmArgs: '', displayId: 0, group: '', groupColor: '' })
+    setShowSnapshots(false)
+    keepLoaderVersion.current = ''
     setPendingIcon(null)
     setFormIconBase64(null)
     setFormError('')
@@ -702,9 +745,14 @@ export default function InstancesPage() {
       const idx = RES_PRESETS.findIndex(p => p.w === w && p.h === h)
       resPreset = idx >= 0 ? idx : 3
     }
+    // Una instancia de snapshots abre con las snapshots visibles, y la que sigue a la
+    // última versión abre con ese botón marcado
+    setShowSnapshots(!isReleaseId(inst.minecraft))
+    keepLoaderVersion.current = inst.modloaderVersion ?? ''
     setForm({
       name: inst.name,
       minecraft: inst.minecraft,
+      versionMode: inst.versionTrack ?? 'custom',
       modloader: inst.modloader,
       modloaderVersion: inst.modloaderVersion ?? '',
       description: inst.description ?? '',
@@ -807,6 +855,11 @@ export default function InstancesPage() {
       }
     }
 
+    // Seguir sola a la última versión solo tiene sentido si el loader no la ata a una concreta
+    const trackFor = (): Instance['versionTrack'] =>
+      form.versionMode !== 'custom' && !LOADER_FIXED_MC.has(form.modloader) ? form.versionMode : undefined
+    if (!form.minecraft) { setFormError('Elige una versión de Minecraft'); return }
+
     const res = getResolutionValues()
     setSavingForm(true)
     try {
@@ -815,6 +868,7 @@ export default function InstancesPage() {
           ...editing,
           name,
           minecraft: form.minecraft,
+          versionTrack: trackFor(),
           modloader: form.modloader,
           modloaderVersion: form.modloaderVersion || undefined,
           description: form.description || undefined,
@@ -839,6 +893,7 @@ export default function InstancesPage() {
         const inst = await window.api.instances.create({
           name,
           minecraft: form.minecraft,
+          versionTrack: trackFor(),
           modloader: form.modloader,
           modloaderVersion: form.modloaderVersion || undefined,
           description: form.description || undefined,
@@ -894,15 +949,17 @@ export default function InstancesPage() {
 
   async function handleModpackUpdate(id: string) {
     const inst = instances.find(i => i.id === id)
-    if (!inst?.modpackUrl) return
-    addToast('Actualizando modpack...', 'info', 15000)
+    if (!inst?.modpackUrl || updatingId) return
+    setUpdatingId(id)
     try {
       const r = await window.api.modpacks.update(id, inst.modpackUrl)
       updateInstance({ ...inst, modpackVersion: r.manifest.version })
       setUpdateMap(prev => { const n = new Map(prev); n.set(id, false); return n })
-      addToast('Modpack actualizado correctamente', 'success')
+      addToast(`${inst.name} actualizado a la v${r.manifest.version}`, 'success')
     } catch (e: unknown) {
       addToast(`Error al actualizar: ${e instanceof Error ? e.message : 'Error'}`, 'error')
+    } finally {
+      setUpdatingId(null)
     }
   }
 
@@ -1077,10 +1134,13 @@ export default function InstancesPage() {
                   onSaveFpack={() => window.api.fpack.choosePath(inst.id).then(path => { if (path) setFpackSaveState({ instance: inst, path }) }).catch(e => addToast(e?.message ?? 'Error al guardar', 'error'))}
                   onRepair={() => window.api.launcher.repair(inst.id).catch(() => {})}
                   onAssist={() => { startHosting(inst.id).catch(() => {}) }}
+                  onTransfer={instances.length > 1 ? () => setTransferSource(inst) : undefined}
                   isLaunching={launching === inst.id}
                   isRunning={runningInstances.has(inst.id)}
                   live={liveInstances.get(inst.id)}
                   hasUpdate={updateMap.get(inst.id) === true}
+                  latestVersion={latestMap.get(inst.id)}
+                  isUpdating={updatingId === inst.id}
                   onUpdate={() => handleModpackUpdate(inst.id)}
                 />
               </div>
@@ -1227,6 +1287,20 @@ export default function InstancesPage() {
             addInstance(inst)
             setFpackFile(null)
             celebrateCreated(inst)
+          }}
+        />
+      )}
+
+      {/* ── Transferir contenido entre instancias ── */}
+      {transferSource && (
+        <TransferModal
+          source={transferSource}
+          instances={instances}
+          onClose={() => setTransferSource(null)}
+          onFinished={(r, mode) => {
+            const verb = mode === 'move' ? 'movido' : 'copiado'
+            if (r.failed.length) addToast(`${r.done} ${verb}(s), ${r.failed.length} con error: ${r.failed[0].name}`, 'error', 8000)
+            else addToast(`${r.done} elemento(s) ${verb}(s)${r.skipped ? `, ${r.skipped} ya estaban` : ''}`, 'success')
           }}
         />
       )}
@@ -1445,288 +1519,307 @@ export default function InstancesPage() {
           )}
 
           {/* ── STEP: manual / edit ──────────────────────────────── */}
-          {(modalStep === 'manual' || modalStep === 'edit') && (
-            <div className="relative bg-bg-secondary border border-border rounded-2xl p-7 w-[min(660px,94vw)] shadow-2xl max-h-[90vh] overflow-y-auto">
-              <CloseBtn onClick={cancelModal} />
+          {(modalStep === 'manual' || modalStep === 'edit') && (() => {
+            const fixedMc = LOADER_FIXED_MC.has(form.modloader)
+            const inputCls = 'w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent'
+            const versionTiles: { mode: VersionMode; title: string; value: string; hint: string }[] = [
+              { mode: 'release', title: 'Última versión', value: latestRelease || '…', hint: 'Se pone sola al día cuando sale una nueva' },
+              { mode: 'snapshot', title: 'Última snapshot', value: latestSnapshot || '…', hint: 'Lo más nuevo, aún en pruebas' },
+              { mode: 'custom', title: 'Elegir versión', value: form.versionMode === 'custom' && form.minecraft ? form.minecraft : 'Una fija', hint: 'Se queda siempre en la que elijas' },
+            ]
+            return (
+            <div className="relative bg-bg-secondary border border-border rounded-2xl w-[min(860px,95vw)] max-h-[92vh] flex flex-col shadow-2xl">
+              {/* Cabecera */}
+              <div className="px-7 pt-6 pb-4 border-b border-border/60">
+                <CloseBtn onClick={cancelModal} />
+                {modalStep === 'manual' && (
+                  <button onClick={() => setModalStep('choose')} className="flex items-center gap-1 text-[13px] text-text-muted hover:text-text-primary mb-3 transition-colors">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+                    Volver
+                  </button>
+                )}
+                <h2 className="text-xl font-bold text-text-primary">{modalStep === 'edit' ? 'Editar instancia' : 'Nueva instancia'}</h2>
+                <p className="text-sm text-text-muted mt-0.5">{modalStep === 'edit' ? 'Cambia la versión, el modloader o los ajustes.' : 'Elige versión y modloader. Lo demás puedes dejarlo como está.'}</p>
+              </div>
 
-              {modalStep === 'manual' && (
-                <button onClick={() => setModalStep('choose')} className="flex items-center gap-1 text-[13px] text-text-muted hover:text-text-primary mb-4 transition-colors">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
-                  Volver
-                </button>
-              )}
-
-              <h2 className="text-xl font-bold text-text-primary mb-6">
-                {modalStep === 'edit' ? 'Editar Instancia' : 'Instalación Manual'}
-              </h2>
-
-              <div className="space-y-4">
-                {/* Icon preview */}
-                <div className="flex justify-center">
+              <div className="flex-1 overflow-y-auto px-7 py-5 space-y-5">
+                {/* Identidad: icono, nombre y descripción */}
+                <div className="flex items-start gap-4">
                   <button
                     type="button"
                     title="Haz clic para cambiar el icono"
                     onClick={() => setShowFormIconPicker(true)}
-                    className="w-20 h-20 rounded-2xl overflow-hidden border-2 shadow-lg border-border hover:border-accent/60 transition-colors relative group"
+                    className="w-[88px] h-[88px] shrink-0 rounded-2xl overflow-hidden border-2 shadow-lg border-border hover:border-accent/60 transition-colors relative group bg-bg-card"
                   >
                     {(pendingIcon?.base64 || formIconBase64 || defaultIconBase64) && (
-                      <img
-                        src={pendingIcon?.base64 ?? formIconBase64 ?? defaultIconBase64!}
-                        className="w-full h-full object-cover"
-                        draggable={false}
-                      />
+                      <img src={pendingIcon?.base64 ?? formIconBase64 ?? defaultIconBase64!} className="w-full h-full object-cover" draggable={false} />
                     )}
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 text-white text-[10px]">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                         <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
                       </svg>
+                      Cambiar
                     </div>
                   </button>
-                </div>
-
-                {/* Name */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-1.5">Nombre *</label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={e => setForm({ ...form, name: e.target.value })}
-                    className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-                    placeholder="Mi Instancia"
-                  />
-                </div>
-
-                {/* MC version */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-[13px] text-text-muted">Versión de Minecraft</label>
-                    <label className="flex items-center gap-1.5 text-[13px] text-text-muted cursor-pointer">
-                      <input type="checkbox" checked={showSnapshots} onChange={e => setShowSnapshots(e.target.checked)} className="w-3 h-3 accent-accent" />
-                      Mostrar snapshots
-                    </label>
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={e => setForm({ ...form, name: e.target.value })}
+                      className="w-full bg-bg-primary border border-border rounded-xl px-4 py-3 text-base font-semibold text-text-primary focus:outline-none focus:border-accent"
+                      placeholder="Nombre de la instancia"
+                      autoFocus={modalStep === 'manual'}
+                    />
+                    <input
+                      type="text"
+                      value={form.description}
+                      onChange={e => setForm({ ...form, description: e.target.value })}
+                      className={inputCls}
+                      placeholder="Descripción (opcional)"
+                    />
                   </div>
+                </div>
+
+                {/* Versión de Minecraft */}
+                <section className="bg-bg-card border border-border rounded-2xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Versión de Minecraft</p>
                   {loadingMc ? (
-                    <div className="flex items-center gap-2 text-[13px] text-text-muted bg-bg-primary border border-border rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2 text-[13px] text-text-muted px-1 py-2">
                       <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>
                       Cargando versiones...
                     </div>
                   ) : (
-                    <select
-                      value={form.minecraft}
-                      onChange={e => setForm({ ...form, minecraft: e.target.value, modloaderVersion: '' })}
-                      className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-                    >
-                      {visibleMcVersions.map(v => (
-                        <option key={v.id} value={v.id}>{v.id}{v.type !== 'release' ? ` (${v.type})` : ''}</option>
-                      ))}
-                    </select>
+                    <>
+                      <div className="grid grid-cols-3 gap-2">
+                        {versionTiles.map(t => {
+                          const active = form.versionMode === t.mode
+                          return (
+                            <button key={t.mode}
+                              onClick={() => {
+                                if (t.mode === 'custom') setForm({ ...form, versionMode: 'custom' })
+                                else setForm({ ...form, versionMode: t.mode, modloaderVersion: '' })
+                                if (t.mode === 'snapshot') setShowSnapshots(true)
+                              }}
+                              className={`relative p-3 rounded-xl border text-left transition-all ${active ? 'border-accent bg-accent/10 shadow-sm shadow-accent/20' : 'border-border bg-bg-primary hover:border-accent/40'}`}>
+                              {active && (
+                                <span className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full bg-accent text-white flex items-center justify-center">
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
+                                </span>
+                              )}
+                              <span className="block text-[11px] text-text-muted">{t.title}</span>
+                              <span className="block text-lg font-bold text-text-primary mt-0.5 truncate">{t.value}</span>
+                              <span className="block text-[11px] text-text-muted mt-1 leading-snug">{t.hint}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {form.versionMode === 'custom' && (
+                        <div className="flex items-center gap-3 mt-3">
+                          <select
+                            value={form.minecraft}
+                            onChange={e => setForm({ ...form, minecraft: e.target.value, modloaderVersion: '' })}
+                            className={`${inputCls} flex-1`}
+                          >
+                            {/* La versión actual siempre está en la lista, aunque esté oculta por el filtro */}
+                            {form.minecraft && !visibleMcVersions.some(v => v.id === form.minecraft) && <option value={form.minecraft}>{form.minecraft}</option>}
+                            {visibleMcVersions.map(v => (
+                              <option key={v.id} value={v.id}>{v.id}{v.type !== 'release' ? ` (${v.type})` : ''}</option>
+                            ))}
+                          </select>
+                          <label className="flex items-center gap-2 text-[13px] text-text-secondary cursor-pointer shrink-0">
+                            <input type="checkbox" checked={showSnapshots} onChange={e => setShowSnapshots(e.target.checked)} className="w-4 h-4 accent-accent" />
+                            Mostrar snapshots
+                          </label>
+                        </div>
+                      )}
+                      {form.versionMode !== 'custom' && fixedMc && (
+                        <p className="mt-3 text-[12px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                          Con {form.modloader === 'forge' ? 'Forge' : 'NeoForge'} la versión no puede cambiar sola (su versión depende de la de Minecraft): se queda en {form.minecraft}.
+                        </p>
+                      )}
+                      {form.versionMode !== 'custom' && !fixedMc && (
+                        <p className="mt-3 text-[12px] text-text-muted">
+                          Cada vez que juegues se pondrá en la última {form.versionMode === 'snapshot' ? 'snapshot' : 'versión'} que haya.{form.modloader !== 'vanilla' ? ' Ojo: algunos mods tardan en actualizarse a las versiones nuevas.' : ''}
+                        </p>
+                      )}
+                    </>
                   )}
-                </div>
+                </section>
 
                 {/* Modloader */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-1.5">Modloader</label>
-                  <div className="flex gap-1.5 flex-wrap">
-                    {MODLOADERS.map(ml => (
-                      <button
-                        key={ml}
-                        onClick={() => setForm({ ...form, modloader: ml, modloaderVersion: '' })}
-                        className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all capitalize border ${
-                          form.modloader === ml ? 'bg-accent/15 border-accent text-text-primary shadow-sm shadow-accent/20' : 'bg-bg-card border-border text-text-secondary hover:text-text-primary hover:border-accent/40'
-                        }`}
-                      >
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ background: LOADER_DOT[ml] }} />
-                        {ml}
-                      </button>
-                    ))}
+                <section className="bg-bg-card border border-border rounded-2xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Modloader</p>
+                  <div className="grid grid-cols-5 gap-2">
+                    {MODLOADERS.map(ml => {
+                      const active = form.modloader === ml
+                      return (
+                        <button key={ml}
+                          onClick={() => setForm({ ...form, modloader: ml, modloaderVersion: '' })}
+                          className={`p-2.5 rounded-xl border text-left transition-all ${active ? 'border-accent bg-accent/10 shadow-sm shadow-accent/20' : 'border-border bg-bg-primary hover:border-accent/40'}`}>
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: LOADER_DOT[ml] }} />
+                            <span className="text-sm font-semibold text-text-primary capitalize">{ml}</span>
+                          </span>
+                          <span className="block text-[10px] text-text-muted mt-1">{LOADER_INFO[ml]}</span>
+                        </button>
+                      )
+                    })}
                   </div>
-                </div>
-
-                {/* Modloader version */}
-                {form.modloader !== 'vanilla' && (
-                  <div>
-                    <label className="block text-[13px] text-text-muted mb-1.5 capitalize">Versión de {form.modloader}</label>
-                    {loadingLoader ? (
-                      <div className="flex items-center gap-2 text-[13px] text-text-muted bg-bg-primary border border-border rounded-lg px-3 py-2">
-                        <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>
-                        Cargando versiones...
-                      </div>
-                    ) : loaderVersions.length === 0 ? (
-                      <p className="text-[13px] text-amber-400 bg-amber-500/10 px-3 py-2 rounded-lg">No hay versiones disponibles para MC {form.minecraft}</p>
-                    ) : (
-                      <select
-                        value={form.modloaderVersion}
-                        onChange={e => setForm({ ...form, modloaderVersion: e.target.value })}
-                        className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-                      >
-                        {loaderVersions.map(v => <option key={v} value={v}>{v}</option>)}
-                      </select>
-                    )}
-                  </div>
-                )}
-
-                {/* Java status */}
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] ${
-                  !javaStatus ? 'bg-bg-hover text-text-muted'
-                    : javaStatus.found ? 'bg-green-500/10 text-green-400'
-                    : 'bg-amber-500/10 text-amber-400'
-                }`}>
-                  {!javaStatus ? (
-                    <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>Verificando Java...</>
-                  ) : javaStatus.found ? (
-                    <><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>{javaLabel(form.minecraft)} detectado</>
-                  ) : (
-                    <><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{javaLabel(form.minecraft)} no instalado — se instalará solo al jugar</>
-                  )}
-                </div>
-
-                {/* Java path */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-1.5">Java personalizado <span className="text-text-muted/60">(opcional)</span></label>
-                  <input type="text" value={form.javaPath} onChange={e => setForm({ ...form, javaPath: e.target.value })}
-                    placeholder="Dejar vacío para detectar automáticamente"
-                    className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
-                </div>
-
-                {/* RAM */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-3">RAM máxima</label>
-                  <RamSlider value={form.maxMemory} onChange={v => setForm({ ...form, maxMemory: v })} max={systemRam} />
-                </div>
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-3">RAM mínima</label>
-                  <RamSlider value={form.minMemory} onChange={v => setForm({ ...form, minMemory: v })} max={Math.min(systemRam, form.maxMemory)} />
-                </div>
-
-                {/* Window resolution */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-2">Resolución de ventana</label>
-                  <div className="flex gap-1.5 flex-wrap mb-2">
-                    {RES_PRESETS.map((p, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setForm({ ...form, resPreset: i, width: p.w > 0 ? p.w : form.width, height: p.h > 0 ? p.h : form.height })}
-                        className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${
-                          form.resPreset === i ? 'bg-accent text-white' : 'bg-bg-card border border-border text-text-secondary hover:text-text-primary'
-                        }`}
-                      >
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                  {customRes && (
-                    <div className="flex gap-2 items-center">
-                      <input type="number" value={form.width || ''} onChange={e => setForm({ ...form, width: parseInt(e.target.value) || 0 })}
-                        placeholder="Ancho" min={320} max={7680}
-                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
-                      <span className="text-text-muted text-[13px]">×</span>
-                      <input type="number" value={form.height || ''} onChange={e => setForm({ ...form, height: parseInt(e.target.value) || 0 })}
-                        placeholder="Alto" min={240} max={4320}
-                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent" />
-                    </div>
-                  )}
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-1.5">Descripción <span className="text-text-muted">(opcional)</span></label>
-                  <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
-                    rows={2}
-                    className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent resize-none" />
-                </div>
-
-                {/* JVM Arguments */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-1.5">
-                    Argumentos JVM <span className="text-text-muted/60">(opcional, uno por línea)</span>
-                  </label>
-                  <textarea
-                    value={form.jvmArgs}
-                    onChange={e => setForm({ ...form, jvmArgs: e.target.value })}
-                    rows={3}
-                    spellCheck={false}
-                    placeholder={'-XX:+UseG1GC\n-XX:MaxGCPauseMillis=50\n-Dfml.readTimeout=90'}
-                    className="w-full bg-bg-primary border border-border rounded-lg px-3 py-2 text-[13px] font-mono text-text-primary focus:outline-none focus:border-accent resize-none placeholder:text-text-muted/40"
-                  />
-                </div>
-
-                {/* Display selector */}
-                {displays.length > 1 && (
-                  <div>
-                    <label className="block text-[13px] text-text-muted mb-1.5">Pantalla <span className="text-text-muted/60">(opcional)</span></label>
-                    <select
-                      value={form.displayId}
-                      onChange={e => setForm({ ...form, displayId: Number(e.target.value) })}
-                      className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-                    >
-                      <option value={0}>Por defecto</option>
-                      {displays.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.label || `Pantalla ${d.id}`} — {d.bounds.width}×{d.bounds.height}{d.isPrimary ? ' (principal)' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Group */}
-                <div>
-                  <label className="block text-[13px] text-text-muted mb-1.5">Grupo <span className="text-text-muted/60">(opcional)</span></label>
-                  {allKnownGroups.length > 0 ? (
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={form.group}
-                        onChange={e => {
-                          const g = allKnownGroups.find(g => g.name === e.target.value)
-                          setForm({ ...form, group: e.target.value, groupColor: g?.color || form.groupColor || '#6366f1' })
-                        }}
-                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-                      >
-                        <option value="">{t('instances_group_ungrouped')}</option>
-                        {allKnownGroups.map(g => (
-                          <option key={g.name} value={g.name}>{g.name}</option>
-                        ))}
-                      </select>
-                      {form.group && (
-                        <div
-                          className="w-4 h-4 rounded-full flex-shrink-0 border border-border"
-                          style={{ background: allKnownGroups.find(g => g.name === form.group)?.color || '#6366f1' }}
-                        />
+                  {form.modloader !== 'vanilla' && (
+                    <div className="mt-3">
+                      <label className="block text-[12px] text-text-muted mb-1.5 capitalize">Versión de {form.modloader}</label>
+                      {loadingLoader ? (
+                        <div className="flex items-center gap-2 text-[13px] text-text-muted bg-bg-primary border border-border rounded-xl px-3 py-2.5">
+                          <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>
+                          Cargando versiones...
+                        </div>
+                      ) : loaderVersions.length === 0 ? (
+                        <p className="text-[13px] text-amber-400 bg-amber-500/10 px-3 py-2 rounded-lg">No hay versiones de {form.modloader} para Minecraft {form.minecraft || '—'}</p>
+                      ) : (
+                        <select value={form.modloaderVersion} onChange={e => setForm({ ...form, modloaderVersion: e.target.value })} className={inputCls}>
+                          {loaderVersions.map((v, i) => <option key={v} value={v}>{v}{i === 0 ? ' (la más nueva)' : ''}</option>)}
+                        </select>
                       )}
                     </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={form.group}
-                        onChange={e => setForm({ ...form, group: e.target.value })}
-                        placeholder="Ej: Survival, Modded, Testing…"
-                        className="flex-1 bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
-                      />
-                      <input
-                        type="color"
-                        value={form.groupColor || '#6366f1'}
-                        onChange={e => setForm({ ...form, groupColor: e.target.value })}
-                        title="Color del grupo"
-                        className="w-10 h-9 p-0.5 bg-bg-primary border border-border rounded-lg cursor-pointer"
-                      />
-                    </div>
                   )}
-                </div>
+                  <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-[12px] ${
+                    !javaStatus ? 'bg-bg-hover text-text-muted'
+                      : javaStatus.found ? 'bg-green-500/10 text-green-400'
+                      : 'bg-amber-500/10 text-amber-400'
+                  }`}>
+                    {!javaStatus ? (
+                      <><svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9" /></svg>Verificando Java...</>
+                    ) : javaStatus.found ? (
+                      <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>{javaLabel(form.minecraft)} detectado</>
+                    ) : (
+                      <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{javaLabel(form.minecraft)} no instalado: se instalará solo al jugar</>
+                    )}
+                  </div>
+                </section>
+
+                {/* Memoria */}
+                <section className="bg-bg-card border border-border rounded-2xl p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Memoria</p>
+                  <div className="grid grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-[12px] text-text-muted mb-3">RAM máxima</label>
+                      <RamSlider value={form.maxMemory} onChange={v => setForm({ ...form, maxMemory: v })} max={systemRam} />
+                    </div>
+                    <div>
+                      <label className="block text-[12px] text-text-muted mb-3">RAM mínima</label>
+                      <RamSlider value={form.minMemory} onChange={v => setForm({ ...form, minMemory: v })} max={Math.min(systemRam, form.maxMemory)} />
+                    </div>
+                  </div>
+                </section>
+
+                {/* Avanzado */}
+                <details className="group bg-bg-card border border-border rounded-2xl">
+                  <summary className="flex items-center justify-between px-4 py-3 cursor-pointer list-none select-none">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">Opciones avanzadas</span>
+                    <span className="flex items-center gap-2 text-[11px] text-text-muted">
+                      Java, resolución, argumentos, pantalla y grupo
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="transition-transform group-open:rotate-180"><polyline points="6 9 12 15 18 9" /></svg>
+                    </span>
+                  </summary>
+                  <div className="px-4 pb-4 space-y-4">
+                    <div>
+                      <label className="block text-[12px] text-text-muted mb-1.5">Java personalizado <span className="text-text-muted/60">(opcional)</span></label>
+                      <input type="text" value={form.javaPath} onChange={e => setForm({ ...form, javaPath: e.target.value })}
+                        placeholder="Dejar vacío para detectarlo automáticamente" className={inputCls} />
+                    </div>
+
+                    <div>
+                      <label className="block text-[12px] text-text-muted mb-2">Resolución de ventana</label>
+                      <div className="flex gap-1.5 flex-wrap mb-2">
+                        {RES_PRESETS.map((p, i) => (
+                          <button key={i}
+                            onClick={() => setForm({ ...form, resPreset: i, width: p.w > 0 ? p.w : form.width, height: p.h > 0 ? p.h : form.height })}
+                            className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors ${form.resPreset === i ? 'bg-accent text-white' : 'bg-bg-primary border border-border text-text-secondary hover:text-text-primary'}`}>
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                      {customRes && (
+                        <div className="flex gap-2 items-center">
+                          <input type="number" value={form.width || ''} onChange={e => setForm({ ...form, width: parseInt(e.target.value) || 0 })}
+                            placeholder="Ancho" min={320} max={7680} className={`${inputCls} flex-1`} />
+                          <span className="text-text-muted text-[13px]">×</span>
+                          <input type="number" value={form.height || ''} onChange={e => setForm({ ...form, height: parseInt(e.target.value) || 0 })}
+                            placeholder="Alto" min={240} max={4320} className={`${inputCls} flex-1`} />
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[12px] text-text-muted mb-1.5">Argumentos JVM <span className="text-text-muted/60">(opcional, uno por línea)</span></label>
+                      <textarea value={form.jvmArgs} onChange={e => setForm({ ...form, jvmArgs: e.target.value })}
+                        rows={3} spellCheck={false}
+                        placeholder={'-XX:+UseG1GC\n-XX:MaxGCPauseMillis=50\n-Dfml.readTimeout=90'}
+                        className="w-full bg-bg-primary border border-border rounded-xl px-3 py-2 text-[13px] font-mono text-text-primary focus:outline-none focus:border-accent resize-none placeholder:text-text-muted/40" />
+                    </div>
+
+                    {displays.length > 1 && (
+                      <div>
+                        <label className="block text-[12px] text-text-muted mb-1.5">Pantalla <span className="text-text-muted/60">(opcional)</span></label>
+                        <select value={form.displayId} onChange={e => setForm({ ...form, displayId: Number(e.target.value) })} className={inputCls}>
+                          <option value={0}>Por defecto</option>
+                          {displays.map(d => (
+                            <option key={d.id} value={d.id}>{d.label || `Pantalla ${d.id}`} — {d.bounds.width}×{d.bounds.height}{d.isPrimary ? ' (principal)' : ''}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[12px] text-text-muted mb-1.5">Grupo <span className="text-text-muted/60">(opcional)</span></label>
+                      {allKnownGroups.length > 0 ? (
+                        <div className="flex items-center gap-2">
+                          <select value={form.group}
+                            onChange={e => {
+                              const g = allKnownGroups.find(g => g.name === e.target.value)
+                              setForm({ ...form, group: e.target.value, groupColor: g?.color || form.groupColor || '#6366f1' })
+                            }}
+                            className={`${inputCls} flex-1`}>
+                            <option value="">{t('instances_group_ungrouped')}</option>
+                            {allKnownGroups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
+                          </select>
+                          {form.group && (
+                            <div className="w-4 h-4 rounded-full flex-shrink-0 border border-border" style={{ background: allKnownGroups.find(g => g.name === form.group)?.color || '#6366f1' }} />
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <input type="text" value={form.group} onChange={e => setForm({ ...form, group: e.target.value })}
+                            placeholder="Ej: Survival, Modded, Testing…" className={`${inputCls} flex-1`} />
+                          <input type="color" value={form.groupColor || '#6366f1'} onChange={e => setForm({ ...form, groupColor: e.target.value })}
+                            title="Color del grupo" className="w-10 h-[42px] p-0.5 bg-bg-primary border border-border rounded-lg cursor-pointer" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </details>
+
+                {formError && <p className="text-sm text-red-400">{formError}</p>}
               </div>
 
-              {formError && <p className="mt-3 text-sm text-red-400">{formError}</p>}
-
-              <div className="flex gap-3 mt-5">
-                <button onClick={cancelModal} className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors">
+              {/* Pie: resumen y botones */}
+              <div className="px-7 py-4 border-t border-border/60 flex items-center gap-3">
+                <p className="flex-1 min-w-0 text-[12px] text-text-muted truncate">
+                  <span className="capitalize text-text-secondary">{form.modloader}</span>
+                  {' · '}Minecraft <span className="text-text-secondary">{form.minecraft || '…'}</span>
+                  {form.versionMode !== 'custom' && !fixedMc && <span className="text-accent"> · siempre la última</span>}
+                  {' · '}{(form.maxMemory / 1024).toFixed(form.maxMemory % 1024 ? 1 : 0)} GB
+                </p>
+                <button onClick={cancelModal} className="px-5 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors">
                   Cancelar
                 </button>
-                <button onClick={() => doSaveManual()} disabled={savingForm} className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-medium transition-colors">
-                  {savingForm ? 'Guardando...' : modalStep === 'edit' ? 'Guardar' : 'Crear'}
+                <button onClick={() => doSaveManual()} disabled={savingForm || !form.minecraft} className="px-6 py-2 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white rounded-lg text-sm font-semibold transition-colors">
+                  {savingForm ? 'Guardando...' : modalStep === 'edit' ? 'Guardar' : 'Crear instancia'}
                 </button>
               </div>
             </div>
-          )}
+            )
+          })()}
         </div>
       )}
 

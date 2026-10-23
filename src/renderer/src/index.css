@@ -159,3 +159,29 @@
   background-image: radial-gradient(rgba(124, 58, 237, 0.07) 1px, transparent 1px);
   background-size: 22px 22px;
 }
+
+/* ── Texto que se puede seleccionar y copiar ─────────────────────────────────
+   El body es select-none para que al arrastrar no se seleccionen botones ni
+   tarjetas, pero el texto de verdad (descripciones, changelogs, consolas, logs,
+   notas de versión, mensajes de error) tiene que poder copiarse. */
+.modrinth-body, pre, code, p, li, td, th, blockquote, h1, h2, h3, h4, h5, h6, strong, b, dt, dd,
+.font-bold, .font-semibold,
+.font-mono, .whitespace-pre-wrap, .whitespace-pre, .select-text {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.modrinth-body, pre, .font-mono, .whitespace-pre-wrap { cursor: text; }
+/* Dentro de botones y elementos que se pulsan sigue sin seleccionarse: un doble clic
+   para abrir algo no debe marcar una palabra. */
+button p, button li, button .font-mono, button h1, button h2, button h3, button h4, button strong, button b,
+[role='button'] p, [role='button'] .font-mono, [role='button'] h3, [role='button'] strong,
+.cursor-pointer p, .cursor-pointer .font-mono, .cursor-pointer h3, .cursor-pointer h4, .cursor-pointer strong,
+a.cursor-pointer, label p, label strong,
+button.font-bold, button.font-semibold, button .font-bold, button .font-semibold,
+[role='button'].font-semibold, [role='button'] .font-semibold, [role='button'] .font-bold,
+.cursor-pointer.font-bold, .cursor-pointer.font-semibold, .cursor-pointer .font-bold, .cursor-pointer .font-semibold,
+a.font-semibold, a.font-bold, label.font-semibold, label .font-semibold {
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: inherit;
+}

@@ -10,11 +10,31 @@ export interface ExportPlanData {
   hasServerList: boolean
 }
 
+export type OptionGroup = 'video' | 'sound' | 'language' | 'input' | 'other'
+
 export interface StartOptions {
   controls: 'default' | 'mine'
-  settings: 'default' | 'mine'
+  /** Qué grupos de ajustes empiezan con los valores del creador (el resto, por defecto) */
+  groups: Record<OptionGroup, boolean>
   activePacks: boolean
   serverList: boolean
+}
+
+export const NO_GROUPS: Record<OptionGroup, boolean> = { video: false, sound: false, language: false, input: false, other: false }
+const ALL_GROUPS: Record<OptionGroup, boolean> = { video: true, sound: true, language: true, input: true, other: true }
+
+const GROUPS: [OptionGroup, string, string][] = [
+  ['video', 'Vídeo y gráficos', 'Distancia de renderizado, FOV, brillo, FPS, escala de la interfaz…'],
+  ['sound', 'Sonido', 'Volumen de cada categoría y subtítulos'],
+  ['language', 'Idioma', 'El idioma del juego'],
+  ['input', 'Ratón, chat y accesibilidad', 'Sensibilidad, salto automático, chat, narrador…'],
+  ['other', 'Resto de opciones', 'Lo que no entra en lo anterior (aspecto del personaje, opciones de mods…)'],
+]
+
+/** Lo que se manda al exportar a partir de lo elegido en pantalla. */
+export function toGameOptions(o: StartOptions): { controls: 'default' | 'mine'; settings: 'default' | 'mine'; groups: Record<OptionGroup, boolean>; activePacks: boolean } {
+  const any = Object.values(o.groups).some(Boolean)
+  return { controls: o.controls, settings: any ? 'mine' : 'default', groups: o.groups, activePacks: o.activePacks }
 }
 
 export function fmtSize(bytes: number): string {
@@ -34,7 +54,7 @@ const STARTS: { key: ExportStart; title: string; hint: string; icon: string }[] 
 export function presetFor(start: ExportStart, plan: ExportPlanData | null): StartOptions {
   // Sin options.txt (el juego nunca se abrió) no hay ajustes propios que dar
   const mine = start !== 'fresh' && !!plan?.options.exists
-  return { controls: mine ? 'mine' : 'default', settings: mine ? 'mine' : 'default', activePacks: !!plan?.options.activePacks, serverList: start !== 'fresh' && !!plan?.hasServerList }
+  return { controls: mine ? 'mine' : 'default', groups: mine ? { ...ALL_GROUPS } : { ...NO_GROUPS }, activePacks: !!plan?.options.activePacks, serverList: start !== 'fresh' && !!plan?.hasServerList }
 }
 
 export function ExportStartPicker({ value, onChange }: { value: ExportStart; onChange: (s: ExportStart) => void }) {
@@ -135,12 +155,24 @@ export function ExportStartOptions({ plan, value, onChange }: { plan: ExportPlan
         ['default', 'Los de Minecraft', 'Teclas por defecto (WASD, E para el inventario…)'],
         ['mine', 'Los míos', plan?.options.keybinds ? `Tus ${plan.options.keybinds} teclas, también las de los mods` : 'Tus teclas, también las de los mods'],
       ], k => set({ controls: k as StartOptions['controls'] }))}
-      {choice('Vídeo, sonido, idioma y accesibilidad', value.settings, [
-        ['default', 'Por defecto', 'Cada uno empieza con los ajustes normales'],
-        ['mine', 'Los míos', 'Tu distancia de renderizado, brillo, volumen…'],
-      ], k => set({ settings: k as StartOptions['settings'] }))}
+      <div>
+        <p className="text-xs font-medium text-text-secondary mb-1.5">Ajustes del juego que empiezan como los tuyos</p>
+        <div className="bg-bg-primary border border-border rounded-xl overflow-hidden divide-y divide-border/40">
+          {GROUPS.map(([g, title, hint]) => (
+            <label key={g} className={`flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-bg-hover ${noOptions ? 'opacity-40 pointer-events-none' : ''}`}>
+              <input type="checkbox" checked={value.groups[g]} disabled={!!noOptions}
+                onChange={e => set({ groups: { ...value.groups, [g]: e.target.checked } })} className="w-4 h-4 accent-accent flex-shrink-0" />
+              <span className="flex-1 min-w-0">
+                <span className="block text-xs text-text-primary">{title}</span>
+                <span className="block text-[10px] text-text-muted truncate">{hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <p className="text-[10px] text-text-muted mt-1">Lo que no marques empieza con los valores normales de Minecraft. Tu options.txt nunca se copia entero.</p>
+      </div>
       <label className="flex items-center gap-2.5 text-xs text-text-secondary cursor-pointer">
-        <input type="checkbox" checked={value.activePacks || value.settings === 'mine'} disabled={value.settings === 'mine' || !plan?.options.activePacks}
+        <input type="checkbox" checked={value.activePacks} disabled={!plan?.options.activePacks}
           onChange={e => set({ activePacks: e.target.checked })} className="w-4 h-4 accent-accent" />
         Que empiecen con mis resource packs activados{plan?.options.activePacks ? ` (${plan.options.activePacks})` : ' (no tienes ninguno activo)'}
       </label>

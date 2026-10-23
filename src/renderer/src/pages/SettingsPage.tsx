@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import PrivacySettings from '../components/PrivacySettings'
 import StorageModal from '../components/StorageModal'
 import { useStore } from '../store'
+import { shallow } from 'zustand/shallow'
 import RamSlider from '../components/RamSlider'
 import type { MinecraftAccount, AIConfig } from '../../../shared/types'
 import { OFFLINE_USERNAME_REGEX, APP_VERSION } from '../../../shared/types'
@@ -170,7 +171,8 @@ function AIKeyTutorial({ provider }: { provider: string }) {
 const isMac = navigator.userAgent.toLowerCase().includes('macintosh')
 
 export default function SettingsPage() {
-  const { accounts, activeAccountId, settings, addAccount, removeAccount, setActiveAccountId, setSettings, sidebarCompact, setSidebarCompact } = useStore()
+  const { accounts, activeAccountId, settings, sidebarCompact } = useStore(s => ({ accounts: s.accounts, activeAccountId: s.activeAccountId, settings: s.settings, sidebarCompact: s.sidebarCompact }), shallow)
+  const { addAccount, removeAccount, setActiveAccountId, setSettings, setSidebarCompact } = useStore.getState()
 
   const [storageOpen, setStorageOpen] = useState(false)
   const [githubStatus, setGithubStatus] = useGithubStatus()

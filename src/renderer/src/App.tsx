@@ -114,6 +114,8 @@ const AFK_THRESHOLD = 3 * 60 * 1000
 const HOURLY_CHECK = 60 * 60 * 1000
 
 export default function App() {
+  // Solo las acciones, sin suscribirse: con useStore() a secas App (y con ella toda la
+  // interfaz) se volvía a pintar con cada cambio del store, p. ej. cada línea del juego.
   const {
     setAccounts,
     setActiveAccountId,
@@ -121,12 +123,13 @@ export default function App() {
     upsertOperation,
     setPendingUpdate,
     setUpdateModalOpen,
-    appendGameLog,
+    appendGameLogs,
+    setGameLogs,
     clearGameLog,
     setInstanceRunning,
     setFriends,
     addFriendLocal
-  } = useStore()
+  } = useStore.getState()
 
   const [appReady, setAppReady] = useState(false)
   const [closeConfirm, setCloseConfirm] = useState(false)
@@ -158,6 +161,22 @@ export default function App() {
   // Idioma: los textos escritos en los componentes se traducen al pintarse
   const language = useStore((st) => st.settings?.language ?? 'es')
   useEffect(() => { setAutoTranslate(language) }, [language])
+
+  // Un clic en una zona que no se puede seleccionar (fondo, huecos) quita la selección de
+  // texto. Chromium no lo hace solo cuando el fondo es select-none, y el texto se quedaba
+  // marcado. No se toca al pulsar campos de texto ni con el botón derecho (para «Copiar»).
+  useEffect(() => {
+    const onDown = (e: MouseEvent): void => {
+      if (e.button !== 0) return
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed) return
+      const t = e.target as HTMLElement | null
+      if (!t || t.closest('input, textarea, [contenteditable="true"], button, a, [role="button"], [role="menu"]')) return
+      if (getComputedStyle(t).userSelect === 'none') sel.removeAllRanges()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
 
   useEffect(() => {
     async function init() {
@@ -195,12 +214,19 @@ export default function App() {
     // Renovaciones de Microsoft hechas en segundo plano por el proceso principal
     const unsubAccount = window.api.auth.onAccountUpdated((a) => useStore.getState().replaceAccount(a))
 
-    const unsubStarted = window.api.onGameStarted((id) => {
-      clearGameLog(id)
-      setInstanceRunning(id, true)
-    })
-    const unsubLog = window.api.onGameLog((id, line) => appendGameLog(id, line))
+    const unsubStarted = window.api.onGameStarted((id) => setInstanceRunning(id, true))
+    const unsubLogReset = window.api.onGameLogReset((id) => clearGameLog(id))
+    const unsubLog = window.api.onGameLog((id, lines) => appendGameLogs(id, lines))
     const unsubExit = window.api.onGameExit((id) => setInstanceRunning(id, false))
+    const unsubInstUpdated = window.api.instances.onUpdated((inst) => useStore.getState().updateInstance(inst))
+    // Si la ventana se recargó (o se cayó y volvió) con un juego abierto, se recupera qué
+    // instancias siguen abiertas y su registro: si no, salían como «Jugar».
+    window.api.launcher.running().then((list) => {
+      for (const r of list) {
+        setInstanceRunning(r.id, true)
+        setGameLogs(r.id, r.logs)
+      }
+    }).catch(() => {})
 
     // AFK + activity tracking
     function onActivity() {
@@ -271,6 +297,8 @@ export default function App() {
       unsubAccount()
       unsubStarted()
       unsubLog()
+      unsubLogReset()
+      unsubInstUpdated()
       unsubExit()
       window.removeEventListener('mousemove', onActivity)
       window.removeEventListener('keydown', onActivity)

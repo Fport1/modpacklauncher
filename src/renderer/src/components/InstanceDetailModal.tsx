@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
+import { shallow } from 'zustand/shallow'
 import type { Instance } from '../../../shared/types'
 import type { InstalledMeta } from '../../../preload'
 import { startHosting } from '../lib/assist/session'
@@ -162,6 +163,8 @@ function GameLockedBanner() {
   )
 }
 
+const EMPTY_LOGS: string[] = []
+
 function ConfirmDialog({ title, message, confirmLabel = 'Eliminar', onConfirm, onCancel }: {
   title: string; message: string; confirmLabel?: string
   onConfirm: () => void; onCancel: () => void
@@ -294,7 +297,10 @@ function fovLoad(raw: string): number {
   if (Math.abs(n) <= 1.5) return Math.round(n * 40 + 70)
   return Math.round(n)
 }
-function fovStore(v: number): string { return String(v) }
+// Minecraft guarda el FOV normalizado: (grados − 70) / 40, de -1 (30°) a 1 (110°).
+// Antes se escribían los grados tal cual («fov:90»): el juego lo daba por inválido y
+// volvía a 70, así que cambiar el FOV desde el launcher no servía de nada.
+function fovStore(v: number): string { return String(Math.round(((v - 70) / 40) * 1000) / 1000) }
 
 const WHITELIST: Record<string, OptionDef> = {
   ao:                    { label: 'Smooth Lighting',     type: { kind: 'bool' } },
@@ -356,12 +362,15 @@ function OptionSlider({ label, rawValue, def, onUpdate, disabled, hzHint }: {
 function OptionBool({ label, rawValue, onUpdate, disabled }: {
   label: string; rawValue: string; onUpdate: (v: string) => void; disabled: boolean
 }) {
-  const on = rawValue.trim() === 'true'
+  // Versiones antiguas guardan algunos como número (ao:0 / ao:2): se respeta ese formato
+  const raw = rawValue.trim()
+  const numeric = /^\d+$/.test(raw)
+  const on = numeric ? parseInt(raw) > 0 : raw === 'true'
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <p className="flex-1 text-sm text-text-primary">{label}</p>
       <button disabled={disabled}
-        onClick={() => onUpdate(on ? 'false' : 'true')}
+        onClick={() => onUpdate(numeric ? (on ? '0' : '2') : (on ? 'false' : 'true'))}
         className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-40 ${on ? 'bg-accent' : 'bg-border'}`}>
         <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-5' : ''}`} />
       </button>
@@ -527,7 +536,7 @@ interface Props {
 const modsSnapshot = new Map<string, ModFile[]>()
 
 export default function InstanceDetailModal({ instance, onClose, onPlay, fullPage, onEdit, onExport, onDuplicate, onDelete, onChangeIcon }: Props) {
-  const { updateInstance: updateInstanceStore, settings } = useStore()
+  const { updateInstance: updateInstanceStore, settings } = useStore(s => ({ updateInstance: s.updateInstance, settings: s.settings }), shallow)
   const aiConfigs = settings?.aiConfigs ?? []
   const aiDefaultId = settings?.aiDefaultId
   const [tab, setTab] = useState<Tab>('mods')
@@ -642,7 +651,9 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
     return () => { alive = false }
   }, [iconSrc])
 
-  const gameLogs = useStore(s => s.gameLogs[instance.id] ?? [])
+  // Solo se escucha el registro con la pestaña Consola abierta: con el juego en marcha llegan
+  // líneas sin parar y no hace falta redibujar el resto de pestañas por ellas.
+  const gameLogs = useStore(s => tab === 'console' ? (s.gameLogs[instance.id] ?? EMPTY_LOGS) : EMPTY_LOGS)
   const isRunning = useStore(s => s.runningInstances.has(instance.id))
   const logRef = useRef<HTMLDivElement>(null)
   const configLineNumRef = useRef<HTMLDivElement>(null)
@@ -1255,16 +1266,20 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
       return next
     })
   }
+  /** Vuelve a leer qué shader está activo, sin perder lo que ya se sabía de cada uno. */
+  async function reloadShaderpacks() {
+    const fresh = await window.api.instances.listShaderpacks(instance.id)
+    const plain = (f: string): string => f.replace(/\.disabled$/, '')
+    setShaderpacks(prev => fresh.map(f => ({ ...f, meta: prev.find(x => plain(x.filename) === plain(f.filename))?.meta })))
+  }
   async function doToggleShader(filename: string) {
-    const next = await window.api.instances.toggleShaderpack(instance.id, filename)
-    setShaderpacks(p => p.map(m => m.filename === filename ? { ...m, filename: next, enabled: !m.enabled } : m))
+    await window.api.instances.toggleShaderpack(instance.id, filename)
+    // Solo puede haber un shader activo: al elegir uno, el anterior deja de estarlo
+    await reloadShaderpacks()
   }
   async function doToggleShaderBulk(filenames: string[]) {
     const results = await Promise.all(filenames.map(fn => window.api.instances.toggleShaderpack(instance.id, fn)))
-    setShaderpacks(p => p.map(m => {
-      const idx = filenames.indexOf(m.filename)
-      return idx === -1 ? m : { ...m, filename: results[idx], enabled: !m.enabled }
-    }))
+    await reloadShaderpacks()
     setSelected(prev => {
       const next = new Set<string>()
       filenames.forEach((fn, i) => { if (prev.has(fn)) next.add(results[i]) })
@@ -1385,7 +1400,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
         {/* Icon */}
         {hasMeta && item.meta?.iconBase64 ? (
-          <img src={item.meta.iconBase64} alt="" className="w-10 h-10 rounded-lg flex-shrink-0 object-cover" />
+          <img src={item.meta.iconBase64} alt="" loading="lazy" decoding="async" className="w-10 h-10 rounded-lg flex-shrink-0 object-cover" />
         ) : (
           <div className="w-10 h-10 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
             {icon}
@@ -1636,7 +1651,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
                       Exportar
                     </button>}
-                    {onDuplicate && <button onClick={() => { setGearOpen(false); onDuplicate() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                    {onDuplicate && instance.kind !== 'dotminecraft' && <button onClick={() => { setGearOpen(false); onDuplicate() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                       Duplicar
                     </button>}
@@ -1649,7 +1664,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
                       Reparar instancia
                     </button>
-                    {onDelete && <><div className="h-px bg-border/50 mx-2 my-1"/><button onClick={() => { setGearOpen(false); onDelete() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left">
+                    {onDelete && instance.kind !== 'dotminecraft' && <><div className="h-px bg-border/50 mx-2 my-1"/><button onClick={() => { setGearOpen(false); onDelete() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
                       Eliminar instancia
                     </button></>}
@@ -2171,7 +2186,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           </div>
                         </div>
                         {w.iconBase64
-                          ? <img src={w.iconBase64} alt="" className="w-11 h-11 rounded-lg flex-shrink-0 object-cover" />
+                          ? <img src={w.iconBase64} alt="" loading="lazy" decoding="async" className="w-11 h-11 rounded-lg flex-shrink-0 object-cover" />
                           : <div className="w-11 h-11 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0"><GlobeIcon className="text-green-400" /></div>
                         }
                         <div className="flex-1 overflow-hidden">
@@ -2411,7 +2426,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                             setLightboxIdx(idx)
                           }}
                         >
-                          <img src={mediaUrl(s.filePath)} alt={s.filename}
+                          <img src={mediaUrl(s.filePath)} alt={s.filename} decoding="async"
                             className="w-full h-full object-cover" loading="lazy" />
                           {/* hover overlay */}
                           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-0.5 p-2">

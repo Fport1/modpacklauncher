@@ -247,6 +247,8 @@ let sessionCwd = '/'
 /** Para poder reconectar solo si la conexión se cae. Solo en memoria. */
 let sessionPassword = ''
 let reconnecting: Promise<boolean> | null = null
+/** Sube con cada reconexión y al desconectar: una reconexión vieja ve que ya no es la suya. */
+let reconnectGen = 0
 let lostReason: string | null = null
 
 /**
@@ -329,6 +331,32 @@ function adopt(opened: Session): void {
  * Intenta recuperar la conexión en silencio. Si no puede, lo dice en todas las
  * ventanas para que se vea el aviso con el botón de reconectar.
  */
+/** Cierre de una sesión sin esperar para siempre: con la conexión muerta puede no acabar nunca. */
+function closeQuietly(s: Session): Promise<void> {
+  return Promise.race([
+    s.close().catch(() => {}),
+    new Promise<void>((r) => setTimeout(r, 4000))
+  ])
+}
+
+/** Tope por intento de reconexión: un servidor que no contesta no debe colgarla. */
+const RECONNECT_ATTEMPT_MS = 20_000
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what}: sin respuesta en ${ms / 1000} s`)), ms)
+    p.then((v) => { clearTimeout(t); resolve(v) }, (e) => { clearTimeout(t); reject(e) })
+  })
+}
+
+/**
+ * Intenta recuperar la conexión en silencio. Si no puede, lo dice en todas las
+ * ventanas para que se vea el aviso con el botón de reconectar.
+ *
+ * Antes podía quedarse en «Reconectando…» para siempre: esperaba a cerrar la conexión
+ * vieja (que, muerta tras suspender el equipo, no terminaba de cerrarse) y Desconectar
+ * no la cancelaba. Ahora cada paso tiene tiempo límite y desconectar la corta en seco.
+ */
 function reconnect(reason: string): Promise<boolean> {
   if (reconnecting) return reconnecting
   const old = session
@@ -336,26 +364,36 @@ function reconnect(reason: string): Promise<boolean> {
   if (!sessionSite) {
     // Asistencia remota: no se puede reabrir desde aquí, la tiene que volver a abrir el amigo
     lostReason = reason
-    if (old) old.close().catch(() => {})
+    if (old) void closeQuietly(old)
     broadcastState()
     return Promise.resolve(false)
   }
   const site = sessionSite
-  reconnecting = (async () => {
+  const gen = ++reconnectGen
+  const mine: Promise<boolean> = (async () => {
     broadcastState()
-    if (old) await old.close().catch(() => {})
+    if (old) await closeQuietly(old)
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt))
-        if (sessionSite !== site) return false // desconectado o cambiado mientras tanto
-        adopt(await openSite(site, sessionPassword))
+        if (sessionSite !== site || reconnectGen !== gen) return false // desconectado o cambiado mientras tanto
+        const opened = await withTimeout(openSite(site, sessionPassword), RECONNECT_ATTEMPT_MS, 'Reconectar')
+        if (sessionSite !== site || reconnectGen !== gen) { void closeQuietly(opened); return false }
+        adopt(opened)
         return true
-      } catch { /* siguiente intento */ }
+      } catch (e) {
+        console.warn(`[Servidores] Intento ${attempt + 1} de reconectar fallido: ${(e as Error)?.message ?? e}`)
+      }
     }
-    lostReason = reason
+    if (sessionSite === site && reconnectGen === gen) lostReason = reason
     return false
   })()
-  return reconnecting.finally(() => { reconnecting = null; broadcastState() })
+  reconnecting = mine
+  return mine.finally(() => {
+    // Solo la limpia si sigue siendo la suya (desconectar o reconectar otra vez la cambian)
+    if (reconnectGen === gen) reconnecting = null
+    broadcastState()
+  })
 }
 
 /**
@@ -438,8 +476,13 @@ export async function ftpDisconnect(): Promise<void> {
   sessionLabel = ''
   sessionPassword = ''
   lostReason = null
-  if (current) await current.close().catch(() => {})
+  // Una reconexión en marcha se abandona: si consigue conectar después, cierra lo que abra
+  reconnecting = null
+  reconnectGen++
+  // Se avisa antes de cerrar: cerrar una conexión muerta puede tardar y la interfaz no
+  // tiene por qué quedarse esperando
   broadcastState()
+  if (current) await closeQuietly(current)
 }
 
 export function ftpList(dir: string): Promise<RemoteEntry[]> {

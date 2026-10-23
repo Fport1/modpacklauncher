@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useStore } from '../store'
+import { shallow } from 'zustand/shallow'
 
 export default function UpdateCheckBtn() {
-  const { pendingUpdate, setPendingUpdate, setUpdateModalOpen, settings } = useStore()
+  const { pendingUpdate, setPendingUpdate, setUpdateModalOpen, settings } = useStore(s => ({ pendingUpdate: s.pendingUpdate, setPendingUpdate: s.setPendingUpdate, setUpdateModalOpen: s.setUpdateModalOpen, settings: s.settings }), shallow)
   const [checking, setChecking] = useState(false)
 
   async function handleClick() {

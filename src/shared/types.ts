@@ -39,7 +39,17 @@ export interface Instance {
   displayId?: number
   group?: string
   groupColor?: string
+  /**
+   * Sigue sola la última versión: al jugar se pone la última release o snapshot que haya.
+   * Sin esto la versión es fija.
+   */
+  versionTrack?: 'release' | 'snapshot'
+  /** Instancia especial: la carpeta .minecraft del launcher oficial. */
+  kind?: 'dotminecraft'
 }
+
+/** Id fijo de la instancia que representa la carpeta .minecraft del launcher oficial. */
+export const DOT_MINECRAFT_ID = 'dot-minecraft'
 
 export interface PackFile {
   path: string
@@ -142,6 +152,8 @@ export interface PublishedModpack {
   url: string
   publishedAt: number
   accessKey?: string
+  /** Instancia desde la que se publicó (para poder guardar su .fpack desde Mis instancias) */
+  instanceId?: string
 }
 
 export interface ModpackSubscription {
@@ -247,7 +259,27 @@ export type OperationType =
   | 'export-modpack' | 'import-fpack' | 'save-fpack'
   | 'install-minecraft' | 'install-java' | 'install-vlc'
   | 'duplicate-instance' | 'download-update' | 'delete-instance'
-  | 'ftp-upload' | 'ftp-download'
+  | 'ftp-upload' | 'ftp-download' | 'transfer-content'
+
+/** Detalle de una descarga en curso, para enseñar qué está pasando exactamente. */
+export interface OpDetail {
+  /** Fase actual en palabras («Assets del juego», «Librerías»…). */
+  phase?: string
+  bytes?: number
+  totalBytes?: number
+  /** Bytes por segundo (media de los últimos segundos). */
+  speed?: number
+  /** Segundos que faltan, si se puede calcular. */
+  eta?: number
+  file?: string
+  filesDone?: number
+  filesTotal?: number
+}
+
+export interface OpLogLine {
+  at: number
+  text: string
+}
 
 export interface Operation {
   id: string
@@ -259,6 +291,11 @@ export interface Operation {
   total?: number
   error?: string
   startedAt: number
+  detail?: OpDetail
+  /** Historial de pasos (se va llenando con cada mensaje distinto). */
+  log?: OpLogLine[]
+  /** Última vez que llegó cualquier novedad: sirve para avisar si se queda parada. */
+  updatedAt?: number
 }
 
 // ── Almacenamiento ───────────────────────────────────────────────────────────
@@ -472,4 +509,50 @@ export interface LiveStatus {
   modVersion?: string
   protocol?: number
   connectedAt: number
+}
+
+// ── Transferir contenido entre instancias ───────────────────────────────────
+
+export type TransferKey = 'mods' | 'resourcepacks' | 'shaderpacks' | 'saves' | 'config' | 'screenshots' | 'options' | 'servers'
+
+export interface TransferItem {
+  name: string
+  size: number
+  isDir: boolean
+  /** Ya hay algo con el mismo nombre en el destino */
+  exists: boolean
+  /** En el destino hay otro archivo que parece el mismo mod en otra versión */
+  similar?: string
+}
+
+export interface TransferCategory {
+  key: TransferKey
+  label: string
+  hint: string
+  single: boolean
+  items: TransferItem[]
+}
+
+export interface TransferPlan {
+  source: { id: string; name: string; minecraft: string; modloader: string }
+  target: { id: string; name: string; minecraft: string; modloader: string }
+  categories: TransferCategory[]
+  sourceRunning: boolean
+  targetRunning: boolean
+}
+
+export interface TransferRequest {
+  sourceId: string
+  targetId: string
+  /** Qué elementos de cada categoría */
+  selection: { key: TransferKey; names: string[] }[]
+  mode: 'copy' | 'move'
+  /** Si ya existe en el destino: reemplazarlo o dejar el del destino */
+  conflict: 'overwrite' | 'skip'
+}
+
+export interface TransferResult {
+  done: number
+  skipped: number
+  failed: { name: string; error: string }[]
 }

@@ -206,7 +206,7 @@ export default function HomePage() {
   const t = useT()
   const navigate = useNavigate()
   const account = useStore(activeAccount)
-  const { setInstances, updateInstance, setOpenDetailInstanceId } = useStore()
+  const { setInstances, updateInstance, setOpenDetailInstanceId } = useStore.getState()
   const instances = useStore(s => s.instances)
   const runningInstances = useStore(s => s.runningInstances)
   const [launching, setLaunching] = useState<string | null>(null)

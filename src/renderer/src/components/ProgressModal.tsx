@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
+import { shallow } from 'zustand/shallow'
 
 function formatTime(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -16,7 +17,7 @@ export default function ProgressModal() {
   const { progress, progressStartedAt } = useStore((s) => ({
     progress: s.progress,
     progressStartedAt: s.progressStartedAt
-  }))
+  }), shallow)
   const [now, setNow] = useState(Date.now())
   const [cancelling, setCancelling] = useState(false)
 

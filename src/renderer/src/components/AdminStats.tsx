@@ -40,8 +40,8 @@ async function loadStats(): Promise<Stats> {
     count(query(presence, where('lastSeen', '>=', Timestamp.fromDate(new Date(Date.now() - 3 * 60_000))))),
   ])
 
-  // Últimos 30 días
-  const dayIds = Array.from({ length: 30 }, (_, i) => new Date(Date.now() - (29 - i) * 86_400_000).toISOString().slice(0, 10))
+  // Últimos 90 días (en pantalla se elige cuántos ver)
+  const dayIds = Array.from({ length: MAX_DAYS }, (_, i) => new Date(Date.now() - (MAX_DAYS - 1 - i) * 86_400_000).toISOString().slice(0, 10))
   const daySnaps = await Promise.all(dayIds.map((d) => getDoc(doc(socialDb, 'launcher_days', d)).catch(() => null)))
   const days = dayIds.map((day, i) => {
     const x = (daySnaps[i]?.data() ?? {}) as Record<string, number>
@@ -110,13 +110,115 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint?: stri
   )
 }
 
-function Bars({ data, field, color }: { data: Stats['days']; field: keyof Stats['days'][number]; color: string }) {
-  const max = Math.max(1, ...data.map((d) => Number(d[field])))
+const MAX_DAYS = 90
+const RANGES = [7, 30, 90] as const
+type DayField = Exclude<keyof Stats['days'][number], 'day'>
+
+/** «2026-10-12» → «lun 12 oct» (o «12 oct» en corto). Se lee como fecha local, no UTC. */
+function dayLabel(day: string, long = false): string {
+  const [y, m, d] = day.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  return date.toLocaleDateString('es', long ? { weekday: 'short', day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short' })
+}
+
+/**
+ * Barras de una medida por día: pasar el ratón por una barra dice el día exacto, el valor
+ * y la diferencia con el día anterior. Debajo, las fechas del principio, mitad y final.
+ */
+function DayChart({ title, data, field, color, unit }: {
+  title: string; data: Stats['days']; field: DayField; color: string; unit: string
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const values = data.map((d) => d[field])
+  const max = Math.max(1, ...values)
+  const total = values.reduce((s, v) => s + v, 0)
+  const avg = total / (values.length || 1)
+  const peak = values.indexOf(Math.max(...values))
+  const h = hover !== null ? data[hover] : null
+  const prev = hover !== null && hover > 0 ? values[hover - 1] : null
+  const diff = h && prev !== null ? h[field] - prev : null
+  const ticks = data.length > 1 ? [0, Math.floor((data.length - 1) / 2), data.length - 1] : [0]
+
   return (
-    <div className="flex items-end gap-[3px] h-24">
-      {data.map((d) => (
-        <div key={d.day} title={`${d.day}: ${fmt(Number(d[field]))}`} className="flex-1 rounded-t" style={{ height: `${Math.max(2, (Number(d[field]) / max) * 100)}%`, background: color }} />
-      ))}
+    <div className="bg-bg-card border border-border rounded-xl p-4">
+      <div className="flex items-baseline justify-between gap-3 mb-3">
+        <p className="text-[11px] uppercase tracking-wider text-text-muted">{title}</p>
+        <p className="text-[11px] text-text-muted tabular-nums whitespace-nowrap">
+          Total <span className="text-text-primary font-semibold">{fmt(total)}</span>
+          <span className="mx-1.5 text-border">·</span>
+          Media <span className="text-text-secondary">{fmt(Math.round(avg * 10) / 10)}</span>/día
+        </p>
+      </div>
+      <div className="relative">
+        {/* Máximo de la escala, discreto, y línea base */}
+        <span className="absolute -top-1 left-0 text-[10px] text-text-muted tabular-nums pointer-events-none">{fmt(max)}</span>
+        <div className="flex items-end gap-[2px] h-28 pt-3 border-b border-border/60" onMouseLeave={() => setHover(null)}>
+          {data.map((d, i) => (
+            // La zona de hover ocupa toda la columna, no solo la barra
+            <div key={d.day} className="flex-1 h-full flex items-end cursor-default" onMouseEnter={() => setHover(i)}>
+              <div className="w-full rounded-t-[4px] transition-opacity"
+                style={{
+                  height: d[field] > 0 ? `${Math.max(3, (d[field] / max) * 100)}%` : '2px',
+                  background: d[field] > 0 ? color : 'var(--tw-border, #334155)',
+                  opacity: hover === null || hover === i ? 1 : 0.45
+                }} />
+            </div>
+          ))}
+        </div>
+        {h && hover !== null && (
+          <div className="absolute z-10 -top-2 px-2.5 py-1.5 rounded-lg bg-bg-secondary border border-border shadow-xl text-[11px] pointer-events-none whitespace-nowrap"
+            style={{ left: `${((hover + 0.5) / data.length) * 100}%`, transform: `translate(${hover > data.length * 0.7 ? '-100%' : hover < data.length * 0.3 ? '0' : '-50%'}, -100%)` }}>
+            <p className="text-text-muted capitalize">{dayLabel(h.day, true)}</p>
+            <p className="text-text-primary font-semibold tabular-nums">
+              <span className="inline-block w-2 h-2 rounded-sm mr-1.5 align-middle" style={{ background: color }} />
+              {fmt(h[field])} {unit}
+            </p>
+            {diff !== null && (
+              <p className="text-text-muted tabular-nums">
+                {diff === 0 ? 'Igual que el día anterior' : `${diff > 0 ? '+' : '−'}${fmt(Math.abs(diff))} respecto al día anterior`}
+              </p>
+            )}
+            {hover === peak && h[field] > 0 && <p className="text-text-muted">Día con más del periodo</p>}
+          </div>
+        )}
+      </div>
+      <div className="relative h-4 mt-1">
+        {ticks.map((t) => (
+          <span key={t} className="absolute text-[10px] text-text-muted whitespace-nowrap"
+            style={{ left: `${((t + 0.5) / data.length) * 100}%`, transform: t === 0 ? 'translateX(-15%)' : t === data.length - 1 ? 'translateX(-85%)' : 'translateX(-50%)' }}>
+            {t === data.length - 1 ? 'hoy' : dayLabel(data[t].day)}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Los mismos datos en tabla: para leer números exactos o copiarlos. */
+function DaysTable({ data }: { data: Stats['days'] }) {
+  return (
+    <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+      <div className="max-h-80 overflow-y-auto">
+        <table className="w-full text-xs tabular-nums">
+          <thead className="sticky top-0 bg-bg-secondary text-text-muted">
+            <tr>
+              {['Día', 'Activos', 'Nuevas', 'Partidas', 'Minutos', 'Crashes', 'fport1social'].map((c, i) => (
+                <th key={c} className={`px-3 py-2 font-medium ${i === 0 ? 'text-left' : 'text-right'}`}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/40">
+            {[...data].reverse().map((d) => (
+              <tr key={d.day} className="hover:bg-bg-hover">
+                <td className="px-3 py-1.5 text-text-secondary capitalize">{dayLabel(d.day, true)}</td>
+                {(['active', 'new', 'launches', 'playMinutes', 'crashes', 'socialActive'] as DayField[]).map((f) => (
+                  <td key={f} className="px-3 py-1.5 text-right text-text-primary">{fmt(d[f])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -145,6 +247,8 @@ export default function AdminStats() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [range, setRange] = useState<(typeof RANGES)[number]>(30)
+  const [asTable, setAsTable] = useState(false)
 
   useEffect(() => onAuthStateChanged(socialAuth, setUser), [])
 
@@ -199,24 +303,39 @@ export default function AdminStats() {
             <Kpi label="Instalaciones" value={fmt(stats.installs.total)} hint={`Retención ${stats.dist.retained} %`} />
             <Kpi label="fport1social" value={fmt(stats.social.users)} hint={`${fmt(stats.social.d7)} activos · ${fmt(stats.social.online)} ahora`} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-bg-card border border-border rounded-xl p-4">
-              <p className="text-[11px] uppercase tracking-wider text-text-muted mb-2">Usuarios activos por día (30 días)</p>
-              <Bars data={stats.days} field="active" color="var(--color-accent, #22c55e)" />
-            </div>
-            <div className="bg-bg-card border border-border rounded-xl p-4">
-              <p className="text-[11px] uppercase tracking-wider text-text-muted mb-2">Instalaciones nuevas por día</p>
-              <Bars data={stats.days} field="new" color="#60a5fa" />
-            </div>
-            <div className="bg-bg-card border border-border rounded-xl p-4">
-              <p className="text-[11px] uppercase tracking-wider text-text-muted mb-2">Minutos de juego por día</p>
-              <Bars data={stats.days} field="playMinutes" color="#a78bfa" />
-            </div>
-            <div className="bg-bg-card border border-border rounded-xl p-4">
-              <p className="text-[11px] uppercase tracking-wider text-text-muted mb-2">Crashes por día</p>
-              <Bars data={stats.days} field="crashes" color="#f87171" />
-            </div>
-          </div>
+          {/* Filtros: un periodo para todas las gráficas, y ver como tabla */}
+          {(() => {
+            const days = stats.days.slice(-range)
+            return (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-1 p-1 rounded-lg bg-bg-card border border-border">
+                    {RANGES.map((r) => (
+                      <button key={r} onClick={() => setRange(r)}
+                        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${range === r ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary'}`}>
+                        {r} días
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-text-muted capitalize">{dayLabel(days[0].day, true)} – hoy</p>
+                  <button onClick={() => setAsTable((v) => !v)}
+                    className="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary hover:text-text-primary">
+                    {asTable ? 'Ver gráficas' : 'Ver tabla'}
+                  </button>
+                </div>
+                {asTable ? <DaysTable data={days} /> : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <DayChart title="Usuarios activos por día" data={days} field="active" color="#22c55e" unit="usuarios activos" />
+                    <DayChart title="Instalaciones nuevas por día" data={days} field="new" color="#60a5fa" unit="instalaciones nuevas" />
+                    <DayChart title="Partidas iniciadas por día" data={days} field="launches" color="#f59e0b" unit="partidas" />
+                    <DayChart title="Minutos de juego por día" data={days} field="playMinutes" color="#a78bfa" unit="minutos" />
+                    <DayChart title="Crashes por día" data={days} field="crashes" color="#f87171" unit="crashes" />
+                    <DayChart title="Activos en fport1social por día" data={days} field="socialActive" color="#2dd4bf" unit="usuarios" />
+                  </div>
+                )}
+              </>
+            )
+          })()}
           <div className="grid grid-cols-4 gap-3">
             <Dist title="Versión del launcher" rows={stats.dist.versions} />
             <Dist title="Sistema" rows={stats.dist.os} />

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { shallow } from 'zustand/shallow'
 import { APP_VERSION } from '../../../shared/types'
 
 export default function UpdateModal() {
-  const { pendingUpdate, updateModalOpen, setUpdateModalOpen, operations } = useStore()
+  const { pendingUpdate, updateModalOpen, setUpdateModalOpen, operations } = useStore(s => ({ pendingUpdate: s.pendingUpdate, updateModalOpen: s.updateModalOpen, setUpdateModalOpen: s.setUpdateModalOpen, operations: s.operations }), shallow)
   const [downloading, setDownloading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [forceConfirm, setForceConfirm] = useState(false)
@@ -13,7 +14,18 @@ export default function UpdateModal() {
     return () => { unsubRef.current?.() }
   }, [])
 
+  // Esc cierra (o pasa a segundo plano si ya está descargando: la descarga sigue y se ve
+  // en el panel de operaciones; desde el botón de actualización se vuelve a abrir)
+  useEffect(() => {
+    if (!updateModalOpen) return
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') { setUpdateModalOpen(false); setForceConfirm(false) } }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [updateModalOpen])
+
   if (!updateModalOpen || !pendingUpdate) return null
+
+  const close = (): void => { setUpdateModalOpen(false); setForceConfirm(false) }
 
   const isMac = /Mac/.test(navigator.userAgent)
   const hasRunning = [...operations.values()].some(op => op.status === 'running')
@@ -39,10 +51,16 @@ export default function UpdateModal() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-bg-secondary border border-border rounded-2xl p-6 w-[440px] shadow-2xl">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50" onClick={close}>
+      <div className="relative bg-bg-secondary border border-border rounded-2xl p-6 w-[440px] shadow-2xl" onClick={e => e.stopPropagation()}>
+        <button onClick={close} title={downloading ? 'Seguir en segundo plano' : 'Cerrar'}
+          className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">
+          {downloading
+            ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="5" y1="12" x2="19" y2="12" /></svg>
+            : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>}
+        </button>
         {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-4 pr-8">
           <div className="w-10 h-10 rounded-xl bg-accent/20 flex items-center justify-center flex-shrink-0">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-accent">
               <polyline points="23 4 23 10 17 10" />
@@ -78,12 +96,17 @@ export default function UpdateModal() {
                 style={{ width: `${progress}%` }}
               />
             </div>
-            {progress === 100 && (
+            {progress === 100 ? (
               <p className="text-xs text-text-muted mt-2 text-center">
                 {isMac
                   ? 'El DMG se abrirá en Finder. Arrastra la app a Aplicaciones y vuelve a abrirla.'
                   : 'Lanzando instalador, la app se cerrará...'}
               </p>
+            ) : (
+              <button onClick={close}
+                className="w-full mt-3 py-1.5 border border-border text-text-secondary hover:text-text-primary rounded-lg text-xs transition-colors">
+                Seguir usando el launcher (la descarga continúa)
+              </button>
             )}
           </div>
         ) : (
@@ -113,7 +136,7 @@ export default function UpdateModal() {
         {!downloading && (
           <div className="flex gap-3">
             <button
-              onClick={() => { setUpdateModalOpen(false); setForceConfirm(false) }}
+              onClick={close}
               className="flex-1 py-2 border border-border text-text-secondary hover:text-text-primary rounded-lg text-sm transition-colors"
             >
               Más tarde

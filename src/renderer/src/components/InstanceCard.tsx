@@ -4,7 +4,7 @@ import ContextMenu, { type MenuEntry } from './ui/ContextMenu'
 import { cachedInstanceIcon, loadInstanceIcon } from '../lib/instanceIcons'
 import {
   IconPlay, IconStop, IconInfo, IconEdit, IconImage, IconCopy, IconFolder, IconPackage, IconSave,
-  IconHelp, IconWrench, IconTrash, IconMore, IconClock, IconRefresh
+  IconHelp, IconWrench, IconTrash, IconMore, IconClock, IconRefresh, IconTransfer
 } from './ui/icons'
 
 interface Props {
@@ -23,11 +23,16 @@ interface Props {
   onRepair?: () => void
   /** Pedir ayuda remota a un amigo con esta instancia. */
   onAssist?: () => void
+  /** Pasar mods, mundos… a otra instancia */
+  onTransfer?: () => void
   isLaunching?: boolean
   isRunning?: boolean
   /** La partida está conectada por el canal en vivo del mod fport1-social (las IAs la ven y la manejan). */
   live?: LiveStatus
   hasUpdate?: boolean
+  /** Versión nueva del modpack, si se sabe */
+  latestVersion?: string
+  isUpdating?: boolean
   onUpdate?: () => void
 }
 
@@ -64,7 +69,7 @@ function formatPlaytime(ms?: number): string {
 
 export default function InstanceCard({
   instance, onPlay, onKill, onLaunchExtra, onEdit, onDelete, onOpenFolder, onDetails, onExport,
-  onDuplicate, onChangeIcon, onSaveFpack, onRepair, onAssist, isLaunching, isRunning, live, hasUpdate, onUpdate
+  onDuplicate, onChangeIcon, onSaveFpack, onRepair, onAssist, onTransfer, isLaunching, isRunning, live, hasUpdate, latestVersion, isUpdating, onUpdate
 }: Props) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [showExtraConfirm, setShowExtraConfirm] = useState(false)
@@ -78,35 +83,52 @@ export default function InstanceCard({
   const playtime = formatPlaytime(instance.playtime)
   const lastText = relativeTime(instance.lastPlayed)
   const isVanilla = instance.modloader === 'vanilla'
+  /** La carpeta .minecraft del launcher oficial: no se duplica ni se borra desde aquí */
+  const isDot = instance.kind === 'dotminecraft'
 
   const items: MenuEntry[] = [
     isRunning
       ? { label: 'Cerrar el juego', icon: <IconStop size={15} />, onClick: onKill, tone: 'text-red-400' }
       : { label: 'Jugar', icon: <IconPlay size={15} />, onClick: onPlay, tone: 'text-accent', disabled: isLaunching },
+    ...(hasUpdate && onUpdate && !isRunning
+      ? [{ label: latestVersion ? `Actualizar a la v${latestVersion}` : 'Actualizar modpack', icon: <IconRefresh size={15} />, onClick: onUpdate, tone: 'text-amber-400', disabled: isUpdating } as MenuEntry]
+      : []),
     'separator',
     { label: 'Detalles', icon: <IconInfo />, onClick: onDetails, hint: 'mods, mundos…' },
     { label: 'Editar', icon: <IconEdit />, onClick: onEdit },
     { label: 'Cambiar icono', icon: <IconImage />, onClick: onChangeIcon },
-    { label: 'Duplicar', icon: <IconCopy />, onClick: onDuplicate },
+    ...(!isDot ? [{ label: 'Duplicar', icon: <IconCopy />, onClick: onDuplicate } as MenuEntry] : []),
     { label: 'Abrir carpeta', icon: <IconFolder />, onClick: onOpenFolder },
+    ...(onTransfer ? [{ label: 'Transferir contenido…', icon: <IconTransfer />, onClick: onTransfer, hint: 'mods, mundos…' } as MenuEntry] : []),
     { header: 'Compartir' },
     ...(onAssist ? [{ label: 'Pedir ayuda a un amigo', icon: <IconHelp />, onClick: onAssist, tone: 'text-purple-400' } as MenuEntry] : []),
     ...(!isVanilla ? [{ label: 'Exportar modpack', icon: <IconPackage />, onClick: onExport } as MenuEntry] : []),
     ...(onSaveFpack ? [{ label: 'Guardar como .fpack', icon: <IconSave />, onClick: onSaveFpack } as MenuEntry] : []),
     'separator',
     ...(onRepair ? [{ label: 'Reparar instancia', icon: <IconWrench />, onClick: onRepair } as MenuEntry] : []),
-    { label: 'Eliminar', icon: <IconTrash />, onClick: onDelete, danger: true }
+    ...(!isDot ? [{ label: 'Eliminar', icon: <IconTrash />, onClick: onDelete, danger: true } as MenuEntry] : [])
   ]
 
   return (
     <div
       onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }) }}
-      className={`relative group h-full flex flex-col bg-bg-card border rounded-2xl p-4 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl ${
+      className={`relative group h-full flex flex-col border rounded-2xl p-4 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xl ${
+        isDot ? 'bg-gradient-to-br from-emerald-950/70 via-bg-card to-bg-card' : 'bg-bg-card'
+      } ${
         isRunning
           ? 'border-green-500/60 shadow-green-500/10 shadow-md'
-          : menu ? 'border-accent/60 shadow-lg shadow-accent/10' : 'border-border hover:border-accent/40 hover:shadow-accent/5'
+          : menu ? 'border-accent/60 shadow-lg shadow-accent/10'
+          : hasUpdate ? 'border-amber-500/50 shadow-md shadow-amber-500/5 hover:border-amber-500/70'
+          : isDot ? 'border-emerald-600/50 hover:border-emerald-500/80 hover:shadow-emerald-500/10'
+          : 'border-border hover:border-accent/40 hover:shadow-accent/5'
       }`}
     >
+      {isDot && (
+        <span className="absolute -top-2 left-4 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow"
+          title="Es la carpeta .minecraft del launcher oficial: lo que cambies aquí también lo verá el launcher de Mojang">
+          Launcher oficial
+        </span>
+      )}
       {/* Icono, nombre y etiquetas: siempre una sola fila de etiquetas */}
       <div className="flex items-start gap-3">
         <div className="w-14 h-14 rounded-xl bg-bg-hover flex items-center justify-center overflow-hidden shrink-0 ring-1 ring-white/5">
@@ -117,13 +139,25 @@ export default function InstanceCard({
         <div className="min-w-0 flex-1 pr-7">
           <h3 className="font-semibold text-[15px] text-text-primary truncate" title={instance.name}>{instance.name}</h3>
           <div className="flex items-center gap-1.5 mt-1 overflow-hidden whitespace-nowrap">
-            <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-md bg-bg-hover text-text-secondary border border-border">MC {instance.minecraft}</span>
+            <span className="shrink-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-bg-hover text-text-secondary border border-border"
+              title={instance.versionTrack ? `Se pone sola en la última ${instance.versionTrack === 'snapshot' ? 'snapshot' : 'versión'} al jugar` : undefined}>
+              MC {instance.minecraft}
+              {instance.versionTrack && instance.modloader !== 'forge' && instance.modloader !== 'neoforge' && <IconRefresh size={9} />}
+            </span>
             <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded-md border capitalize ${loaderStyle}`}>{instance.modloader}</span>
             {instance.modpackUrl && (
-              <span className="min-w-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-accent/10 text-accent border border-accent/20" title={`Modpack v${instance.modpackVersion ?? '?'}`}>
-                <IconPackage size={11} />
-                <span className="truncate">v{instance.modpackVersion ?? '?'}</span>
-              </span>
+              hasUpdate ? (
+                <span className="min-w-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                  title={`Modpack v${instance.modpackVersion ?? '?'} · hay una versión nueva${latestVersion ? ` (v${latestVersion})` : ''}`}>
+                  <IconPackage size={11} />
+                  <span className="truncate">v{instance.modpackVersion ?? '?'}{latestVersion ? ` → v${latestVersion}` : ''}</span>
+                </span>
+              ) : (
+                <span className="min-w-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-accent/10 text-accent border border-accent/20" title={`Modpack v${instance.modpackVersion ?? '?'} (al día)`}>
+                  <IconPackage size={11} />
+                  <span className="truncate">v{instance.modpackVersion ?? '?'}</span>
+                </span>
+              )
             )}
           </div>
         </div>
@@ -151,12 +185,11 @@ export default function InstanceCard({
             {playtime && <><span className="text-border">·</span>{playtime} jugado</>}
           </span>
         )}
-        {hasUpdate && (
-          <button onClick={onUpdate} title="Hay una versión nueva del modpack"
-            className="ml-auto shrink-0 inline-flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded-full hover:bg-amber-500/20 transition-colors">
-            <IconRefresh size={11} />
-            Actualizar
-          </button>
+        {hasUpdate && !isRunning && (
+          <span className="ml-auto shrink-0 inline-flex items-center gap-1 text-amber-400 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            Actualización disponible
+          </span>
         )}
       </div>
 
@@ -174,6 +207,30 @@ export default function InstanceCard({
                 showExtraConfirm ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-bg-card border-border text-text-secondary hover:border-accent/40 hover:text-accent'
               }`}>
               <IconRefresh size={15} />
+            </button>
+          </div>
+        ) : hasUpdate && onUpdate ? (
+          // Con actualización: el botón de actualizar va a la vista, al lado de Jugar
+          <div className="flex gap-2">
+            <button onClick={onUpdate} disabled={isUpdating || isLaunching}
+              title={latestVersion ? `Actualizar el modpack a la v${latestVersion}` : 'Actualizar el modpack'}
+              className="flex-1 min-w-0 h-11 flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-400 disabled:bg-amber-500/40 text-black text-sm font-semibold rounded-xl transition-colors shadow-sm shadow-amber-500/20">
+              {isUpdating ? (
+                <>
+                  <svg className="animate-spin w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.3" />
+                    <path d="M21 12a9 9 0 00-9-9" />
+                  </svg>
+                  <span className="truncate">Actualizando…</span>
+                </>
+              ) : (
+                <><IconRefresh size={14} /><span className="truncate">{latestVersion ? `Actualizar a v${latestVersion}` : 'Actualizar'}</span></>
+              )}
+            </button>
+            <button onClick={onPlay} disabled={isLaunching || isUpdating} title="Jugar (te preguntará si quieres actualizar antes)"
+              className="h-11 px-4 flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-hover disabled:bg-accent/40 text-white text-sm font-semibold rounded-xl transition-colors">
+              <IconPlay size={14} />
+              {isLaunching ? '…' : 'Jugar'}
             </button>
           </div>
         ) : (

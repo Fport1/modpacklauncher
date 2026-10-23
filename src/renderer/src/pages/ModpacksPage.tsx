@@ -178,7 +178,7 @@ function ModpackIcon({ instanceId }: { instanceId: string }) {
 export default function ModpacksPage() {
   const instances = useStore((s) => s.instances)
   const pendingFpackFile = useStore(s => s.pendingFpackFile)
-  const { addInstance, updateInstance: updateInstanceStore, setInstances, setPendingFpackFile, setOpenDetailInstanceId } = useStore()
+  const { addInstance, updateInstance: updateInstanceStore, setInstances, setPendingFpackFile, setOpenDetailInstanceId } = useStore.getState()
   const navigate = useNavigate()
 
   const modpackInstances = instances.filter((i) => i.modpackUrl)

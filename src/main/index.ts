@@ -9,6 +9,7 @@ import { closeAllPaneWindows } from './popout'
 import { nativeTitleBar } from './titleBar'
 import { registerSocialSession } from './socialSession'
 import { registerSocialBridge } from './social'
+import { attachContextMenu } from './contextMenu'
 
 let socialSessionRegistered = false
 
@@ -110,6 +111,8 @@ function createWindow(): void {
     }
   })
 
+  attachContextMenu(mainWindow)
+
   mainWindow.webContents.on('will-navigate', (event) => {
     event.preventDefault()
   })
@@ -143,6 +146,18 @@ function createWindow(): void {
   // Titlebar window controls
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false))
+
+  // Con Minecraft abierto la GPU va muy cargada y, al maximizar, restaurar o volver de
+  // minimizado, Chromium a veces se queda con el dibujo anterior: la ventana se ve cortada
+  // o con trozos viejos. Se pide un repintado completo justo después de cada cambio.
+  const repaint = (): void => {
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.invalidate()
+    }, 60)
+  }
+  for (const ev of ['maximize', 'unmaximize', 'restore', 'show', 'resized', 'enter-full-screen', 'leave-full-screen'] as const) {
+    mainWindow.on(ev as 'maximize', repaint)
+  }
 }
 
 function handleDeepLink(url: string): void {
@@ -158,9 +173,12 @@ function handleDeepLink(url: string): void {
 }
 
 app.whenReady().then(() => {
-  // Allow camera access for QR scanning in the renderer
+  // Cámara (para leer QR) y portapapeles. Sin el permiso del portapapeles,
+  // navigator.clipboard.writeText fallaba con «Write permission denied» y botones como
+  // «Copiar dirección» no hacían nada.
+  const allowedPermissions = new Set(['media', 'clipboard-sanitized-write', 'clipboard-read'])
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === 'media')
+    callback(allowedPermissions.has(permission))
   })
 
   protocol.handle('media', async (request) => {
