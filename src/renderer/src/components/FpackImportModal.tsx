@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Instance, ModpackManifest } from '../../../shared/types'
+import ProtectionNotice from './ProtectionNotice'
 
 const MODLOADER_ICON: Record<string, string> = {
   fabric: '🧵', forge: '⚙️', quilt: '🪡', neoforge: '🔩', vanilla: '🟩'
@@ -16,6 +17,7 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [installing, setInstalling] = useState(false)
+  const [accountId, setAccountId] = useState<string | null>(null)
 
   useEffect(() => {
     window.api.fpack.readManifest(filePath)
@@ -23,9 +25,11 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
       .catch(e => setError(e?.message ?? 'Archivo .fpack inválido'))
   }, [filePath])
 
-  function install() {
+  async function install() {
     if (!manifest || !name.trim() || installing) return
-    window.api.fpack.import(filePath, name.trim())
+    const problem = await window.api.modpacks.checkInstall(manifest, accountId ?? undefined)
+    if (problem) { setError(problem); return }
+    window.api.fpack.import(filePath, name.trim(), accountId ?? undefined)
       .then(inst => onInstalled(inst))
       .catch(() => {})
     onClose()
@@ -89,6 +93,10 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
               onKeyDown={e => e.key === 'Enter' && install()}
               autoFocus
             />
+
+            {manifest.protection && (
+              <div className="mb-4"><ProtectionNotice protection={manifest.protection} accountId={accountId} onAccount={setAccountId} /></div>
+            )}
 
             {error && (
               <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400 mb-4">{error}</div>

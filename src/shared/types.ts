@@ -45,7 +45,14 @@ export interface Instance {
    */
   versionTrack?: 'release' | 'snapshot'
   /** Instancia especial: la carpeta .minecraft del launcher oficial. */
-  kind?: 'dotminecraft'
+  kind?: 'dotminecraft' | 'horizon'
+  /** Instancia Horizon (Minecraft en Rust): versión fija; sin ella, siempre la más nueva */
+  horizonTag?: string
+  /**
+   * Modpack protegido por su creador (solo para enseñarlo: lo que manda es el registro
+   * cifrado del proceso principal, que no se puede editar a mano).
+   */
+  protection?: InstanceProtection
 }
 
 /** Id fijo de la instancia que representa la carpeta .minecraft del launcher oficial. */
@@ -77,6 +84,40 @@ export interface ModpackManifest {
   // fpack linking — if set, import fetches a fresh manifest from this URL
   sourceUrl?: string
   sourceKey?: string
+  /** Reglas del creador: caducidad, cuenta obligatoria y qué puede cambiar quien lo instale */
+  protection?: ModpackProtection
+  /** files.zip va cifrado (modpacks protegidos): AES-256-GCM, todo en base64 */
+  filesZipCipher?: { key: string; iv: string; tag: string }
+}
+
+/**
+ * Lo que el creador de un modpack permite o exige. Si un modpack trae esto, la instancia
+ * queda protegida: no se puede duplicar, exportar ni sacar su contenido, y solo se cambia
+ * lo que `allow` deja.
+ */
+export interface ModpackProtection {
+  /** Momento (UTC, ms) en que el modpack se borra solo */
+  expiresAt?: number
+  /** Zona horaria del creador, para enseñar a qué hora suya caduca */
+  expiresTz?: string
+  /** Solo se puede jugar con la cuenta elegida al instalar; `until` (UTC, ms) la libera */
+  account?: { until?: number }
+  allow: {
+    /** Cambiar ajustes del juego: controles, vídeo, sonido… */
+    options: boolean
+    /** Añadir o quitar resource packs y shaders */
+    packs: boolean
+    /** Añadir mods propios (los del modpack nunca se pueden quitar) */
+    mods: boolean
+    /** Abrir la carpeta y ver o editar la configuración de los mods */
+    files: boolean
+  }
+}
+
+/** Lo que una instancia protegida enseña de sus reglas (la llave nunca sale del proceso principal). */
+export interface InstanceProtection extends ModpackProtection {
+  /** La cuenta a la que quedó atada al instalar */
+  boundAccount?: { uuid: string; name: string }
 }
 
 export interface ModEntry {
@@ -452,6 +493,78 @@ export interface NbtDocument {
 export type NbtTagType =
   | 'byte' | 'short' | 'int' | 'long' | 'float' | 'double' | 'string'
   | 'list' | 'compound' | 'byteArray' | 'shortArray' | 'intArray' | 'longArray'
+
+/** Un trozo de textura dibujado en un rectángulo (0 a 1) de una cara o del icono. */
+export interface RenderPart {
+  url: string
+  /** Tamaño de la imagen entera */
+  iw: number
+  ih: number
+  /** Recorte en píxeles de la imagen */
+  sx: number
+  sy: number
+  sw: number
+  sh: number
+  /** Dónde va, de 0 a 1 */
+  dx: number
+  dy: number
+  dw: number
+  dh: number
+  /** Color que multiplica (hierba, hojas, cuero teñido…) */
+  tint?: string
+  /** Darle la vuelta en vertical (modelos de entidad boca abajo) */
+  flipY?: boolean
+}
+export interface RenderFace { parts: RenderPart[] }
+/** Cómo se dibuja un objeto en el inventario: plano (icono) o como bloque en 3D. */
+export type ItemRender =
+  | { kind: 'flat'; parts: RenderPart[] }
+  | { kind: 'cube'; sx: number; sy: number; sz: number; top: RenderFace; left: RenderFace; right: RenderFace }
+
+/** Un logro del juego tal como viene en data/minecraft/advancement. */
+export interface AdvancementDef {
+  id: string
+  /** story, nether, end, adventure, husbandry… */
+  tab: string
+  parent?: string
+  criteria: string[]
+  requirements?: string[][]
+  display?: {
+    icon: string
+    title: unknown
+    description: unknown
+    frame: 'task' | 'goal' | 'challenge'
+    background?: string
+    hidden: boolean
+  }
+}
+
+/** Progreso de un jugador: advancements/<uuid>.json */
+export type AdvancementProgress = Record<string, { criteria: Record<string, string>; done: boolean } | number>
+
+/** Dónde guarda cada cosa un mundo (cambió en la 26.1). */
+export interface WorldLayout {
+  modern: boolean
+  playerData: string
+  advancements: string
+  stats: string
+  scoreboard: string
+}
+
+export interface WorldPlayer {
+  uuid: string
+  name?: string
+  /** Las cuentas premium tienen UUID versión 4; las no premium, versión 3 (sacada del nombre). */
+  premium: boolean
+  /** De dónde salió el nombre */
+  nameFrom?: 'usercache' | 'mojang' | 'bukkit' | 'launcher' | 'offline-match'
+  file: string
+  hasAdvancements: boolean
+  hasStats: boolean
+  modified: number
+}
+
+export type TransferArea = 'inventory' | 'enderchest' | 'xp' | 'advancements' | 'recipes' | 'stats' | 'position'
 
 export interface NbtTag {
   type: NbtTagType

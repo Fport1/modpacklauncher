@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus, TransferPlan, TransferRequest, TransferResult } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus, TransferPlan, TransferRequest, TransferResult, ItemRender, AdvancementDef, AdvancementProgress, WorldLayout, WorldPlayer, TransferArea } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -58,6 +58,8 @@ const api = {
     loginOffline: (username: string) =>
       ipcRenderer.invoke('auth:login-offline', username) as Promise<MinecraftAccount>,
     logout: (accountId: string) => ipcRenderer.invoke('auth:logout', accountId),
+    /** Modpacks protegidos que solo se pueden jugar con esta cuenta */
+    boundInstances: (accountId: string) => ipcRenderer.invoke('auth:bound-instances', accountId) as Promise<string[]>,
     getAccounts: () =>
       ipcRenderer.invoke('auth:get-accounts') as Promise<{
         accounts: MinecraftAccount[]
@@ -182,8 +184,12 @@ const api = {
   // Modpacks
   modpacks: {
     fetch: (url: string, key?: string) => ipcRenderer.invoke('modpacks:fetch', url, key) as Promise<ModpackManifest>,
-    install: (instanceId: string, manifest: ModpackManifest) =>
-      ipcRenderer.invoke('modpacks:install', instanceId, manifest),
+    /** opts.accountId: la cuenta a la que se ata un modpack con «cuenta obligatoria» */
+    install: (instanceId: string, manifest: ModpackManifest, opts?: { accountId?: string }) =>
+      ipcRenderer.invoke('modpacks:install', instanceId, manifest, opts),
+    /** Si un modpack protegido se puede instalar (caducado, ya instalado, otra cuenta): el motivo o null */
+    checkInstall: (manifest: ModpackManifest, accountId?: string) =>
+      ipcRenderer.invoke('modpacks:check-install', manifest, accountId) as Promise<string | null>,
     update: (instanceId: string, manifestUrl: string) =>
       ipcRenderer.invoke('modpacks:update', instanceId, manifestUrl) as Promise<{
         upToDate: boolean
@@ -204,6 +210,7 @@ const api = {
       minecraft: string; modloader: string; modloaderVersion?: string
       selectedPaths: string[]; accessKey?: string
       gameOptions?: { controls: 'default' | 'mine'; settings: 'default' | 'mine'; groups?: Partial<Record<'video' | 'sound' | 'language' | 'input' | 'other', boolean>>; activePacks: boolean }; serverList?: boolean
+      protection?: import('../shared/types').ModpackProtection
     }) => ipcRenderer.invoke('modpacks:export', params) as Promise<string>,
     // Qué se puede exportar, explicado (modo fácil)
     exportPlan: (instanceId: string) => ipcRenderer.invoke('modpacks:export-plan', instanceId) as Promise<{
@@ -416,8 +423,8 @@ const api = {
     },
     readManifest: (filePath: string) =>
       ipcRenderer.invoke('fpack:read-manifest', filePath) as Promise<ModpackManifest>,
-    import: (filePath: string, instanceName: string) =>
-      ipcRenderer.invoke('fpack:import', filePath, instanceName) as Promise<import('../shared/types').Instance>,
+    import: (filePath: string, instanceName: string, accountId?: string) =>
+      ipcRenderer.invoke('fpack:import', filePath, instanceName, accountId) as Promise<import('../shared/types').Instance>,
     onProgress: (cb: (data: { current: number; total: number; message: string }) => void) => {
       const handler = (_e: Electron.IpcRendererEvent, d: { current: number; total: number; message: string }) => cb(d)
       ipcRenderer.on('fpack:progress', handler)
@@ -528,7 +535,33 @@ const api = {
   },
 
   mc: {
-    textures: (keys: string[]) => ipcRenderer.invoke('mc:textures', keys) as Promise<Record<string, string | null>>
+    textures: (keys: string[]) => ipcRenderer.invoke('mc:textures', keys) as Promise<Record<string, string | null>>,
+    /** Cómo dibujar cada objeto (plano o en 3D), resuelto con los modelos del juego */
+    itemRenders: (ids: string[]) => ipcRenderer.invoke('mc:item-renders', ids) as Promise<Record<string, ItemRender | null>>,
+    /** Textos del juego en el idioma del launcher */
+    lang: () => ipcRenderer.invoke('mc:lang') as Promise<Record<string, string>>,
+    advancements: () => ipcRenderer.invoke('mc:advancements') as Promise<AdvancementDef[]>,
+  },
+
+  world: {
+    layout: (worldDir: string) => ipcRenderer.invoke('world:layout', worldDir) as Promise<WorldLayout>,
+    players: (worldDir: string) => ipcRenderer.invoke('world:players', worldDir) as Promise<WorldPlayer[]>,
+    premiumUuid: (name: string) => ipcRenderer.invoke('world:premium-uuid', name) as Promise<{ uuid: string; name: string } | null>,
+    offlineUuid: (name: string) => ipcRenderer.invoke('world:offline-uuid', name) as Promise<string>,
+    readAdvancements: (worldDir: string, uuid: string) => ipcRenderer.invoke('world:advancements-read', worldDir, uuid) as Promise<AdvancementProgress>,
+    writeAdvancements: (worldDir: string, uuid: string, data: AdvancementProgress) => ipcRenderer.invoke('world:advancements-write', worldDir, uuid, data) as Promise<void>,
+    /** Pasa lo de un jugador a otro; areas vacío = todo. Copia antes lo del destino a <mundo>/fport1-backups */
+    transfer: (worldDir: string, from: string, to: string, areas: TransferArea[], toName?: string) =>
+      ipcRenderer.invoke('world:transfer', worldDir, from, to, areas, toName) as Promise<{ backup: string; created: boolean; done: TransferArea[] }>,
+    /** Lo mismo en el mundo de un servidor conectado (la ruta es la del servidor) */
+    remote: {
+      layout: (world: string) => ipcRenderer.invoke('world:remote-layout', world) as Promise<WorldLayout>,
+      players: (world: string) => ipcRenderer.invoke('world:remote-players', world) as Promise<WorldPlayer[]>,
+      readAdvancements: (world: string, uuid: string) => ipcRenderer.invoke('world:remote-advancements-read', world, uuid) as Promise<AdvancementProgress>,
+      writeAdvancements: (world: string, uuid: string, data: AdvancementProgress) => ipcRenderer.invoke('world:remote-advancements-write', world, uuid, data) as Promise<void>,
+      transfer: (world: string, from: string, to: string, areas: TransferArea[], toName?: string) =>
+        ipcRenderer.invoke('world:remote-transfer', world, from, to, areas, toName) as Promise<{ backup: string; created: boolean; done: TransferArea[] }>,
+    },
   },
 
   assist: {
@@ -727,6 +760,14 @@ const api = {
   },
 
   // Game process events
+  /** Modpacks protegidos que están a punto de caducar o que ya caducaron y se borraron */
+  onProtectionEvent: (cb: (event: 'expiring' | 'expired', info: { id: string; name: string; expiresAt: number }) => void) => {
+    const onExpiring = (_e: Electron.IpcRendererEvent, info: { id: string; name: string; expiresAt: number }) => cb('expiring', info)
+    const onExpired = (_e: Electron.IpcRendererEvent, info: { id: string; name: string; expiresAt: number }) => cb('expired', info)
+    ipcRenderer.on('protection:expiring', onExpiring)
+    ipcRenderer.on('protection:expired', onExpired)
+    return () => { ipcRenderer.removeListener('protection:expiring', onExpiring); ipcRenderer.removeListener('protection:expired', onExpired) }
+  },
   onGameStarted: (cb: (instanceId: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, id: string) => cb(id)
     ipcRenderer.on('game:started', handler)

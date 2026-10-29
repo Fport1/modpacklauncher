@@ -582,9 +582,10 @@ function AuthGate({ mcUsername }: { mcUsername: string }) {
     setGoogleErr('')
     setWaitingGoogle(true)
 
-    // Generate a short random session code
-    const code = Array.from(crypto.getRandomValues(new Uint8Array(8)))
-      .map(b => b.toString(36)).join('').slice(0, 10)
+    // Código de un solo uso: quien lo conozca puede leer los tokens de Google
+    // mientras el documento exista, así que tiene que ser imposible de adivinar
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(20)))
+      .map(b => (b % 36).toString(36)).join('')
     setSessionCode(code)
 
     // Open the web auth page with the code so it can write to Firestore
@@ -598,6 +599,8 @@ function AuthGate({ mcUsername }: { mcUsername: string }) {
 
       const data = snap.data()
       const { idToken, accessToken } = data as { idToken: string; accessToken: string }
+      // Los tokens no se quedan en Firestore pase lo que pase
+      deleteDoc(sessionRef).catch(() => {})
 
       if (!idToken) {
         const keys = Object.keys(data ?? {}).join(', ')
@@ -609,7 +612,6 @@ function AuthGate({ mcUsername }: { mcUsername: string }) {
       try {
         const credential = GoogleAuthProvider.credential(idToken, accessToken || null)
         await signInWithCredential(socialAuth, credential)
-        await deleteDoc(sessionRef).catch(() => {})
         setWaitingGoogle(false)
       } catch (ex: any) {
         const code = (ex as any)?.code ?? 'unknown'
@@ -621,6 +623,7 @@ function AuthGate({ mcUsername }: { mcUsername: string }) {
     // Timeout after 5 minutes
     setTimeout(() => {
       unsubSnap()
+      deleteDoc(sessionRef).catch(() => {})
       setWaitingGoogle(false)
       setGoogleErr('Tiempo de espera agotado. Intenta de nuevo.')
     }, 5 * 60 * 1000)

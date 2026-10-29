@@ -270,6 +270,15 @@ export default function SettingsPage() {
   }
 
   async function logout(account: MinecraftAccount) {
+    // Si hay modpacks protegidos atados a esta cuenta, avisar: no se podrán jugar hasta volver a añadirla
+    const bound = await window.api.auth.boundInstances(account.id).catch(() => [] as string[])
+    if (bound.length && !window.confirm(
+      `${bound.length === 1 ? `El modpack «${bound[0]}» solo se puede jugar` : `Los modpacks ${bound.map((n) => `«${n}»`).join(', ')} solo se pueden jugar`} con «${account.username}».
+
+${account.type === 'microsoft'
+  ? 'Si quitas la cuenta no podrás jugarlos hasta que vuelvas a iniciar sesión con ella.'
+  : 'Es una cuenta no premium: si la quitas no podrás volver a jugarlos, porque una cuenta nueva con el mismo nombre cuenta como otra distinta.'} ¿Quitarla igualmente?`
+    )) return
     await window.api.auth.logout(account.id)
     removeAccount(account.id)
   }

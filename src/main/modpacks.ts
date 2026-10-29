@@ -4,12 +4,13 @@ import path from 'path'
 import crypto from 'crypto'
 import os from 'os'
 import AdmZip from 'adm-zip'
-import type { ModpackManifest, PackFile, Modloader, PublishedModpack } from '../shared/types'
+import type { ModpackManifest, ModpackProtection, PackFile, Modloader, PublishedModpack } from '../shared/types'
 import { getInstanceGameDir, resolveInstanceDir, updateInstance, loadInstances } from './instances'
 import { downloadFile, fileMatchesHash, fileExists } from './downloader'
 import type { ProgressCallback } from './downloader'
 import { checkCancel } from './cancelToken'
 import { safeJoin, trySafeJoin } from './paths'
+import { checkProtectedInstall, decryptPackZip, encryptPackZip, isProtected, protectInstance } from './protection'
 
 // ── URL normalizer ──────────────────────────────────────────────────────────
 
@@ -53,7 +54,25 @@ async function getMetaPath(instanceId: string): Promise<string> {
 }
 
 export async function saveLocalManifest(instanceId: string, manifest: ModpackManifest): Promise<void> {
-  await fs.writeJson(await getMetaPath(instanceId), manifest, { spaces: 2 })
+  // La llave del files.zip de un modpack protegido no se deja en la carpeta del juego
+  const { filesZipCipher: _key, ...rest } = manifest
+  await fs.writeJson(await getMetaPath(instanceId), rest, { spaces: 2 })
+}
+
+/** Descarga files.zip; si el modpack es protegido viene cifrado y se descifra aquí. */
+async function downloadPackZip(manifest: ModpackManifest, dest: string, onProgress: ProgressCallback | undefined, label: string): Promise<void> {
+  const raw = manifest.filesZipCipher ? `${dest}.enc` : dest
+  await downloadFile(normalizeUrl(manifest.filesZip!), raw, (c, t, _name, detail) =>
+    onProgress?.(c, t, label, { ...detail, phase: label }))
+  if (manifest.filesZipCipher) {
+    try { await decryptPackZip(raw, dest, manifest.filesZipCipher) }
+    finally { await fs.remove(raw).catch(() => {}) }
+  }
+}
+
+export interface InstallOptions {
+  /** Cuenta a la que se ata un modpack con «cuenta obligatoria» */
+  account?: { uuid: string; name: string }
 }
 
 export async function loadLocalManifest(instanceId: string): Promise<ModpackManifest | null> {
@@ -146,9 +165,13 @@ function validateManifest(m: unknown): asserts m is ModpackManifest {
 export async function installModpack(
   instanceId: string,
   manifest: ModpackManifest,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  opts: InstallOptions = {}
 ): Promise<void> {
   const gameDir = await getInstanceGameDir(instanceId)
+  // Protegido: antes de descargar nada, que no esté caducado ni instalado ya
+  const problem = await checkProtectedInstall(manifest, opts.account, instanceId)
+  if (problem) throw new Error(problem)
 
   if (manifest.filesZip) {
     const tmpZip = path.join(os.tmpdir(), `modpack-${instanceId}-${Date.now()}.zip`)
@@ -156,8 +179,7 @@ export async function installModpack(
       checkCancel()
       onProgress?.(0, 2, 'Descargando modpack...', { phase: 'Descarga del modpack' })
       console.log(`[modpack] Descargando ${manifest.name} ${manifest.version} desde ${manifest.filesZip}`)
-      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip, (c, t, _name, detail) =>
-        onProgress?.(c, t, 'Descargando modpack...', { ...detail, phase: 'Descarga del modpack' }))
+      await downloadPackZip(manifest, tmpZip, onProgress, 'Descargando modpack...')
       checkCancel()
       const zip = new AdmZip(tmpZip)
       const entries = zip.getEntries().filter(e => !e.isDirectory)
@@ -219,6 +241,12 @@ export async function installModpack(
     } catch { /* thumbnail optional */ }
   }
 
+  // Modpack con reglas del creador: mods y config a la bóveda cifrada
+  if (manifest.protection && !(await isProtected(instanceId))) {
+    onProgress?.(2, 2, 'Protegiendo el modpack...', { phase: 'Protección' })
+    await protectInstance(instanceId, manifest.protection, opts.account, manifest.id)
+  }
+
   onProgress?.(2, 2, '¡Modpack instalado!')
 }
 
@@ -251,8 +279,7 @@ export async function updateModpack(
     try {
       checkCancel()
       onProgress?.(0, 2, 'Descargando actualización...', { phase: 'Descarga de la actualización' })
-      await downloadFile(normalizeUrl(manifest.filesZip), tmpZip, (c, t, _name, detail) =>
-        onProgress?.(c, t, 'Descargando actualización...', { ...detail, phase: 'Descarga de la actualización' }))
+      await downloadPackZip(manifest, tmpZip, onProgress, 'Descargando actualización...')
       checkCancel()
       onProgress?.(1, 2, 'Extrayendo archivos...', { phase: 'Extracción' })
       const zip = new AdmZip(tmpZip)
@@ -371,6 +398,8 @@ export interface ExportParams {
   gameOptions?: GameOptionsExport
   /** La lista de servidores del creador, también solo como valor inicial */
   serverList?: boolean
+  /** Caducidad, cuenta obligatoria y permisos de quien lo instale */
+  protection?: ModpackProtection
 }
 
 export interface GameOptionsExport {
@@ -739,7 +768,11 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
     zip.addFile(file.relativePath, buf)
     packFiles.push({ path: file.relativePath, sha256: file.sha256, url: '' })
   }
-  const zipBuffer = zip.toBuffer()
+  // Modpack protegido: el zip se sube cifrado; la llave va en el manifiesto (que a su vez
+  // se cifra si hay clave de acceso), así que bajar files.zip a mano no da los mods
+  const plainZip = zip.toBuffer()
+  const sealedZip = params.protection ? encryptPackZip(plainZip) : null
+  const zipBuffer = sealedZip ? sealedZip.data : plainZip
 
   // Step 2 — GitHub auth
   onProgress('Conectando con GitHub...', 2, EXPORT_TOTAL_STEPS)
@@ -777,7 +810,9 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
     modloader: modloader as Modloader,
     modloaderVersion: modloaderVersion || undefined,
     filesZip: zipUrl,
-    files: packFiles.map(f => ({ ...f, url: zipUrl }))
+    files: packFiles.map(f => ({ ...f, url: zipUrl })),
+    ...(params.protection ? { protection: params.protection } : {}),
+    ...(sealedZip ? { filesZipCipher: sealedZip.cipher } : {})
   }
   try {
     const instanceDir = await resolveInstanceDir(instanceId)
@@ -940,7 +975,8 @@ export async function readFpackManifest(fpackPath: string): Promise<ModpackManif
 export async function importFpack(
   fpackPath: string,
   instanceId: string,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  opts: InstallOptions = {}
 ): Promise<void> {
   const zip = new AdmZip(fpackPath)
   const manifest = await readFpackManifest(fpackPath)
@@ -979,7 +1015,10 @@ export async function importFpack(
   // Use installModpack only when fresh manifest has a filesZip (single download = fast)
   // Otherwise always use the parallel no-hash loop
   if (hasFreshManifest && activeManifest.filesZip) {
-    await installModpack(instanceId, activeManifest, onProgress)
+    await installModpack(instanceId, activeManifest, onProgress, opts)
+  } else if (activeManifest.protection) {
+    // Un modpack protegido no se instala desde una copia sin su archivo cifrado
+    throw new Error('Este modpack está protegido y hace falta conexión para instalarlo.')
   } else {
     const files = (activeManifest.files ?? []).filter(f => !!f.url)
     let completed = 0

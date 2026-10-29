@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import type { Instance } from '../../../shared/types'
 import FpackSaveModal from './FpackSaveModal'
 import QRDisplay from './QRDisplay'
+import ExportProtection, { EMPTY_PROTECTION, protectionProblem, toProtection, type ProtectionDraft } from './export/ExportProtection'
 import { ExportContentPicker, ExportStartOptions, ExportStartPicker, presetFor, toGameOptions, NO_GROUPS, type ExportPlanData, type ExportStart, type StartOptions } from './export/ExportEasy'
 
 interface Props {
@@ -201,6 +202,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
   const [chosen, setChosen] = useState<Set<string>>(new Set())
   const [worlds, setWorlds] = useState<Set<string>>(new Set())
   const [startOpts, setStartOpts] = useState<StartOptions>({ controls: 'default', groups: { ...NO_GROUPS }, activePacks: false, serverList: false })
+  const [protection, setProtection] = useState<ProtectionDraft>(EMPTY_PROTECTION)
 
   // Export state
   const [accessKey, setAccessKey] = useState('')
@@ -324,6 +326,8 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
     if (!name.trim() || !version.trim() || !repoName.trim()) { setError('Rellena todos los campos obligatorios.'); return }
     const paths = mode === 'easy' ? [...chosen, ...worlds] : [...selected]
     if (paths.length === 0) { setError('Elige al menos qué incluir.'); return }
+    const protProblem = protectionProblem(protection)
+    if (protProblem) { setError(protProblem); return }
 
     setError('')
     setResultUrl('')
@@ -347,6 +351,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
         selectedPaths: paths,
         accessKey: accessKey.trim() || undefined,
         gameOptions: toGameOptions(startOpts),
+        protection: toProtection(protection),
         serverList: startOpts.serverList
       })
       setResultUrl(url)
@@ -517,7 +522,11 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                     <p className="text-xs font-semibold text-text-primary">3. Controles y ajustes</p>
                     <ExportStartOptions plan={plan} value={startOpts} onChange={setStartOpts} />
                   </section>
-                  <p className="text-xs font-semibold text-text-primary pt-1">4. Datos del modpack</p>
+                  <section className="space-y-2">
+                    <p className="text-xs font-semibold text-text-primary">4. Protección <span className="font-normal text-text-muted">(opcional)</span></p>
+                    <ExportProtection value={protection} onChange={setProtection} />
+                  </section>
+                  <p className="text-xs font-semibold text-text-primary pt-1">5. Datos del modpack</p>
                 </>
               )}
 
@@ -650,6 +659,12 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                 <section className="space-y-2">
                   <p className="text-xs font-semibold text-text-primary">Controles y ajustes</p>
                   <ExportStartOptions plan={plan} value={startOpts} onChange={setStartOpts} />
+                </section>
+              )}
+              {mode === 'advanced' && (
+                <section className="space-y-2">
+                  <p className="text-xs font-semibold text-text-primary">Protección <span className="font-normal text-text-muted">(opcional)</span></p>
+                  <ExportProtection value={protection} onChange={setProtection} />
                 </section>
               )}
             </>

@@ -15,6 +15,7 @@ import { getMonacoLanguage } from '../lib/monacoLanguage'
 import { dominantColor } from '../lib/dominantColor'
 import { cachedInstanceIcon, cachedInstanceColor, loadInstanceIcon } from '../lib/instanceIcons'
 import WorldDatapacks from './WorldDatapacks'
+import WorldPlayers from './WorldPlayers'
 import AiContextModal from './AiContextModal'
 import ContentBrowser, { type BrowseTarget, type InstalledIndex } from './content/ContentBrowser'
 import type { ProjectRef } from '../lib/contentSources'
@@ -557,7 +558,9 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [worldFiles, setWorldFiles] = useState<ConfigFile[]>([])
   const [editingWorldFile, setEditingWorldFile] = useState<{ path: string; name: string; content: string; savedContent: string } | null>(null)
   // Archivos NBT del mundo (level.dat, scoreboard.dat, playerdata) en modo sencillo o avanzado
-  const [worldNbt, setWorldNbt] = useState<{ path: string; name: string; kind: NbtKind; playerName?: string } | null>(null)
+  const [worldNbt, setWorldNbt] = useState<{ path: string; name: string; kind: NbtKind; playerName?: string; advancements?: { worldDir: string; uuid: string } } | null>(null)
+  // Jugadores de un mundo (lista, logros y transferencias)
+  const [playersWorld, setPlayersWorld] = useState<string | null>(null)
   const worldNbtClose = useRef<CloseRequest | null>(null)
   const worldNbtNav = useRef<number | null>(null)
   const [worldEditorSaving, setWorldEditorSaving] = useState(false)
@@ -1080,9 +1083,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   }
 
   /** Abre un .dat del mundo con el editor sencillo que le toque (o el árbol NBT). */
-  async function openWorldNbt(relPath: string[]) {
+  async function openWorldNbt(relPath: string[], knownName?: string) {
     const name = relPath[relPath.length - 1]
     const saves = await window.api.instances.savesPath(instance.id)
+    const worldDir = localJoin(saves, relPath[0])
+    let advancements: { worldDir: string; uuid: string } | undefined
     const full = relPath.reduce((acc, part) => localJoin(acc, part), saves)
     const k = fileKindOf(name, () => false)
     const kind: NbtKind = k === 'level' || k === 'scoreboard' || k === 'playerdata' ? k : 'nbt'
@@ -1093,15 +1098,20 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
       playerName = st.accounts.find((a) => a.id === st.activeAccountId)?.username
     } else if (kind === 'playerdata') {
       const uuid = PLAYER_FILE.exec(name)?.[1]?.toLowerCase()
-      const cache = await window.api.ftp.readOptional('local', localJoin(await window.api.ftp.localParent(saves), 'usercache.json'), 'text')
-      try { playerName = (JSON.parse(cache ?? '[]') as { name: string; uuid: string }[]).find((u) => u.uuid.toLowerCase() === uuid)?.name } catch { /* sin nombre */ }
+      if (uuid) advancements = { worldDir, uuid }
+      playerName = knownName
+      if (!playerName) {
+        // usercache, cuentas del launcher, datos de Paper o Mojang (lo mismo que la lista de jugadores)
+        const list = await window.api.world.players(worldDir).catch(() => [])
+        playerName = list.find((p) => p.uuid === uuid)?.name
+      }
     }
     // Atrás en el ratón vuelve a la lista, preguntando si hay cambios
     if (worldNbtNav.current === null) {
       worldNbtNav.current = nav.size()
       nav.push(() => { worldNbtClose.current ? worldNbtClose.current(closeWorldNbt) : closeWorldNbt() })
     }
-    setWorldNbt({ path: full, name, kind, playerName })
+    setWorldNbt({ path: full, name, kind, playerName, advancements })
   }
 
   function closeWorldNbt() {
@@ -2017,7 +2027,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           {/* ── WORLDS — Monaco editor ── */}
           {tab === 'worlds' && worldNbt && (
             <div className="flex-1 flex flex-col min-h-0 relative">
-              <NbtFileView name={worldNbt.name} location={worldNbt.path} kind={worldNbt.kind} playerName={worldNbt.playerName}
+              <NbtFileView name={worldNbt.name} location={worldNbt.path} kind={worldNbt.kind} playerName={worldNbt.playerName} advancements={worldNbt.advancements}
                 warning={isRunning ? 'El juego está abierto: ciérralo antes de guardar, o Minecraft sobrescribirá estos cambios al guardar el mundo.' : 'Guarda con el juego cerrado: si el mundo está abierto, Minecraft sobrescribe los cambios.'}
                 closeRef={worldNbtClose} onClose={closeWorldNbt}
                 load={() => window.api.nbt.readLocal(worldNbt.path)}
@@ -2173,6 +2183,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         onContextMenu={e => {
                           e.preventDefault()
                           setCtx({ x: e.clientX, y: e.clientY, items: [
+                            { label: 'Jugadores', action: () => setPlayersWorld(w.name) },
                             { label: 'Datapacks', action: () => setDatapacksWorld(w.name) },
                             { label: 'Crear backup', action: () => handleBackupWorld(w.name) },
                             { label: 'Eliminar', danger: true, action: () => deleteWorldItems([w.name]) }
@@ -2203,7 +2214,17 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
                           📦 Datapacks
                         </button>
-                        <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'data', 'scoreboard.dat']) }}
+                        <button onClick={e => { e.stopPropagation(); setPlayersWorld(w.name) }}
+                          title="Quién ha jugado, sus inventarios y logros, y pasar sus cosas de una cuenta a otra"
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          ☺ Jugadores
+                        </button>
+                        <button onClick={async e => {
+                          e.stopPropagation()
+                          // Desde la 26.1 el scoreboard está en data/minecraft/
+                          const layout = await window.api.world.layout(localJoin(await window.api.instances.savesPath(instance.id), w.name))
+                          openWorldNbt([w.name, ...layout.scoreboard.split('/')])
+                        }}
                           title="Equipos, objetivos y puntos (scoreboard)"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
                           ⚑ Equipos
@@ -2642,6 +2663,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           onDelete={s => deleteScreenshotItems([s.filename])}
         />
       )}
+      {playersWorld && (
+        <PlayersOverlay instanceId={instance.id} world={playersWorld} onClose={() => setPlayersWorld(null)}
+          onOpenPlayer={async (rel, name) => { setPlayersWorld(null); await openWorldNbt([playersWorld, ...rel], name) }} />
+      )}
       {datapacksWorld && (
         <WorldDatapacks instanceId={instance.id} minecraft={instance.minecraft} world={datapacksWorld} onClose={() => setDatapacksWorld(null)} />
       )}
@@ -2781,3 +2806,21 @@ function EmptyMsg({ msg }: { msg: string }) {
 }
 
 
+
+/** La lista de jugadores de un mundo de la instancia (necesita la ruta del mundo en disco). */
+function PlayersOverlay({ instanceId, world, onClose, onOpenPlayer }: {
+  instanceId: string; world: string; onClose: () => void
+  /** Abrir el .dat del jugador: ruta dentro del mundo y su nombre */
+  onOpenPlayer: (rel: string[], name?: string) => void
+}) {
+  const [worldDir, setWorldDir] = useState<string | null>(null)
+  useEffect(() => { window.api.instances.savesPath(instanceId).then((s) => setWorldDir(localJoin(s, world))) }, [instanceId, world])
+  if (!worldDir) return null
+  return (
+    <WorldPlayers worldDir={worldDir} worldName={world} onClose={onClose}
+      onOpenPlayer={async (p) => {
+        const layout = await window.api.world.layout(worldDir)
+        onOpenPlayer([...layout.playerData.split('/'), `${p.uuid}.dat`], p.name)
+      }} />
+  )
+}

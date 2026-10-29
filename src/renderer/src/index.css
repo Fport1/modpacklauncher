@@ -185,3 +185,11 @@ a.font-semibold, a.font-bold, label.font-semibold, label .font-semibold {
   -webkit-user-select: none;
   cursor: inherit;
 }
+/* Los propios botones y enlaces conservan la mano al pasar el ratón: la regla de arriba
+   les ponía cursor: inherit y Jugar, Cerrar… parecían no reaccionar. */
+button.font-bold, button.font-semibold, [role='button'].font-semibold,
+a.font-semibold, a.font-bold, a.cursor-pointer, .cursor-pointer.font-bold, .cursor-pointer.font-semibold {
+  cursor: pointer;
+}
+button:disabled.font-bold, button:disabled.font-semibold { cursor: default; }
+label.font-semibold { cursor: pointer; }

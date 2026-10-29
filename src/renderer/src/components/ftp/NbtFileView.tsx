@@ -21,6 +21,8 @@ interface Props {
   /** En archivos del servidor se avisa de que debe estar apagado. */
   remote?: boolean
   playerName?: string
+  /** Mundo y UUID del jugador (archivos de este equipo), para abrir sus logros */
+  advancements?: { worldDir: string; uuid: string; remote?: boolean }
   /** Aviso propio en vez del de servidor (p. ej. «cierra el juego antes de guardar»). */
   warning?: string
   load: () => Promise<NbtDocument>
@@ -29,7 +31,7 @@ interface Props {
   closeRef?: MutableRefObject<CloseRequest | null>
 }
 
-export default function NbtFileView({ name, location, kind, remote, playerName, warning, load, save, onClose, closeRef }: Props) {
+export default function NbtFileView({ name, location, kind, remote, playerName, advancements, warning, load, save, onClose, closeRef }: Props) {
   const [doc, setDoc] = useState<NbtDocument | null>(null)
   const [savedRoot, setSavedRoot] = useState<NbtTag | null>(null)
   const [loadError, setLoadError] = useState('')
@@ -137,7 +139,7 @@ export default function NbtFileView({ name, location, kind, remote, playerName, 
         <SimpleBoundary onFail={() => setMode('advanced')}>
           {kind === 'scoreboard' ? <ScoreboardSimple root={doc.root} mutate={mutate} />
             : kind === 'level' ? <LevelSimple root={doc.root} mutate={mutate} playerName={playerName} />
-              : <PlayerSimple root={doc.root} mutate={mutate} playerName={playerName} />}
+              : <PlayerSimple root={doc.root} mutate={mutate} playerName={playerName} advancements={advancements} />}
         </SimpleBoundary>
       )}
     </EditorShell>

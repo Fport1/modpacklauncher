@@ -5,7 +5,7 @@ import fs from 'fs'
 import FormData from 'form-data'
 import axios from 'axios'
 import { v4 as uuidv4 } from 'uuid'
-import type { Instance, MinecraftAccount, Settings, ModpackManifest, Friend, OpDetail } from '../shared/types'
+import type { Instance, MinecraftAccount, Settings, ModpackManifest, Friend, OpDetail, AdvancementProgress, TransferArea } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 import JsonStore from './store'
 import { loginMicrosoft, loginOffline, isTokenExpired, refreshMicrosoftToken } from './auth'
@@ -93,6 +93,8 @@ import {
   localReveal, pickLocalDir, serverDownloadsDir, ftpReadImage, localReadImage, ftpReconnect, ftpWriteBytes
 } from './ftp'
 import { getTextures } from './mcTextures'
+import { getItemRenders, getLang, getAdvancementDefs } from './mcAssets'
+import { worldLayout, listWorldPlayers, premiumUuidOf, offlineUuid, readAdvancements, writeAdvancements, transferPlayer, remoteWorldLayout, listRemoteWorldPlayers, readRemoteAdvancements, writeRemoteAdvancements, transferRemotePlayer } from './worldPlayers'
 import { bedrockStatus, bedrockLaunch, bedrockOpenStore } from './bedrock'
 import { applyBedrockWindow, disableBedrockFullscreen, getBedrockWindowSettings, placeBedrockWindowAfterLaunch, setBedrockWindowSettings, type BedrockWindowSettings } from './bedrockWindow'
 import { assistHostStart, assistHostStop, assistHostOp, assistHelperStart, assistHelperClosed } from './assist'
@@ -105,7 +107,8 @@ import { safeJoin } from './paths'
 import { planTransfer, runTransfer, type TransferRequest } from './transfer'
 import { cfGet as cfFetch, cfPost } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled, deleteWorldDatapack, addWorldDatapacks } from './worldDatapacks'
-import { hasRunningInstances, getRunningSnapshot } from './launcher'
+import { hasRunningInstances, getRunningSnapshot, isInstanceRunning } from './launcher'
+import { checkProtectedInstall, instancesBoundTo, guard, keepProtectedFields, sealedMods, removeProtection, withUnsealed, updateProtectionRules, checkLaunch, unsealForGame, resealAfterGame, resealLeftovers, startExpiryWatch } from './protection'
 import { aiContextStatus, prepareAiContext, prepareLauncherWorkspace, writeToolConfigs } from './aiContext'
 import { startAiBridge } from './aiBridge'
 import { setTelemetryEnabled, startTelemetry } from './telemetry'
@@ -253,7 +256,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     createInstance(data)
   )
 
-  ipcMain.handle('instances:update', (_e, instance: Instance) => updateInstance(instance))
+  ipcMain.handle('instances:update', async (_e, instance: Instance) => updateInstance(await keepProtectedFields(instance)))
 
   ipcMain.handle('instances:delete', async (_e, instanceId: string) => {
     const instances = await loadInstances()
@@ -262,6 +265,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     try {
       op.progress('Borrando archivos...', 0, 1)
       await deleteInstance(instanceId)
+      await removeProtection(instanceId)
       op.done('Instancia eliminada')
     } catch (err) {
       op.error(describeError(err, 'Error al eliminar'))
@@ -269,18 +273,24 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
   })
 
-  ipcMain.handle('instances:open-folder', (_e, instanceId: string) =>
-    openInstanceFolder(instanceId)
-  )
+  ipcMain.handle('instances:open-folder', async (_e, instanceId: string) => {
+    await guard(instanceId, 'files')
+    return openInstanceFolder(instanceId)
+  })
 
-  ipcMain.handle('instances:list-mods', (_e, instanceId: string) => listMods(instanceId))
+  // Con la bóveda cerrada la carpeta mods está vacía: se enseña lo que hay dentro
+  ipcMain.handle('instances:list-mods', async (_e, instanceId: string) => {
+    const sealed = await sealedMods(instanceId)
+    if (sealed) return sealed.map((m) => ({ filename: m.filename, size: m.size, enabled: !m.filename.endsWith('.disabled'), date: 0 }))
+    return listMods(instanceId)
+  })
   ipcMain.handle('instances:list-worlds', (_e, instanceId: string) => listWorlds(instanceId))
   ipcMain.handle('instances:list-resourcepacks', (_e, instanceId: string) => listResourcepacks(instanceId))
-  ipcMain.handle('instances:open-mods-folder', (_e, instanceId: string) => openModsFolder(instanceId))
+  ipcMain.handle('instances:open-mods-folder', async (_e, instanceId: string) => { await guard(instanceId, 'files'); return openModsFolder(instanceId) })
   ipcMain.handle('instances:open-saves-folder', (_e, instanceId: string) => openSavesFolder(instanceId))
-  ipcMain.handle('instances:open-resourcepacks-folder', (_e, instanceId: string) => openResourcepacksFolder(instanceId))
+  ipcMain.handle('instances:open-resourcepacks-folder', async (_e, instanceId: string) => { await guard(instanceId, 'packs'); return openResourcepacksFolder(instanceId) })
   ipcMain.handle('instances:list-shaderpacks', (_e, instanceId: string) => listShaderpacks(instanceId))
-  ipcMain.handle('instances:open-shaderpacks-folder', (_e, instanceId: string) => openShaderpacks(instanceId))
+  ipcMain.handle('instances:open-shaderpacks-folder', async (_e, instanceId: string) => { await guard(instanceId, 'packs'); return openShaderpacks(instanceId) })
   ipcMain.handle('instances:list-screenshots', (_e, instanceId: string) => listScreenshots(instanceId))
   ipcMain.handle('instances:open-screenshots-folder', (_e, instanceId: string) => openScreenshotsFolder(instanceId))
   ipcMain.handle('instances:list-crash-reports', (_e, instanceId: string) => listCrashReports(instanceId))
@@ -288,28 +298,32 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:read-latest-log', (_e, instanceId: string) => readLatestLog(instanceId))
   ipcMain.handle('instances:open-logs-folder', (_e, instanceId: string) => openLogsFolder(instanceId))
   ipcMain.handle('instances:open-crash-reports-folder', (_e, instanceId: string) => openCrashReportsFolder(instanceId))
-  ipcMain.handle('instances:list-config', (_e, instanceId: string, subPath?: string) => listConfigFiles(instanceId, subPath))
-  ipcMain.handle('instances:open-config-folder', (_e, instanceId: string) => openConfigFolder(instanceId))
-  ipcMain.handle('instances:read-config-file', (_e, instanceId: string, filePath: string) => readConfigFile(instanceId, filePath))
-  ipcMain.handle('instances:write-config-file', (_e, instanceId: string, filePath: string, content: string) => writeConfigFile(instanceId, filePath, content))
+  ipcMain.handle('instances:list-config', async (_e, instanceId: string, subPath?: string) => { await guard(instanceId, 'files'); return listConfigFiles(instanceId, subPath) })
+  ipcMain.handle('instances:open-config-folder', async (_e, instanceId: string) => { await guard(instanceId, 'files'); return openConfigFolder(instanceId) })
+  ipcMain.handle('instances:read-config-file', async (_e, instanceId: string, filePath: string) => { await guard(instanceId, 'files'); return readConfigFile(instanceId, filePath) })
+  ipcMain.handle('instances:write-config-file', async (_e, instanceId: string, filePath: string, content: string) => { await guard(instanceId, 'files'); return writeConfigFile(instanceId, filePath, content) })
   ipcMain.handle('instances:read-options', (_e, instanceId: string) => readOptionsFile(instanceId))
-  ipcMain.handle('instances:write-options', (_e, instanceId: string, content: string) => writeOptionsFile(instanceId, content))
+  ipcMain.handle('instances:write-options', async (_e, instanceId: string, content: string) => { await guard(instanceId, 'options'); return writeOptionsFile(instanceId, content) })
   ipcMain.handle('instances:list-world-files', (_e, instanceId: string, relativePath?: string) => listWorldFiles(instanceId, relativePath))
   ipcMain.handle('instances:read-world-file', (_e, instanceId: string, relativePath: string) => readWorldFile(instanceId, relativePath))
   ipcMain.handle('instances:write-world-file', (_e, instanceId: string, relativePath: string, content: string) => writeWorldFile(instanceId, relativePath, content))
   ipcMain.handle('instances:copy-files-to-world', (_e, instanceId: string, relativePath: string, filePaths: string[]) => copyFilesToWorld(instanceId, relativePath, filePaths))
-  ipcMain.handle('instances:toggle-mod', (_e, instanceId: string, filename: string) => toggleMod(instanceId, filename))
-  ipcMain.handle('instances:delete-mod', (_e, instanceId: string, filename: string) => deleteMod(instanceId, filename))
-  ipcMain.handle('instances:toggle-resourcepack', (_e, instanceId: string, filename: string) => toggleResourcepack(instanceId, filename))
-  ipcMain.handle('instances:delete-resourcepack', (_e, instanceId: string, filename: string) => deleteResourcepack(instanceId, filename))
-  ipcMain.handle('instances:toggle-shaderpack', (_e, instanceId: string, filename: string) => toggleShaderpack(instanceId, filename))
-  ipcMain.handle('instances:delete-shaderpack', (_e, instanceId: string, filename: string) => deleteShaderpack(instanceId, filename))
+  ipcMain.handle('instances:toggle-mod', async (_e, instanceId: string, filename: string) => { await guard(instanceId, 'mods', filename); return toggleMod(instanceId, filename) })
+  ipcMain.handle('instances:delete-mod', async (_e, instanceId: string, filename: string) => { await guard(instanceId, 'mods', filename); return deleteMod(instanceId, filename) })
+  ipcMain.handle('instances:toggle-resourcepack', async (_e, instanceId: string, filename: string) => { await guard(instanceId, 'packs'); return toggleResourcepack(instanceId, filename) })
+  ipcMain.handle('instances:delete-resourcepack', async (_e, instanceId: string, filename: string) => { await guard(instanceId, 'packs'); return deleteResourcepack(instanceId, filename) })
+  ipcMain.handle('instances:toggle-shaderpack', async (_e, instanceId: string, filename: string) => { await guard(instanceId, 'packs'); return toggleShaderpack(instanceId, filename) })
+  ipcMain.handle('instances:delete-shaderpack', async (_e, instanceId: string, filename: string) => { await guard(instanceId, 'packs'); return deleteShaderpack(instanceId, filename) })
   ipcMain.handle('instances:delete-world', (_e, instanceId: string, worldName: string) => deleteWorld(instanceId, worldName))
   ipcMain.handle('instances:delete-screenshot', (_e, instanceId: string, filename: string) => deleteScreenshot(instanceId, filename))
 
   // Pasar contenido entre instancias (también con .minecraft)
-  ipcMain.handle('transfer:plan', (_e, sourceId: string, targetId: string) => planTransfer(sourceId, targetId))
+  ipcMain.handle('transfer:plan', async (_e, sourceId: string, targetId: string) => {
+    await guard(sourceId, 'transfer'); await guard(targetId, 'transfer')
+    return planTransfer(sourceId, targetId)
+  })
   ipcMain.handle('transfer:run', async (_e, req: TransferRequest) => {
+    await guard(req.sourceId, 'transfer'); await guard(req.targetId, 'transfer')
     const instances = await loadInstances()
     const name = (id: string): string => instances.find((i) => i.id === id)?.name ?? 'instancia'
     const op = makeOpEmitter(`${req.mode === 'move' ? 'Moviendo' : 'Copiando'}: ${name(req.sourceId)} → ${name(req.targetId)}`, 'transfer-content')
@@ -326,6 +340,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('instances:duplicate', async (e, instanceId: string, newName: string) => {
+    await guard(instanceId, 'duplicate')
     const op = makeOpEmitter(`Duplicando → ${newName}`, 'duplicate-instance')
     const steps = ['Preparando...', 'Copiando archivos...', 'Finalizando...']
     try {
@@ -344,7 +359,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('instances:get-icon', (_e, instanceId: string) => getInstanceIconBase64(instanceId))
   ipcMain.handle('instances:list-default-icons', () => listDefaultIcons())
   ipcMain.handle('instances:check-name', (_e, name: string, excludeId?: string) => checkInstanceNameExists(name, excludeId))
-  ipcMain.handle('instances:list-game-dir', (_e, instanceId: string, subPath?: string) => listGameDirEntries(instanceId, subPath))
+  ipcMain.handle('instances:list-game-dir', async (_e, instanceId: string, subPath?: string) => { await guard(instanceId, 'files'); return listGameDirEntries(instanceId, subPath) })
   ipcMain.handle('instances:get-default-icon', () => getDefaultIconBase64())
   ipcMain.handle('instances:pick-icon-preview', () => pickIconPreview(getMainWindow()))
   ipcMain.handle('instances:apply-pending-icon', (_e, instanceId: string, filePath: string) => applyPendingIcon(instanceId, filePath))
@@ -370,6 +385,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('launcher:launch', (_e, instanceId: string) => launchById(instanceId))
   // La IA arranca el juego por el mismo camino que el botón Jugar
   startAiBridge(launchById)
+  // Modpacks protegidos: lo que quedó descifrado (el launcher se cerró con el juego abierto)
+  // se vuelve a cifrar, y los que caducan avisan 10 minutos antes y se borran a su hora
+  resealLeftovers(isInstanceRunning).catch(() => {})
+  startExpiryWatch({
+    isRunning: isInstanceRunning,
+    kill: killInstance,
+    deleteInstance,
+    notify: (event, info) => broadcast(`protection:${event}`, info),
+  })
   // Estadísticas anónimas y aprendizaje colectivo de la IA (Ajustes › Privacidad)
   {
     const st = { ...DEFAULT_SETTINGS, ...settingsStore.getAll() }
@@ -395,6 +419,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     account = await freshAccount(account)
 
+    // Modpack protegido: caducidad y cuenta obligatoria
+    const blocked = await checkLaunch(instance, account)
+    if (blocked) throw new Error(blocked)
+
     // «Siempre la última versión»: se pone al día antes de arrancar
     if (await applyVersionTrack(instance)) {
       await updateInstance(instance)
@@ -403,18 +431,22 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     const op = makeOpEmitter(`Iniciando ${instance.name}`, 'install-minecraft')
     try {
+      // Mods y config de un modpack protegido salen de la bóveda solo mientras se juega
+      await unsealForGame(instanceId)
       await runCancellable(() => launchInstance(
         instance, account, settings, getMainWindow(),
         (current, total, message, detail) => op.progress(message, current, total, detail),
         async (sessionMs) => {
+          await resealAfterGame(instanceId)
           instance.playtime = (instance.playtime ?? 0) + sessionMs
-          await updateInstance(instance)
+          await updateInstance(await keepProtectedFields(instance))
         }
       ))
       instance.lastPlayed = Date.now()
-      await updateInstance(instance)
+      await updateInstance(await keepProtectedFields(instance))
       op.done('Minecraft iniciado!')
     } catch (e) {
+      if (!isInstanceRunning(instanceId)) await resealAfterGame(instanceId)
       if (e instanceof CancelError) { op.done(); return }
       if (e instanceof AggregateError || (e && typeof e === 'object' && 'errors' in e)) {
         op.error('Error al descargar archivos de Minecraft')
@@ -479,7 +511,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const settings = settingsStore.getAll()
     const op = makeOpEmitter(`Reparando ${instance.name}`, 'install-minecraft')
     try {
-      await runCancellable(() => repairInstance(instance, settings, (current, total, message, detail) => op.progress(message, current, total, detail)))
+      await runCancellable(() => withUnsealed(instanceId, () =>
+        repairInstance(instance, settings, (current, total, message, detail) => op.progress(message, current, total, detail))))
       op.done('Instancia reparada correctamente')
     } catch (err) {
       op.error(describeError(err, 'Error al reparar la instancia'))
@@ -497,16 +530,44 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('modpacks:fetch', (_e, url: string, key?: string) => fetchManifest(url, key))
 
-  ipcMain.handle('modpacks:install', async (_e, instanceId: string, manifest: ModpackManifest) => {
+  ipcMain.handle('modpacks:install', async (_e, instanceId: string, manifest: ModpackManifest, opts?: { accountId?: string }) => {
     const op = makeOpEmitter(`Instalando ${manifest.name}`, 'install-modpack')
     try {
-      await runCancellable(() => installModpack(instanceId, manifest, (current, total, message, detail) => op.progress(message, current, total, detail)))
+      let account: { uuid: string; name: string } | undefined
+      let problem: string | null
+      try {
+        account = protectedAccount(manifest, opts?.accountId)
+        problem = await checkProtectedInstall(manifest, account, instanceId)
+      } catch (err) {
+        problem = (err as Error).message
+      }
+      if (problem) {
+        // La instancia se acaba de crear vacía para este modpack: no se deja a medias
+        await deleteInstance(instanceId).catch(() => {})
+        throw new Error(problem)
+      }
+      await runCancellable(() => installModpack(instanceId, manifest, (current, total, message, detail) => op.progress(message, current, total, detail), { account }))
       op.done('¡Modpack instalado!')
     } catch (e) {
       if (e instanceof CancelError) { op.done(); return }
       op.error(describeError(e, 'Error'))
       throw e
     }
+  })
+
+  // Antes de crear la instancia: si el modpack protegido se puede instalar con esa cuenta
+  ipcMain.handle('modpacks:check-install', async (_e, manifest: ModpackManifest, accountId?: string) => {
+    try {
+      return await checkProtectedInstall(manifest, protectedAccount(manifest, accountId))
+    } catch (e) {
+      return (e as Error).message
+    }
+  })
+
+  // Al quitar una cuenta: modpacks protegidos que solo se pueden jugar con ella
+  ipcMain.handle('auth:bound-instances', (_e, accountId: string) => {
+    const acc = accountsStore.getAll().accounts.find((a) => a.id === accountId)
+    return acc ? instancesBoundTo(acc.uuid) : []
   })
 
   ipcMain.handle('modpacks:update', async (_e, instanceId: string, manifestUrl: string) => {
@@ -525,9 +586,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     const op = makeOpEmitter(`Actualizando ${instance.name}`, 'update-modpack')
     try {
-      const result = await runCancellable(() => updateModpack(instanceId, manifest, (current, total, message, detail) => op.progress(message, current, total, detail)))
-      instance.modpackVersion = manifest.version
-      await updateInstance(instance)
+      // Modpack protegido: se abre la bóveda, se actualiza y se vuelve a cerrar con los mods nuevos
+      const result = await runCancellable(() => withUnsealed(instanceId, () =>
+        updateModpack(instanceId, manifest, (current, total, message, detail) => op.progress(message, current, total, detail)),
+        { packModsFromGameDir: true }))
+      await updateProtectionRules(instanceId, manifest.protection)
+      const fresh = (await loadInstances()).find((i) => i.id === instanceId) ?? instance
+      fresh.modpackVersion = manifest.version
+      await updateInstance(fresh)
       op.done('¡Actualización completada!')
       return { upToDate: false, manifest, ...result }
     } catch (e) {
@@ -539,6 +605,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('modpacks:export-plan', (_e, instanceId: string) => exportPlan(instanceId))
   ipcMain.handle('modpacks:export', async (e, params: ExportParams) => {
+    await guard(params.instanceId, 'export')
     // Sin token antiguo en Ajustes se usa la cuenta de GitHub conectada (la clave no pasa por la ventana)
     if (!params.githubToken) params = { ...params, githubToken: githubTokenForMain() ?? '' }
     if (!params.githubToken) throw new Error('Conecta tu cuenta de GitHub en Ajustes › Cuentas para publicar.')
@@ -575,11 +642,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return readFpackManifest(fpackPath)
   })
 
-  ipcMain.handle('fpack:import', async (e, fpackPath: string, instanceName: string) => {
+  ipcMain.handle('fpack:import', async (e, fpackPath: string, instanceName: string, accountId?: string) => {
     const urlFormat = await readFpackUrlFormat(fpackPath)
     const manifest = urlFormat
       ? await fetchManifest(urlFormat.manifestUrl, urlFormat.accessKey)
       : await readFpackManifest(fpackPath)
+    const account = protectedAccount(manifest, accountId)
+    const problem = await checkProtectedInstall(manifest, account)
+    if (problem) throw new Error(problem)
     const instance = await createInstance({
       name: instanceName || manifest.name,
       minecraft: manifest.minecraft,
@@ -596,12 +666,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
           await installModpack(instance.id, manifest, (current, total, message) => {
             op.progress(message, current, total)
             e.sender.send('fpack:progress', { current, total, message })
-          })
+          }, { account })
         } else {
           await importFpack(fpackPath, instance.id, (current, total, message) => {
             op.progress(message, current, total)
             e.sender.send('fpack:progress', { current, total, message })
-          })
+          }, { account })
         }
       })
       op.done()
@@ -619,6 +689,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('fpack:choose-path', async (_e, instanceId: string) => {
+    await guard(instanceId, 'export')
     const instances = await loadInstances()
     const inst = instances.find(i => i.id === instanceId)
     const defaultName = `${inst?.name ?? 'modpack'}.fpack`
@@ -631,6 +702,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('fpack:save-to', async (e, instanceId: string, outputPath: string, manifestOverride?: import('../shared/types').ModpackManifest, modpackUrlOverride?: string, accessKeyOverride?: string) => {
+    await guard(instanceId, 'export')
     const fileName = path.basename(outputPath)
     const op = makeOpEmitter(`Guardando ${fileName}`, 'save-fpack')
     try {
@@ -674,9 +746,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('modrinth:get-versions', (_e, projectId: string, mcVersion: string, loader: string, channel: 'all' | 'stable' = 'all') =>
     getModVersions(projectId, mcVersion, loader, channel)
   )
-  ipcMain.handle('modrinth:install-mod', (_e, instanceId: string, fileUrl: string, filename: string, subFolder?: string) =>
-    installModFromUrl(instanceId, fileUrl, filename, subFolder)
-  )
+  ipcMain.handle('modrinth:install-mod', async (_e, instanceId: string, fileUrl: string, filename: string, subFolder?: string) => {
+    await guard(instanceId, !subFolder || subFolder === 'mods' ? 'mods' : subFolder.startsWith('saves/') ? 'files' : 'packs')
+    return installModFromUrl(instanceId, fileUrl, filename, subFolder)
+  })
   ipcMain.handle('modrinth:get-categories', (_e, projectType?: string) => getModrinthCategories(projectType ?? 'mod'))
   ipcMain.handle('modrinth:get-installed-ids', (_e, instanceId: string, subFolder?: string, extensions?: string[]) =>
     getInstalledProjectIds(instanceId, subFolder, extensions)
@@ -1223,6 +1296,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('instances:install-jar', async (_e, instanceId: string, sourcePath: string) => {
+    await guard(instanceId, 'mods')
     const gameDir = await getInstanceGameDir(instanceId)
     const modsDir = path.join(gameDir, 'mods')
     await fs.promises.mkdir(modsDir, { recursive: true })
@@ -1433,6 +1507,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle('curseforge:install-mod', async (_e, instanceId: string, modId: number, fileId: number, subFolder?: string) => {
+    await guard(instanceId, !subFolder || subFolder === 'mods' ? 'mods' : subFolder.startsWith('saves/') ? 'files' : 'packs')
     const modUrl = await cfDownloadUrl(modId, fileId)
     if (!modUrl) throw new Error('El autor no permite descargarlo fuera de CurseForge. Descárgalo desde su web.')
     const filename = path.basename(decodeURIComponent(modUrl.split('/').pop() ?? `${modId}.jar`))
@@ -1578,6 +1653,28 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   // Texturas de Minecraft para los editores sencillos
   ipcMain.handle('mc:textures', (_e, keys: string[]) => getTextures(keys))
+  ipcMain.handle('mc:item-renders', (_e, ids: string[]) => getItemRenders(ids))
+  ipcMain.handle('mc:lang', () => getLang(settingsStore.getAll().language === 'en' ? 'en_us' : 'es_es'))
+  ipcMain.handle('mc:advancements', () => getAdvancementDefs())
+
+  // Jugadores de un mundo (formato de antes y de la 26.1), logros y transferencias
+  ipcMain.handle('world:layout', (_e, worldDir: string) => worldLayout(worldDir))
+  ipcMain.handle('world:players', (_e, worldDir: string) =>
+    listWorldPlayers(worldDir, accountsStore.getAll().accounts.map((a) => ({ uuid: a.uuid, username: a.username }))))
+  ipcMain.handle('world:premium-uuid', (_e, name: string) => premiumUuidOf(name))
+  ipcMain.handle('world:offline-uuid', (_e, name: string) => offlineUuid(name))
+  ipcMain.handle('world:advancements-read', (_e, worldDir: string, uuid: string) => readAdvancements(worldDir, uuid))
+  ipcMain.handle('world:advancements-write', (_e, worldDir: string, uuid: string, data: AdvancementProgress) => writeAdvancements(worldDir, uuid, data))
+  ipcMain.handle('world:transfer', (_e, worldDir: string, from: string, to: string, areas: TransferArea[], toName?: string) =>
+    transferPlayer(worldDir, from, to, areas, toName))
+  // Lo mismo en el mundo de un servidor conectado por FTP/SFTP
+  ipcMain.handle('world:remote-layout', (_e, world: string) => remoteWorldLayout(world))
+  ipcMain.handle('world:remote-players', (_e, world: string) =>
+    listRemoteWorldPlayers(world, accountsStore.getAll().accounts.map((a) => ({ uuid: a.uuid, username: a.username }))))
+  ipcMain.handle('world:remote-advancements-read', (_e, world: string, uuid: string) => readRemoteAdvancements(world, uuid))
+  ipcMain.handle('world:remote-advancements-write', (_e, world: string, uuid: string, data: AdvancementProgress) => writeRemoteAdvancements(world, uuid, data))
+  ipcMain.handle('world:remote-transfer', (_e, world: string, from: string, to: string, areas: TransferArea[], toName?: string) =>
+    transferRemotePlayer(world, from, to, areas, toName))
 
   // Escribir bytes (el icono del servidor ya convertido a 64×64, por ejemplo)
   ipcMain.handle('ftp:write-bytes', async (_e, side: 'local' | 'remote', file: string, data: Uint8Array) => {
@@ -1908,6 +2005,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // Errores de la interfaz: se guardan con los del proceso principal (también en disco)
   ipcMain.on('console:renderer-error', (_e, message: string) => logRendererError(message))
   ipcMain.handle('console:show-errors-log', () => shell.showItemInFolder(errorsLogPath()))
+}
+
+/**
+ * Cuenta a la que se ata un modpack con «cuenta obligatoria»: la elegida al instalar o, si
+ * no se eligió, la activa. Sin reglas de cuenta no se ata a ninguna.
+ */
+function protectedAccount(manifest: ModpackManifest, accountId?: string): { uuid: string; name: string } | undefined {
+  if (!manifest.protection?.account) return undefined
+  const { accounts, activeId } = accountsStore.getAll()
+  const acc = accounts.find((a) => a.id === (accountId ?? activeId)) ?? accounts[0]
+  if (!acc) throw new Error('Este modpack necesita una cuenta: añade una en Ajustes antes de instalarlo.')
+  return { uuid: acc.uuid, name: acc.username }
 }
 
 function addAccount(account: MinecraftAccount): void {

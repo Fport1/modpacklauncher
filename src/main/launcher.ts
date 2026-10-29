@@ -8,6 +8,7 @@ import { ensureJava } from './java'
 import { checkCancel, getAbortSignal } from './cancelToken'
 import { TransferMeter } from './transferMeter'
 import { EventEmitter } from 'events'
+import { HORIZON_REPOS, horizonReleases, horizonInstalledTags, installHorizon, prepareHorizon, startHorizon } from './horizon'
 
 const runningProcesses = new Map<string, ChildProcess>()
 
@@ -625,7 +626,9 @@ export async function launchInstance(
     launchOpts.width = instance.width
     launchOpts.height = instance.height
   }
-  const proc = await launch(launchOpts as unknown as Parameters<typeof launch>[0])
+  const proc = instance.kind === 'horizon'
+    ? await launchHorizonGame(instance, account, sharedDir, javaPath, gameDir, report, note)
+    : await launch(launchOpts as unknown as Parameters<typeof launch>[0])
 
   const extra = options?.suppressEvents === true
   if (!extra) {
@@ -655,6 +658,13 @@ export async function launchInstance(
   })
 
   if (extra) return
+  if (instance.kind === 'horizon') {
+    // Horizon abre en segundos y no escribe las líneas de Minecraft que se esperan abajo
+    await new Promise((r) => setTimeout(r, 3000))
+    if (proc.exitCode !== null && proc.exitCode !== 0) throw new Error(`Horizon se cerró al arrancar (código ${proc.exitCode}). Mira la consola de la instancia.`)
+    report(100, '¡Horizon abierto!')
+    return
+  }
   report(85, 'Abriendo Minecraft...', { phase: 'Cargando el juego' })
   note('Proceso del juego en marcha; esperando a que cargue.')
   await waitUntilLoaded(instance.id, proc, (pct, msg) => report(pct, msg, { phase: 'Cargando el juego' }))
@@ -713,6 +723,48 @@ function waitUntilLoaded(
     // Cancelar aquí solo deja de esperar: el juego ya está abierto y sigue
     getAbortSignal()?.addEventListener('abort', () => finish(), { once: true })
   })
+}
+
+/**
+ * Horizon: Minecraft 26.3, Java y los assets ya los ha puesto el arranque normal; aquí se baja
+ * la versión de Horizon (la elegida o la más nueva), se prepara una vez y se arranca.
+ */
+async function launchHorizonGame(
+  instance: Instance, account: MinecraftAccount, sharedDir: string, javaPath: string, gameDir: string,
+  report: (pct: number, msg: string, detail?: OpDetail) => void, note: (msg: string) => void
+): Promise<ChildProcess> {
+  const phase = { phase: 'Horizon' }
+  let tag = instance.horizonTag
+  try {
+    const releases = await horizonReleases()
+    const rel = (tag ? releases.find((r) => r.tag === tag) : releases[0]) ?? releases[0]
+    tag = rel.tag
+    note(`Horizon ${rel.tag} (de ${rel.repo})`)
+    await installHorizon(rel, (f, msg) => report(81 + f, msg, phase))
+  } catch (e) {
+    // Sin conexión: la versión que ya esté bajada
+    const installed = await horizonInstalledTags()
+    tag = (tag && installed.includes(tag) ? tag : installed[0])
+    if (!tag) throw e
+    note(`No se pudo comprobar si hay versión nueva de Horizon (${(e as Error).message}); se usa ${tag}`)
+  }
+  checkCancel()
+  try {
+    await prepareHorizon(tag, sharedDir, javaPath, (f, msg) => report(82 + 2 * f, msg, phase), (line) => note(line))
+  } catch (e) {
+    // Si nuestra versión no se deja preparar, que no se quede sin jugar: la oficial más nueva
+    const official = HORIZON_REPOS[HORIZON_REPOS.length - 1]
+    const rel = (await horizonReleases([official]).catch(() => []))[0]
+    if (!rel || rel.tag === tag) throw e
+    const why = (e as Error).message.split(/\r?\n/)[0]
+    note(`No se pudo preparar Horizon ${tag} (${why}); se usa la oficial ${rel.tag}`)
+    await installHorizon(rel, (f, msg) => report(81 + f, msg, phase))
+    tag = rel.tag
+    await prepareHorizon(tag, sharedDir, javaPath, (f, msg) => report(82 + 2 * f, msg, phase), (line) => note(line))
+  }
+  checkCancel()
+  report(84, 'Abriendo Horizon...', phase)
+  return startHorizon(tag, gameDir, account, { width: instance.width, height: instance.height })
 }
 
 function resolveVersionId(instance: Instance): string {

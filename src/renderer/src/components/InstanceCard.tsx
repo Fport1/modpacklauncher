@@ -59,6 +59,25 @@ function relativeTime(ms?: number): string {
   return new Date(ms).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+/** «caduca en 3 d», «en 5 h»… para la etiqueta de un modpack que caduca */
+function timeLeft(at: number): string {
+  const ms = at - Date.now()
+  if (ms <= 0) return 'caducado'
+  const h = ms / 3_600_000
+  if (h < 1) return `caduca en ${Math.max(1, Math.round(ms / 60_000))} min`
+  if (h < 48) return `caduca en ${Math.round(h)} h`
+  return `caduca en ${Math.round(h / 24)} d`
+}
+
+/** Las reglas del creador en una frase, para el tooltip */
+function protectionSummary(p: NonNullable<Instance['protection']>): string {
+  const parts: string[] = ['Modpack protegido por su creador.']
+  if (p.expiresAt) parts.push(`Caduca el ${new Date(p.expiresAt).toLocaleString('es')} y se borrará solo.`)
+  if (p.account && p.boundAccount) parts.push(`Solo se juega con la cuenta «${p.boundAccount.name}»${p.account.until ? ` hasta el ${new Date(p.account.until).toLocaleString('es')}` : ''}.`)
+  parts.push('No se puede duplicar, exportar ni sacar su contenido.')
+  return parts.join(' ')
+}
+
 function formatPlaytime(ms?: number): string {
   if (!ms || ms < 60_000) return ''
   const h = Math.floor(ms / 3_600_000)
@@ -85,6 +104,10 @@ export default function InstanceCard({
   const isVanilla = instance.modloader === 'vanilla'
   /** La carpeta .minecraft del launcher oficial: no se duplica ni se borra desde aquí */
   const isDot = instance.kind === 'dotminecraft'
+  /** Modpack protegido por su creador: solo se ofrece lo que sus reglas permiten */
+  const prot = instance.protection
+  const locked = !!prot
+  const protHint = prot ? protectionSummary(prot) : ''
 
   const items: MenuEntry[] = [
     isRunning
@@ -97,13 +120,13 @@ export default function InstanceCard({
     { label: 'Detalles', icon: <IconInfo />, onClick: onDetails, hint: 'mods, mundos…' },
     { label: 'Editar', icon: <IconEdit />, onClick: onEdit },
     { label: 'Cambiar icono', icon: <IconImage />, onClick: onChangeIcon },
-    ...(!isDot ? [{ label: 'Duplicar', icon: <IconCopy />, onClick: onDuplicate } as MenuEntry] : []),
-    { label: 'Abrir carpeta', icon: <IconFolder />, onClick: onOpenFolder },
-    ...(onTransfer ? [{ label: 'Transferir contenido…', icon: <IconTransfer />, onClick: onTransfer, hint: 'mods, mundos…' } as MenuEntry] : []),
+    ...(!isDot && !locked ? [{ label: 'Duplicar', icon: <IconCopy />, onClick: onDuplicate } as MenuEntry] : []),
+    ...(!locked || prot?.allow.files ? [{ label: 'Abrir carpeta', icon: <IconFolder />, onClick: onOpenFolder } as MenuEntry] : []),
+    ...(onTransfer && !locked ? [{ label: 'Transferir contenido…', icon: <IconTransfer />, onClick: onTransfer, hint: 'mods, mundos…' } as MenuEntry] : []),
     { header: 'Compartir' },
     ...(onAssist ? [{ label: 'Pedir ayuda a un amigo', icon: <IconHelp />, onClick: onAssist, tone: 'text-purple-400' } as MenuEntry] : []),
-    ...(!isVanilla ? [{ label: 'Exportar modpack', icon: <IconPackage />, onClick: onExport } as MenuEntry] : []),
-    ...(onSaveFpack ? [{ label: 'Guardar como .fpack', icon: <IconSave />, onClick: onSaveFpack } as MenuEntry] : []),
+    ...(!isVanilla && !locked ? [{ label: 'Exportar modpack', icon: <IconPackage />, onClick: onExport } as MenuEntry] : []),
+    ...(onSaveFpack && !locked ? [{ label: 'Guardar como .fpack', icon: <IconSave />, onClick: onSaveFpack } as MenuEntry] : []),
     'separator',
     ...(onRepair ? [{ label: 'Reparar instancia', icon: <IconWrench />, onClick: onRepair } as MenuEntry] : []),
     ...(!isDot ? [{ label: 'Eliminar', icon: <IconTrash />, onClick: onDelete, danger: true } as MenuEntry] : [])
@@ -129,6 +152,18 @@ export default function InstanceCard({
           Launcher oficial
         </span>
       )}
+      {instance.kind === 'horizon' && (
+        <span className="absolute -top-2 left-4 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow"
+          title="Minecraft 26.3 reescrito en Rust (Horizon). Los mods de Java no funcionan aquí.">
+          🦀 Horizon
+        </span>
+      )}
+      {prot && (
+        <span className="absolute -top-2 left-4 inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-600 text-black shadow"
+          title={protHint}>
+          🔒 Protegido{prot.expiresAt ? ` · ${timeLeft(prot.expiresAt)}` : ''}
+        </span>
+      )}
       {/* Icono, nombre y etiquetas: siempre una sola fila de etiquetas */}
       <div className="flex items-start gap-3">
         <div className="w-14 h-14 rounded-xl bg-bg-hover flex items-center justify-center overflow-hidden shrink-0 ring-1 ring-white/5">
@@ -144,7 +179,7 @@ export default function InstanceCard({
               MC {instance.minecraft}
               {instance.versionTrack && instance.modloader !== 'forge' && instance.modloader !== 'neoforge' && <IconRefresh size={9} />}
             </span>
-            <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded-md border capitalize ${loaderStyle}`}>{instance.modloader}</span>
+            <span className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded-md border capitalize ${loaderStyle}`}>{instance.kind === 'horizon' ? 'Horizon' : instance.modloader}</span>
             {instance.modpackUrl && (
               hasUpdate ? (
                 <span className="min-w-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/30"

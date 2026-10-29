@@ -7,6 +7,7 @@ import TextEditor from './TextEditor'
 import ImageViewer from './ImageViewer'
 import NbtFileView, { type NbtKind } from './NbtFileView'
 import PropertiesFileView from './PropertiesFileView'
+import WorldPlayers from '../WorldPlayers'
 import type { CloseRequest } from './EditorShell'
 import {
   type Side, type Entry, type SortKey, type DragPayload, type FileKind, type LogKind,
@@ -48,6 +49,17 @@ interface OpenFile {
   path: string
   dir: string
   playerName?: string
+  /** Jugador: su mundo y UUID, para abrir sus logros */
+  advancements?: { worldDir: string; uuid: string; remote?: boolean }
+}
+
+/** Carpeta de arriba, valga para rutas del servidor (/) o de Windows (\). */
+const parentOf = (p: string): string => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '') || p
+
+/** El mundo de un <uuid>.dat: <mundo>/playerdata, o <mundo>/players/data desde la 26.1. */
+function worldOfPlayerDir(dir: string): string {
+  const up = parentOf(dir)
+  return /[\\/]players[\\/]data[\\/]?$/i.test(dir) ? parentOf(up) : up
 }
 
 const log = (kind: LogKind, text: string): void => { window.api.ftp.log(kind, text) }
@@ -77,6 +89,8 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
   const [undoStack, setUndoStack] = useState<UndoOp[]>([])
   const [redoStack, setRedoStack] = useState<UndoOp[]>([])
   const [openFile, setOpenFile] = useState<OpenFile | null>(null)
+  // Jugadores de un mundo (lista, logros y transferencias) en este lado
+  const [playersWorld, setPlayersWorld] = useState<string | null>(null)
   const [incoming, setIncoming] = useState<DragPayload | null>(null)
   const [draggingOwn, setDraggingOwn] = useState<Set<string> | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -412,6 +426,10 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
       return
     }
     const file: OpenFile = { kind, name: entry.name, path: join(dir, entry.name), dir }
+    if (kind === 'playerdata') {
+      const uuid = PLAYER_FILE.exec(entry.name)?.[1]?.toLowerCase()
+      if (uuid) file.advancements = { worldDir: worldOfPlayerDir(dir), uuid, remote }
+    }
     setOpenFile(file)
     if (kind === 'playerdata') {
       const name = await playerNameFor(entry.name)
@@ -427,11 +445,14 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
     if (remote) {
       candidates.push(remoteJoin(conn.root, 'usercache.json'))
       // <mundo>/playerdata → la carpeta del servidor está dos niveles arriba
+      // (tres desde la 26.1: <mundo>/players/data)
       candidates.push(remoteJoin(remoteParent(remoteParent(dir)), 'usercache.json'))
+      candidates.push(remoteJoin(remoteParent(remoteParent(remoteParent(dir))), 'usercache.json'))
     } else {
       const world = await window.api.ftp.localParent(dir)
       const up1 = await window.api.ftp.localParent(world)
-      candidates.push(localJoin(up1, 'usercache.json'), localJoin(await window.api.ftp.localParent(up1), 'usercache.json'))
+      const up2 = await window.api.ftp.localParent(up1)
+      candidates.push(localJoin(up1, 'usercache.json'), localJoin(up2, 'usercache.json'), localJoin(await window.api.ftp.localParent(up2), 'usercache.json'))
     }
     for (const c of [...new Set(candidates)]) {
       const text = await window.api.ftp.readOptional(side, c, 'text')
@@ -542,6 +563,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
       else if (kind === 'image') items.push({ label: 'Ver imagen', icon: '🖼', run: () => openEntry(single) })
       else if (kind === 'scoreboard') items.push({ label: 'Editar equipos y puntos', icon: '⚑', run: () => openEntry(single) })
       else if (kind === 'playerdata') items.push({ label: 'Editar jugador', icon: '☺', run: () => openEntry(single) })
+      if (single.isDir) items.push({ label: 'Jugadores (si es un mundo)', icon: '☺', run: () => setPlayersWorld(join(dir, single.name)) })
       else if (kind === 'level') items.push({ label: 'Editar mundo (hora, reglas…)', icon: '🌍', run: () => openEntry(single) })
       else if (kind === 'properties') items.push({ label: 'Editar opciones del servidor', icon: '⚙', run: () => openEntry(single) })
       else if (kind === 'nbt') items.push({ label: 'Editar NBT', icon: '⌬', run: () => openEntry(single) })
@@ -625,6 +647,15 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
         </div>
       )}
 
+      {playersWorld && (
+        <WorldPlayers worldDir={playersWorld} worldName={playersWorld.split(/[\\/]/).filter(Boolean).pop() ?? playersWorld} remote={remote}
+          onClose={() => setPlayersWorld(null)}
+          onOpenPlayer={(p) => {
+            const world = playersWorld
+            setPlayersWorld(null)
+            setOpenFile({ kind: 'playerdata', name: p.uuid + '.dat', path: p.file, dir: parentOf(p.file), playerName: p.name, advancements: { worldDir: world, uuid: p.uuid, remote } })
+          }} />
+      )}
       {openFile ? (
         <FileView file={openFile} remote={remote} conn={conn} closeRef={closeRef} onClose={closeFile} />
       ) : (
@@ -652,6 +683,9 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
                   <QuickBtn onClick={async () => openDir(await window.api.ftp.localHome())}>Personal</QuickBtn>
                   <QuickBtn onClick={newFolder}>＋ Carpeta nueva</QuickBtn>
                 </>
+              )}
+              {entries.some((e) => e.name === 'level.dat') && (
+                <QuickBtn onClick={() => setPlayersWorld(dir)} disabled={remote && disabled}>☺ Jugadores de este mundo</QuickBtn>
               )}
             </div>
             {searchOpen && (
@@ -863,7 +897,7 @@ function FileView({ file, remote, conn, closeRef, onClose }: {
   }
   const kind: NbtKind = file.kind === 'scoreboard' || file.kind === 'playerdata' || file.kind === 'level' ? file.kind : 'nbt'
   return (
-    <NbtFileView name={file.name} location={location} kind={kind} remote={remote} playerName={file.playerName}
+    <NbtFileView name={file.name} location={location} kind={kind} remote={remote} playerName={file.playerName} advancements={file.advancements}
       closeRef={closeRef} onClose={onClose}
       load={() => (remote ? window.api.nbt.readRemote(file.path) : window.api.nbt.readLocal(file.path))}
       save={async (doc) => {

@@ -4,12 +4,19 @@ import {
   type Compound, str, byte, int, float, compound, compoundList, listItems, getStr, getNum, getBool
 } from '../../lib/nbtBuild'
 import { McIcon, HUD, useTextures } from '../../lib/mcTextures'
+import {
+  McItem, useLang, itemName, tooltipLines, containerItems, bundleItems, bundleWeight, isBundle, isShulker,
+  itemCount, maxDamage, itemDamage
+} from '../../lib/mcItems'
 import { Field, Toggle, Select, NumberCell } from './ScoreboardSimple'
+import { McTextPreview } from './McTextInput'
+import AdvancementsView from './AdvancementsView'
 import { headUrl } from './shared'
 
-// Modo sencillo de un jugador: playerdata/<uuid>.dat, o el tuyo dentro de
-// level.dat en un mundo de un jugador. Vida, comida, experiencia, dónde está y
-// qué lleva encima, con los iconos del juego.
+// Modo sencillo de un jugador: el <uuid>.dat del jugador (playerdata/ o, desde
+// la 26.1, players/data/), o el tuyo dentro de level.dat en un mundo de un
+// jugador. Vida, comida, experiencia, dónde está y qué lleva encima, con los
+// iconos del juego. Los objetos se pueden arrastrar de una casilla a otra.
 
 type Mutate = (fn: (root: NbtTag) => void, coalesce?: string) => boolean
 
@@ -19,6 +26,8 @@ interface Props {
   playerName?: string
   /** Dónde está el jugador dentro del archivo (["Data", "Player"] en level.dat). */
   at?: string[]
+  /** Mundo y UUID del jugador, para abrir sus logros (solo archivos de este equipo). */
+  advancements?: { worldDir: string; uuid: string; remote?: boolean }
 }
 
 const GAMEMODES = [['0', 'Supervivencia'], ['1', 'Creativo'], ['2', 'Aventura'], ['3', 'Espectador']] as const
@@ -31,6 +40,9 @@ const EQUIPMENT_COMPOUND = 4325
 
 const prettyId = (id: string): string =>
   id.replace(/^minecraft:/, '').split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+
+/** Lo que se pasa al arrastrar una casilla. */
+const DRAG_TYPE = 'application/x-fport1-slot'
 
 type SlotRef =
   | { where: 'inv'; slot: number }
@@ -65,10 +77,17 @@ function readPlayer(root: NbtTag, at: string[] | undefined): Compound {
   return c
 }
 
-export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
+export default function PlayerSimple({ root, mutate, playerName, at, advancements }: Props) {
   const [sel, setSel] = useState<SlotRef | null>(null)
   const [draft, setDraft] = useState({ id: '', count: '1' })
+  const [hover, setHover] = useState<{ item: Compound; x: number; y: number } | null>(null)
+  const [dragOver, setDragOver] = useState<string | null>(null)
+  const [showAdv, setShowAdv] = useState(false)
+  const lang = useLang()
   const p = readPlayer(root, at)
+  // Sin usercache: Paper/Spigot guardan el último nombre con el que entró
+  const bukkit = p.bukkit?.type === 'compound' ? (p.bukkit.value as Compound) : {}
+  const name = playerName ?? (getStr(bukkit, 'lastKnownName') || undefined)
   const version = getNum(root.value as Compound, 'DataVersion') || getNum(p, 'DataVersion')
   const newItems = version >= NEW_ITEMS || listItems<Compound>(p.Inventory).some((i) => 'count' in i)
   const equipCompound = version >= EQUIPMENT_COMPOUND || p.equipment?.type === 'compound'
@@ -90,42 +109,76 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
 
   const countOf = (item: Compound): number => getNum(item, newItems ? 'count' : 'Count', 1)
 
+  /** El objeto (entero, sin «Slot») de una casilla del jugador ya clonado. */
+  function takeAt(pl: Compound, ref: SlotRef): Compound | null {
+    const fromList = (key: 'Inventory' | 'EnderItems', slot: number): Compound | null => {
+      const arr = listItems<Compound>(pl[key])
+      const i = arr.findIndex((x) => getNum(x, 'Slot') === slot)
+      if (i < 0) return null
+      const [it] = arr.splice(i, 1)
+      const out = { ...it }
+      delete out.Slot
+      return out
+    }
+    if (ref.where === 'inv') return fromList('Inventory', ref.slot)
+    if (ref.where === 'ender') return fromList('EnderItems', ref.slot)
+    if (equipCompound) {
+      const eq = pl.equipment?.type === 'compound' ? (pl.equipment.value as Compound) : {}
+      const it = eq[ref.key]?.type === 'compound' ? (eq[ref.key]!.value as Compound) : null
+      delete eq[ref.key]
+      return it
+    }
+    return fromList('Inventory', ARMOR.find((a) => a.key === ref.key)!.legacy)
+  }
+
+  /** Deja un objeto entero (o nada) en una casilla. */
+  function putAt(pl: Compound, ref: SlotRef, item: Compound | null): void {
+    const inList = (key: 'Inventory' | 'EnderItems', slot: number): void => {
+      if (!pl[key] || pl[key]!.type !== 'list') pl[key] = compoundList([])
+      const tag = pl[key]!
+      if (tag.value.type === 'end') tag.value.type = 'compound'
+      const arr = tag.value.value as Compound[]
+      const i = arr.findIndex((x) => getNum(x, 'Slot') === slot)
+      if (!item) { if (i >= 0) arr.splice(i, 1); return }
+      const next = { ...item, Slot: byte(slot) }
+      if (i >= 0) arr[i] = next
+      else arr.push(next)
+    }
+    if (ref.where === 'inv') inList('Inventory', ref.slot)
+    else if (ref.where === 'ender') inList('EnderItems', ref.slot)
+    else if (equipCompound) {
+      if (!pl.equipment || pl.equipment.type !== 'compound') pl.equipment = compound({})
+      const eq = pl.equipment.value as Compound
+      if (!item) delete eq[ref.key]
+      else { const it = { ...item }; delete it.Slot; eq[ref.key] = compound(it) }
+    } else {
+      inList('Inventory', ARMOR.find((a) => a.key === ref.key)!.legacy)
+    }
+  }
+
   /** Poner (o quitar, con null) el objeto de una casilla. */
   function writeSlot(ref: SlotRef, item: { id: string; count: number } | null, keepExtra = true): void {
     set((pl) => {
-      const makeItem = (slot: number | null, prev: Compound | null): Compound => {
-        const base: Compound = keepExtra && prev ? { ...prev } : {}
-        base.id = str(item!.id)
-        if (newItems) { base.count = int(item!.count); delete base.Count }
-        else { base.Count = byte(item!.count); delete base.count }
-        if (slot !== null) base.Slot = byte(slot)
-        else delete base.Slot
-        return base
-      }
-      const inList = (key: 'Inventory' | 'EnderItems', slot: number): void => {
-        if (!pl[key] || pl[key]!.type !== 'list') pl[key] = compoundList([])
-        const tag = pl[key]!
-        if (tag.value.type === 'end') tag.value.type = 'compound'
-        const arr = tag.value.value as Compound[]
-        const i = arr.findIndex((x) => getNum(x, 'Slot') === slot)
-        const prev = i >= 0 ? arr[i] : null
-        if (!item) { if (i >= 0) arr.splice(i, 1); return }
-        const next = makeItem(slot, prev)
-        if (i >= 0) arr[i] = next
-        else arr.push(next)
-      }
-      if (ref.where === 'inv') inList('Inventory', ref.slot)
-      else if (ref.where === 'ender') inList('EnderItems', ref.slot)
-      else if (equipCompound) {
-        if (!pl.equipment || pl.equipment.type !== 'compound') pl.equipment = compound({})
-        const eq = pl.equipment.value as Compound
-        const prev = eq[ref.key]?.type === 'compound' ? (eq[ref.key]!.value as Compound) : null
-        if (!item) delete eq[ref.key]
-        else eq[ref.key] = compound(makeItem(null, prev))
-      } else {
-        inList('Inventory', ARMOR.find((a) => a.key === ref.key)!.legacy)
-      }
+      const prev = itemAt(ref)
+      if (!item) { putAt(pl, ref, null); return }
+      const base: Compound = keepExtra && prev ? { ...prev } : {}
+      base.id = str(item.id)
+      if (newItems) { base.count = int(item.count); delete base.Count }
+      else { base.Count = byte(item.count); delete base.count }
+      putAt(pl, ref, base)
     })
+  }
+
+  /** Arrastrar de una casilla a otra: se mueve, y si había algo se intercambian. */
+  function moveItem(from: SlotRef, to: SlotRef): void {
+    if (JSON.stringify(from) === JSON.stringify(to)) return
+    set((pl) => {
+      const a = takeAt(pl, from)
+      const b = takeAt(pl, to)
+      putAt(pl, to, a)
+      putAt(pl, from, b)
+    })
+    if (sel && JSON.stringify(sel) === JSON.stringify(from)) setSel(to)
   }
 
   function select(ref: SlotRef): void {
@@ -140,17 +193,21 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
 
   const slot = (ref: SlotRef, emptyIcon?: string, label?: string): JSX.Element => {
     const item = itemAt(ref)
-    const id = item ? getStr(item, 'id') : ''
-    const extra = !!item && Object.keys(item).some((k) => k === 'components' || k === 'tag')
+    const key = JSON.stringify(ref)
     return (
-      <McSlot key={JSON.stringify(ref)} selected={sameRef(sel, ref)} glint={extra} onClick={() => select(ref)}
-        title={item ? `${prettyId(id)} ×${countOf(item)}${extra ? ' (con datos extra: encantamientos, nombre…)' : ''}` : label ?? 'Vacío'}>
-        {item ? (
-          <>
-            <McIcon k={`item:${id}`} size={32} fallback={<span className="text-[8px] leading-tight text-center text-white/90 px-0.5 break-all">{prettyId(id)}</span>} />
-            {countOf(item) > 1 && <span className="absolute bottom-0 right-0.5 text-[13px] font-bold text-white leading-none" style={{ textShadow: '2px 2px 0 #3f3f3f' }}>{countOf(item)}</span>}
-          </>
-        ) : emptyIcon ? <McIcon k={emptyIcon} size={32} /> : null}
+      <McSlot key={key} selected={sameRef(sel, ref)} over={dragOver === key} onClick={() => select(ref)}
+        title={item ? undefined : label ?? 'Vacía'}
+        draggable={!!item}
+        onDragStart={(e) => { e.dataTransfer.setData(DRAG_TYPE, key); e.dataTransfer.effectAllowed = 'move'; setHover(null) }}
+        onDragOver={(e) => { if (e.dataTransfer.types.includes(DRAG_TYPE)) { e.preventDefault(); setDragOver(key) } }}
+        onDragLeave={() => setDragOver((k) => (k === key ? null : k))}
+        onDrop={(e) => {
+          e.preventDefault(); setDragOver(null)
+          const raw = e.dataTransfer.getData(DRAG_TYPE)
+          if (raw) moveItem(JSON.parse(raw) as SlotRef, ref)
+        }}
+        onHover={(x, y) => setHover(item && x >= 0 ? { item, x, y } : null)}>
+        {item ? <ItemInSlot item={item} /> : emptyIcon ? <McIcon k={emptyIcon} size={32} /> : null}
       </McSlot>
     )
   }
@@ -166,29 +223,31 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
     <div className="flex-1 overflow-y-auto p-4 space-y-5">
       {/* Cabecera */}
       <div className="flex items-center gap-4 flex-wrap">
-        {playerName
-          ? <img src={headUrl(playerName, 64)} alt="" className="w-14 h-14 rounded-lg" style={{ imageRendering: 'pixelated' }} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />
+        {name
+          ? <img src={headUrl(name, 64)} alt="" className="w-14 h-14 rounded-lg" style={{ imageRendering: 'pixelated' }} onError={(e) => { e.currentTarget.style.visibility = 'hidden' }} />
           : <div className="w-14 h-14 rounded-lg bg-bg-hover" />}
         <div className="min-w-0 flex-1">
-          <p className="text-lg font-bold text-text-primary truncate">{playerName ?? 'Jugador'}</p>
+          <p className="text-lg font-bold text-text-primary truncate">{name ?? 'Jugador sin nombre conocido'}</p>
           <p className="text-xs text-text-muted">
             {DIMENSIONS.find(([d]) => d === getStr(p, 'Dimension'))?.[1] ?? getStr(p, 'Dimension')}
             {pos.length === 3 && ` · ${pos.map((n) => Math.round(n)).join(', ')}`}
           </p>
         </div>
+        {advancements && (
+          <button type="button" onClick={() => setShowAdv(true)}
+            className="flex items-center gap-2 px-3 h-9 rounded-lg border border-border text-sm text-text-secondary hover:text-text-primary hover:border-accent/50">
+            <McItem id="minecraft:wheat" size={18} /> Logros
+          </button>
+        )}
         <div className="w-44">
           <Select label="Modo de juego" value={String(getNum(p, 'playerGameType'))} options={GAMEMODES}
             onChange={(v) => set((pl) => { pl.playerGameType = int(Number(v)) })} />
         </div>
       </div>
 
-      {/* Como en la pantalla del juego */}
-      <div className="rounded-xl bg-[#1d1d24] border border-black/40 p-3 space-y-2 w-fit max-w-full">
-        <div className="flex gap-6 flex-wrap">
-          <IconRow value={health} max={20} full={HUD.heartFull} half={HUD.heartHalf} empty={HUD.heartEmpty} title={`Vida: ${health}`} />
-          <IconRow value={food} max={20} full={HUD.foodFull} half={HUD.foodHalf} empty={HUD.foodEmpty} title={`Comida: ${food}`} reverse />
-        </div>
-        <XpBar level={getNum(p, 'XpLevel')} progress={getNum(p, 'XpP')} />
+      {/* Como en la pantalla del juego: corazones a la izquierda, comida a la derecha y la experiencia debajo */}
+      <div className="rounded-xl bg-[#1d1d24] border border-black/40 px-4 pt-3 pb-4 w-fit max-w-full overflow-x-auto">
+        <Hud health={health} food={food} level={getNum(p, 'XpLevel')} progress={getNum(p, 'XpP')} />
       </div>
 
       {/* Estado */}
@@ -243,7 +302,7 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
       </Field>
 
       {/* Inventario, como la pantalla del juego */}
-      <Field label="Inventario" hint="Haz clic en una casilla para cambiar o quitar lo que hay.">
+      <Field label="Inventario" hint="Clic en una casilla para cambiar o quitar lo que hay; arrastra para moverlo (también al cofre de Ender). Pasa el ratón para ver la información.">
         <div className="overflow-x-auto">
           <div className="inline-flex gap-3 p-2 rounded-md" style={{ background: '#c6c6c6', border: '2px solid', borderColor: '#fff #555 #555 #fff' }}>
             <div className="flex flex-col gap-0.5">
@@ -266,9 +325,9 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
       {sel && (
         <div className="rounded-xl border border-accent/40 bg-accent/5 p-3 space-y-2">
           <div className="flex items-center gap-2">
-            {selItem && <McIcon k={`item:${getStr(selItem, 'id')}`} size={24} />}
+            {selItem && <McItem id={getStr(selItem, 'id')} size={24} />}
             <p className="text-sm font-semibold text-text-primary">
-              {selItem ? prettyId(getStr(selItem, 'id')) : 'Casilla vacía'}
+              {selItem ? itemName(lang, getStr(selItem, 'id')) : 'Casilla vacía'}
               <span className="font-normal text-text-muted"> · {sel.where === 'ender' ? `cofre de Ender, casilla ${sel.slot + 1}` : sel.where === 'equip' ? ARMOR.find((a) => a.key === sel.key)!.label.toLowerCase() : sel.slot < 9 ? `barra rápida ${sel.slot + 1}` : `inventario, casilla ${sel.slot - 8}`}</span>
             </p>
           </div>
@@ -283,7 +342,7 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
             <label className="block flex-1 min-w-[160px]">
               <span className="text-xs text-text-muted">Objeto</span>
               <div className="mt-1 flex items-center gap-2">
-                {draft.id && <McIcon k={`item:${draft.id.includes(':') ? draft.id : `minecraft:${draft.id}`}`} size={24} />}
+                {draft.id && <McItem id={draft.id.includes(':') ? draft.id : `minecraft:${draft.id}`} size={24} />}
                 <input value={draft.id} onChange={(e) => setDraft({ ...draft, id: e.target.value })} placeholder="minecraft:diamond"
                   className="flex-1 min-w-0 bg-bg-primary border border-border rounded-lg px-2.5 py-1.5 text-sm text-text-primary font-mono outline-none focus:border-accent/60" />
               </div>
@@ -305,6 +364,7 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
               para editarlos usa el modo avanzado.
             </p>
           )}
+          {selItem && <ItemContents item={selItem} onHover={setHover} />}
         </div>
       )}
 
@@ -325,7 +385,7 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
               return (
                 <div key={i} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-bg-card border border-border text-sm flex-wrap">
                   <McIcon k={`mob_effect/${id.replace(/^minecraft:/, '')}`} size={18} />
-                  <span className="text-text-primary">{prettyId(id)}</span>
+                  <span className="text-text-primary">{lang[`effect.${id.replace(':', '.')}`] ?? prettyId(id)}</span>
                   <span className="text-text-muted">nivel {getNum(e, 'amplifier', getNum(e, 'Amplifier')) + 1}</span>
                   <span className="text-text-muted">{secs < 0 ? '∞' : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`}</span>
                   <button type="button" className="ml-auto text-text-muted hover:text-red-400"
@@ -336,8 +396,101 @@ export default function PlayerSimple({ root, mutate, playerName, at }: Props) {
           </div>
         </Field>
       )}
+
+      {hover && <ItemTooltip item={hover.item} x={hover.x} y={hover.y} lang={lang} />}
+      {showAdv && advancements && (
+        <AdvancementsView worldDir={advancements.worldDir} uuid={advancements.uuid} remote={advancements.remote} playerName={name} onClose={() => setShowAdv(false)} />
+      )}
     </div>
   )
+}
+
+/** Icono, cantidad y barra de durabilidad, como en el juego. */
+function ItemInSlot({ item }: { item: Compound }) {
+  const id = getStr(item, 'id')
+  const count = itemCount(item)
+  const max = maxDamage(item)
+  const dmg = itemDamage(item)
+  const enchanted = Object.keys(item).some((k) => k === 'components' || k === 'tag') && /enchant/.test(JSON.stringify(item.components ?? item.tag ?? ''))
+  return (
+    <>
+      <span className="relative">
+        <McItem id={id} size={32} fallback={<span className="text-[8px] leading-tight text-center text-white/90 px-0.5 break-all">{prettyId(id)}</span>} />
+        {enchanted && <span className="absolute inset-0 pointer-events-none mix-blend-screen" style={{ background: 'linear-gradient(115deg, transparent 20%, rgba(190,120,255,0.45) 45%, transparent 70%)' }} />}
+      </span>
+      {max > 0 && dmg > 0 && (
+        <span className="absolute left-[4px] right-[4px] bottom-[3px] h-[3px] bg-black">
+          <span className="block h-[2px]" style={{ width: `${((max - dmg) / max) * 100}%`, background: `hsl(${((max - dmg) / max) * 120}, 100%, 50%)` }} />
+        </span>
+      )}
+      {count > 1 && <span className="absolute bottom-0 right-0.5 text-[13px] font-bold text-white leading-none" style={{ textShadow: '2px 2px 0 #3f3f3f' }}>{count}</span>}
+    </>
+  )
+}
+
+/** La tarjetita del juego al pasar el ratón por un objeto. */
+export function ItemTooltip({ item, x, y, lang }: { item: Compound; x: number; y: number; lang: Record<string, string> }) {
+  const lines = tooltipLines(item, lang)
+  // Que no se salga de la ventana
+  const left = Math.min(x + 14, window.innerWidth - 320)
+  const top = Math.min(y + 14, window.innerHeight - 24 - lines.length * 20)
+  return (
+    <div className="fixed z-[200] pointer-events-none px-2 py-1.5 max-w-[300px]" style={{
+      left, top, background: 'rgba(16,0,16,0.94)', border: '2px solid #100010',
+      boxShadow: 'inset 0 0 0 1px #2d0a63, inset 0 1px 0 1px #5000ff55', borderRadius: 3,
+    }}>
+      {lines.map((segs, i) => (
+        <div key={i} className={`text-[13px] leading-[18px] ${i === 0 && lines.length > 1 ? 'mb-1' : ''}`}>
+          <McTextPreview segments={segs} className="!whitespace-normal" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Lo que hay dentro de un shulker o de un saco. */
+function ItemContents({ item, onHover }: { item: Compound; onHover: (h: { item: Compound; x: number; y: number } | null) => void }) {
+  const id = getStr(item, 'id')
+  if (isShulker(id)) {
+    const inside = containerItems(item)
+    return (
+      <div className="space-y-1">
+        <p className="text-xs text-text-muted">Dentro ({inside.length} de 27 casillas ocupadas)</p>
+        <div className="inline-grid grid-cols-9 gap-0.5 p-1.5 rounded-md" style={{ background: '#c6c6c6', border: '2px solid', borderColor: '#fff #555 #555 #fff' }}>
+          {Array.from({ length: 27 }, (_, i) => {
+            const it = inside.find((e) => e.slot === i)?.item ?? null
+            return (
+              <McSlot key={i} onHover={(x, y) => onHover(it && x >= 0 ? { item: it, x, y } : null)}>
+                {it && <ItemInSlot item={it} />}
+              </McSlot>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+  if (isBundle(id)) {
+    const inside = bundleItems(item)
+    const used = Math.min(64, bundleWeight(item))
+    return (
+      <div className="space-y-1.5">
+        <p className="text-xs text-text-muted">
+          Dentro: {inside.length} {inside.length === 1 ? 'montón' : 'montones'} · ocupa {Math.round(used)}/64 · {used >= 64 ? 'lleno' : `le queda sitio para ${Math.floor(64 - used)} objetos normales`}
+        </p>
+        <div className="h-2 w-64 rounded bg-black/40 overflow-hidden">
+          <div className="h-full" style={{ width: `${(used / 64) * 100}%`, background: used >= 64 ? '#ef4444' : '#7c6cf0' }} />
+        </div>
+        {inside.length > 0 && (
+          <div className="flex flex-wrap gap-0.5 p-1.5 rounded-md w-fit" style={{ background: '#c6c6c6', border: '2px solid', borderColor: '#fff #555 #555 #fff' }}>
+            {inside.map((it, i) => (
+              <McSlot key={i} onHover={(x, y) => onHover(x >= 0 ? { item: it, x, y } : null)}><ItemInSlot item={it} /></McSlot>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+  return null
 }
 
 function ability(pl: Compound, key: string, value: boolean): void {
@@ -346,14 +499,21 @@ function ability(pl: Compound, key: string, value: boolean): void {
 }
 
 /** Casilla de inventario con el relieve del juego. */
-export function McSlot({ children, selected, glint, onClick, title }: {
-  children?: React.ReactNode; selected?: boolean; glint?: boolean; onClick?: () => void; title?: string
+export function McSlot({ children, selected, over, glint, onClick, title, draggable, onDragStart, onDragOver, onDragLeave, onDrop, onHover }: {
+  children?: React.ReactNode; selected?: boolean; over?: boolean; glint?: boolean; onClick?: () => void; title?: string
+  draggable?: boolean
+  onDragStart?: React.DragEventHandler; onDragOver?: React.DragEventHandler; onDragLeave?: React.DragEventHandler; onDrop?: React.DragEventHandler
+  /** Posición del ratón mientras está encima (null al salir), para la tarjetita */
+  onHover?: (x: number, y: number) => void
 }) {
   return (
-    <button type="button" onClick={onClick} title={title}
-      className={`relative w-10 h-10 flex items-center justify-center overflow-hidden ${selected ? 'outline outline-2 outline-accent z-[1]' : ''}`}
+    <button type="button" onClick={onClick} title={title} draggable={draggable}
+      onDragStart={onDragStart} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
+      onMouseMove={onHover ? (e) => onHover(e.clientX, e.clientY) : undefined}
+      onMouseLeave={onHover ? () => onHover(-1, -1) : undefined}
+      className={`relative w-10 h-10 flex items-center justify-center overflow-hidden ${draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${selected ? 'outline outline-2 outline-accent z-[1]' : ''}`}
       style={{
-        background: selected ? '#a8c4ff' : '#8b8b8b',
+        background: over ? '#c5d6ff' : selected ? '#a8c4ff' : '#8b8b8b',
         border: '2px solid',
         borderColor: '#373737 #fff #fff #373737',
         boxShadow: glint ? 'inset 0 0 8px rgba(170,90,255,0.8)' : undefined
@@ -363,44 +523,47 @@ export function McSlot({ children, selected, glint, onClick, title }: {
   )
 }
 
-/** Una fila de 10 iconos (corazones o comida) como en la pantalla del juego. */
-function IconRow({ value, max, full, half, empty, title, reverse }: {
-  value: number; max: number; full: string; half: string; empty: string; title: string; reverse?: boolean
-}) {
-  const tex = useTextures([full, half, empty])
-  const n = max / 2
-  const icons = Array.from({ length: n }, (_, i) => {
-    const v = value - i * 2
-    return v >= 2 ? full : v >= 1 ? half : empty
-  })
-  if (!tex[empty]) return <span className="text-sm text-white" title={title}>{title}</span>
-  return (
-    <div className={`flex ${reverse ? 'flex-row-reverse' : ''}`} title={title}>
-      {icons.map((k, i) => (
-        <span key={i} className="relative w-[18px] h-[18px]" style={{ imageRendering: 'pixelated' }}>
-          <img src={tex[empty] ?? ''} alt="" className="absolute inset-0 w-full h-full" style={{ imageRendering: 'pixelated' }} />
+/**
+ * La parte de abajo de la pantalla del juego, a escala 2: 364 de ancho como la
+ * barra de experiencia; 10 corazones a la izquierda y 10 muslos a la derecha
+ * (cada icono de 18 cada 16, solapados un píxel como en el juego); el nivel,
+ * centrado sobre la barra.
+ */
+function Hud({ health, food, level, progress }: { health: number; food: number; level: number; progress: number }) {
+  const tex = useTextures([HUD.heartFull, HUD.heartHalf, HUD.heartEmpty, HUD.foodFull, HUD.foodHalf, HUD.foodEmpty, HUD.xpBack, HUD.xpFill])
+  const row = (value: number, full: string, half: string, empty: string, fromRight: boolean): JSX.Element[] =>
+    Array.from({ length: 10 }, (_, i) => {
+      const v = value - i * 2
+      const k = v >= 2 ? full : v >= 1 ? half : empty
+      return (
+        <span key={i} className="absolute top-0 w-[18px] h-[18px]" style={fromRight ? { right: i * 16 } : { left: i * 16 }}>
+          {tex[empty] && <img src={tex[empty]!} alt="" className="absolute inset-0 w-full h-full" style={{ imageRendering: 'pixelated' }} />}
           {k !== empty && tex[k] && <img src={tex[k]!} alt="" className="absolute inset-0 w-full h-full" style={{ imageRendering: 'pixelated' }} />}
         </span>
-      ))}
-    </div>
-  )
-}
-
-function XpBar({ level, progress }: { level: number; progress: number }) {
-  const tex = useTextures([HUD.xpBack, HUD.xpFill])
+      )
+    })
+  if (!tex[HUD.heartEmpty]) {
+    return <p className="text-sm text-white">Vida {health} · Comida {food} · Nivel {level}</p>
+  }
   return (
-    <div className="relative w-[364px] max-w-full h-[10px] mt-3" title={`Nivel ${level} · ${Math.round(progress * 100)} %`}>
-      {tex[HUD.xpBack] ? (
-        <>
-          <img src={tex[HUD.xpBack]!} alt="" className="absolute inset-0 w-full h-full" style={{ imageRendering: 'pixelated' }} />
-          <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%` }}>
-            <img src={tex[HUD.xpFill] ?? ''} alt="" className="h-full max-w-none" style={{ width: 364, imageRendering: 'pixelated' }} />
-          </div>
-        </>
-      ) : <div className="absolute inset-0 bg-black/50 rounded"><div className="h-full bg-lime-400" style={{ width: `${progress * 100}%` }} /></div>}
-      <span className="absolute left-1/2 -translate-x-1/2 -top-4 text-sm font-bold" style={{ color: '#80ff20', textShadow: '1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000' }}>
-        {level}
-      </span>
+    <div className="relative w-[364px] h-[34px]">
+      <div className="absolute inset-x-0 top-0 h-[18px]" title={`Vida: ${health} (${(health / 2).toFixed(1)} corazones)`}>
+        {row(health, HUD.heartFull, HUD.heartHalf, HUD.heartEmpty, false)}
+      </div>
+      <div className="absolute inset-x-0 top-0 h-[18px]" title={`Comida: ${food}`}>
+        {row(food, HUD.foodFull, HUD.foodHalf, HUD.foodEmpty, true)}
+      </div>
+      <div className="absolute left-0 right-0 bottom-0 h-[10px]" title={`Nivel ${level} · ${Math.round(progress * 100)} %`}>
+        {tex[HUD.xpBack] && <img src={tex[HUD.xpBack]!} alt="" className="absolute inset-0 w-full h-full" style={{ imageRendering: 'pixelated' }} />}
+        <div className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%` }}>
+          {tex[HUD.xpFill] && <img src={tex[HUD.xpFill]!} alt="" className="h-full max-w-none" style={{ width: 364, imageRendering: 'pixelated' }} />}
+        </div>
+      </div>
+      {level > 0 && (
+        <span className="absolute left-1/2 -translate-x-1/2 bottom-[6px] text-[15px] font-bold leading-none" style={{ color: '#80ff20', textShadow: '2px 0 0 #000, -2px 0 0 #000, 0 2px 0 #000, 0 -2px 0 #000' }}>
+          {level}
+        </span>
+      )}
     </div>
   )
 }

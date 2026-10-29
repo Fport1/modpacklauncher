@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import type { Instance, ModpackManifest, DownloadProgress, PublishedModpack } from '../../../shared/types'
 import FpackImportModal from '../components/FpackImportModal'
 import FpackSaveModal from '../components/FpackSaveModal'
+import ProtectionNotice from '../components/ProtectionNotice'
 import QRDisplay from '../components/QRDisplay'
 import jsQR from 'jsqr'
 
@@ -189,6 +190,7 @@ export default function ModpacksPage() {
   const [showKeyInput, setShowKeyInput] = useState(false)
   const [keyVisible, setKeyVisible] = useState(false)
   const [fetchedManifest, setFetchedManifest] = useState<ModpackManifest | null>(null)
+  const [installAccountId, setInstallAccountId] = useState<string | null>(null)
   const [published, setPublished] = useState<PublishedModpack[]>([])
   const [copiedId, setCopiedId] = useState('')
   const [revealedId, setRevealedId] = useState('')
@@ -280,6 +282,8 @@ export default function ModpacksPage() {
     setError('')
     setLoading(true)
     try {
+      const problem = await window.api.modpacks.checkInstall(fetchedManifest, installAccountId ?? undefined)
+      if (problem) { setError(problem); setLoading(false); return }
       const newInst = await window.api.instances.create({
         name: instanceName.trim() || fetchedManifest.name,
         minecraft: fetchedManifest.minecraft,
@@ -291,7 +295,7 @@ export default function ModpacksPage() {
         modpackKey: keyInput.trim() || undefined
       })
       closeAddModal()
-      window.api.modpacks.install(newInst.id, fetchedManifest)
+      window.api.modpacks.install(newInst.id, fetchedManifest, { accountId: installAccountId ?? undefined })
         .then(() => window.api.instances.list().then(setInstances))
         .catch(() => {})
     } catch (e: unknown) {
@@ -733,6 +737,10 @@ export default function ModpacksPage() {
                         MC {fetchedManifest.minecraft} · {fetchedManifest.modloader}
                       </p>
                     </div>
+                  )}
+
+                  {fetchedManifest?.protection && (
+                    <ProtectionNotice protection={fetchedManifest.protection} accountId={installAccountId} onAccount={setInstallAccountId} />
                   )}
 
                   {installProgress && (

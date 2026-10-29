@@ -13,7 +13,7 @@ const cache = new Map<string, string | null>()
 
 const isRelease = (name: string): boolean => /^\d+\.\d+(\.\d+)?$/.test(name)
 
-async function openJar(): Promise<AdmZip | null> {
+export async function openJar(): Promise<AdmZip | null> {
   if (jar) return jar.zip
   const dir = path.join(getSharedDir(), 'versions')
   const names = (await fs.readdir(dir).catch(() => [] as string[])).filter(isRelease)

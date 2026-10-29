@@ -10,6 +10,7 @@ import RamSlider from '../components/RamSlider'
 import ExportModpackModal from '../components/ExportModpackModal'
 import FpackSaveModal from '../components/FpackSaveModal'
 import TransferModal from '../components/TransferModal'
+import ProtectionNotice from '../components/ProtectionNotice'
 import FpackImportModal from '../components/FpackImportModal'
 import type { Instance, LiveStatus, Modloader, ModpackManifest } from '../../../shared/types'
 import { useT } from '../i18n'
@@ -464,6 +465,22 @@ export default function InstancesPage() {
   const [justCreated, setJustCreated] = useState<Instance | null>(null)
   const [bannerLeaving, setBannerLeaving] = useState(false)
   const createdTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  /** Instancia Horizon: Minecraft 26.3 en Rust. La versión de Horizon se baja y prepara al darle a Jugar. */
+  async function createHorizon() {
+    try {
+      const inst = await window.api.instances.create({
+        name: 'Horizon', minecraft: '26.3', modloader: 'vanilla', kind: 'horizon',
+        description: 'Minecraft 26.3 reescrito en Rust (Horizon). La primera vez prepara sus archivos a partir de tu Minecraft.',
+        maxMemory: 4096, minMemory: 512
+      })
+      addInstance(inst)
+      cancelModal()
+      celebrateCreated(inst)
+    } catch (e: unknown) {
+      addToast(e instanceof Error ? e.message : 'No se pudo crear la instancia Horizon', 'error', 6000)
+    }
+  }
+
   function celebrateCreated(inst: Instance) {
     createdTimers.current.forEach(clearTimeout)
     setDragOrder(prev => {
@@ -611,6 +628,7 @@ export default function InstancesPage() {
 
   const [modpackUrl, setModpackUrl] = useState('')
   const [modpackManifest, setModpackManifest] = useState<ModpackManifest | null>(null)
+  const [installAccountId, setInstallAccountId] = useState<string | null>(null)
   const [modpackName, setModpackName] = useState('')
   const [modpackLoading, setModpackLoading] = useState(false)
   const [modpackError, setModpackError] = useState('')
@@ -802,6 +820,8 @@ export default function InstancesPage() {
     if (!modpackManifest || !modpackName.trim()) { setModpackError('Introduce un nombre'); return }
     setModpackLoading(true); setModpackError('')
     try {
+      const problem = await window.api.modpacks.checkInstall(modpackManifest, installAccountId ?? undefined)
+      if (problem) { setModpackError(problem); return }
       const inst = await window.api.instances.create({
         name: modpackName.trim(),
         minecraft: modpackManifest.minecraft,
@@ -814,7 +834,7 @@ export default function InstancesPage() {
       addInstance(inst)
       cancelModal()
       celebrateCreated(inst)
-      await window.api.modpacks.install(inst.id, modpackManifest)
+      await window.api.modpacks.install(inst.id, modpackManifest, { accountId: installAccountId ?? undefined })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Error al crear instancia'
       setModpackError(msg)
@@ -1429,6 +1449,17 @@ export default function InstancesPage() {
                   </div>
                 </button>
               </div>
+
+              <button
+                onClick={createHorizon}
+                className="group mt-4 w-full flex items-center gap-4 p-4 bg-bg-card border border-border rounded-xl hover:border-orange-400/50 hover:bg-orange-400/5 transition-all text-left"
+              >
+                <div className="w-12 h-12 rounded-xl bg-orange-400/10 group-hover:bg-orange-400/20 flex items-center justify-center text-xl shrink-0">🦀</div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-text-primary text-sm">Horizon <span className="text-[11px] font-normal text-orange-300 ml-1">experimental</span></p>
+                  <p className="text-[13px] text-text-muted mt-0.5">Minecraft 26.3 reescrito en Rust: más rápido, con sus propios mods. Los mods de Java no funcionan.</p>
+                </div>
+              </button>
             </div>
           )}
 
@@ -1495,6 +1526,9 @@ export default function InstancesPage() {
                         className="w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent"
                       />
                     </div>
+                    {modpackManifest.protection && (
+                      <ProtectionNotice protection={modpackManifest.protection} accountId={installAccountId} onAccount={setInstallAccountId} />
+                    )}
                   </>
                 )}
 
@@ -1521,6 +1555,7 @@ export default function InstancesPage() {
           {/* ── STEP: manual / edit ──────────────────────────────── */}
           {(modalStep === 'manual' || modalStep === 'edit') && (() => {
             const fixedMc = LOADER_FIXED_MC.has(form.modloader)
+            const lockedCore = modalStep === 'edit' && !!editing?.protection
             const inputCls = 'w-full bg-bg-primary border border-border rounded-xl px-3.5 py-2.5 text-sm text-text-primary focus:outline-none focus:border-accent'
             const versionTiles: { mode: VersionMode; title: string; value: string; hint: string }[] = [
               { mode: 'release', title: 'Última versión', value: latestRelease || '…', hint: 'Se pone sola al día cuando sale una nueva' },
@@ -1580,6 +1615,12 @@ export default function InstancesPage() {
                   </div>
                 </div>
 
+                {lockedCore && (
+                  <p className="text-[12px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                    🔒 Modpack protegido: la versión y el modloader los decide su creador.
+                  </p>
+                )}
+                <fieldset disabled={lockedCore} className={lockedCore ? "space-y-5 opacity-50 pointer-events-none" : "space-y-5"}>
                 {/* Versión de Minecraft */}
                 <section className="bg-bg-card border border-border rounded-2xl p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Versión de Minecraft</p>
@@ -1696,6 +1737,8 @@ export default function InstancesPage() {
                     )}
                   </div>
                 </section>
+
+                </fieldset>
 
                 {/* Memoria */}
                 <section className="bg-bg-card border border-border rounded-2xl p-4">

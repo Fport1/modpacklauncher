@@ -133,6 +133,8 @@ export default function App() {
 
   const [appReady, setAppReady] = useState(false)
   const [closeConfirm, setCloseConfirm] = useState(false)
+  /** Avisos de modpacks protegidos que caducan (se ven en cualquier página) */
+  const [expiryNotices, setExpiryNotices] = useState<{ key: string; text: string; tone: 'warn' | 'gone' }[]>([])
 
   const lastActivityRef = useRef(Date.now())
   const afkRef = useRef(false)
@@ -219,6 +221,15 @@ export default function App() {
     const unsubLog = window.api.onGameLog((id, lines) => appendGameLogs(id, lines))
     const unsubExit = window.api.onGameExit((id) => setInstanceRunning(id, false))
     const unsubInstUpdated = window.api.instances.onUpdated((inst) => useStore.getState().updateInstance(inst))
+    const unsubProtection = window.api.onProtectionEvent((event, info) => {
+      const at = new Date(info.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const text = event === 'expiring'
+        ? '«' + info.name + '» caduca a las ' + at + ': guarda la partida, el juego se cerrará y el modpack se borrará.'
+        : '«' + info.name + '» caducó y se ha borrado, como decidió su creador.'
+      if (event === 'expired') useStore.getState().removeInstance(info.id)
+      const key = event + info.id
+      setExpiryNotices((prev) => [...prev.filter((n) => n.key !== key), { key, text, tone: event === 'expiring' ? 'warn' : 'gone' }])
+    })
     // Si la ventana se recargó (o se cayó y volvió) con un juego abierto, se recupera qué
     // instancias siguen abiertas y su registro: si no, salían como «Jugar».
     window.api.launcher.running().then((list) => {
@@ -299,6 +310,7 @@ export default function App() {
       unsubLog()
       unsubLogReset()
       unsubInstUpdated()
+      unsubProtection()
       unsubExit()
       window.removeEventListener('mousemove', onActivity)
       window.removeEventListener('keydown', onActivity)
@@ -362,6 +374,17 @@ export default function App() {
         </div>
         <OperationsPanel />
         <UpdateModal />
+        {expiryNotices.length > 0 && (
+          <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[400] space-y-2 w-[min(520px,90vw)]">
+            {expiryNotices.map((n) => (
+              <div key={n.key} className={'flex items-start gap-3 px-4 py-3 rounded-xl border shadow-2xl text-sm ' + (n.tone === 'warn' ? 'bg-amber-950/95 border-amber-500/50 text-amber-100' : 'bg-bg-secondary border-border text-text-primary')}>
+                <span>{n.tone === 'warn' ? '⏳' : '🗑️'}</span>
+                <span className="flex-1">{n.text}</span>
+                <button onClick={() => setExpiryNotices((prev) => prev.filter((x) => x.key !== n.key))} className="text-text-muted hover:text-text-primary">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
         <AssistHostPanel />
       </div>
       {closeConfirm && (
