@@ -100,13 +100,24 @@ export async function listWorldPlayers(worldDir: string, accounts: { uuid: strin
     const acc = accounts.find((a) => dashed(a.uuid) === uuid)
     if (cache.has(uuid)) { p.name = cache.get(uuid); p.nameFrom = 'usercache' }
     else if (acc) { p.name = acc.username; p.nameFrom = 'launcher' }
-    else {
-      // Paper/Spigot guardan el último nombre con el que entró
-      const doc = await nbtReadLocal(p.file).catch(() => null)
-      const last = doc && sub(doc, 'bukkit')?.lastKnownName
-      if (last?.type === 'string' && last.value) { p.name = last.value; p.nameFrom = 'bukkit' }
-    }
     players.push(p)
+  }
+  // Paper/Spigot guardan el último nombre con el que entró: con Rust se leen todos a la vez
+  const unnamed = players.filter((p) => !p.name)
+  let bukkit: (string | null)[] | null = null
+  const { nativeAvailable, nativeCall } = await import('./native')
+  if (unnamed.length && nativeAvailable()) {
+    bukkit = await nativeCall<(string | null)[]>('player-names', { files: unnamed.map((p) => p.file) }).catch(() => null)
+  }
+  for (let i = 0; i < unnamed.length; i++) {
+    const p = unnamed[i]
+    let last: string | null = bukkit ? bukkit[i] : null
+    if (!bukkit) {
+      const doc = await nbtReadLocal(p.file).catch(() => null)
+      const t = doc && sub(doc, 'bukkit')?.lastKnownName
+      last = t?.type === 'string' ? t.value : null
+    }
+    if (last) { p.name = last; p.nameFrom = 'bukkit' }
   }
   // Los no premium sin nombre: probar con todos los nombres que conocemos
   const known = new Set<string>([...cache.values(), ...accounts.map((a) => a.username), ...players.map((p) => p.name).filter((n): n is string => !!n)])

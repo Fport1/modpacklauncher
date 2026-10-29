@@ -70,6 +70,14 @@ export async function nbtWriteRemote(remote: string, doc: NbtDocument): Promise<
 }
 
 export async function nbtReadLocal(file: string): Promise<NbtDocument> {
+  // Con Rust (misma forma que prismarine-nbt); lo que no sea Java big-endian, con prismarine
+  const { nativeAvailable, nativeCall } = await import('./native')
+  if (nativeAvailable()) {
+    try {
+      const [r] = await nativeCall<{ doc?: NbtDocument; error?: string }[]>('nbt-decode', { files: [file] })
+      if (r.doc) return r.doc
+    } catch { /* se lee en JavaScript */ }
+  }
   return decode(await fs.readFile(file))
 }
 

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:native": "node scripts/build-native.js",
     "preview": "electron-vite preview",
     "probar:canal-en-vivo": "node scripts/probar-canal-en-vivo.mjs",
     "clean": "node -e \"require('fs-extra').emptyDirSync('dist')\"",

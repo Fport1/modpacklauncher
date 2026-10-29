@@ -36,6 +36,9 @@ files:
   - out/**/*
 
 extraResources:
+  # El programa auxiliar en Rust (scripts/build-native.js lo deja en native/dist)
+  - from: native/dist
+    to: native
   - from: resources/icons
     to: icons
     filter:

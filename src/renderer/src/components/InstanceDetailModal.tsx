@@ -16,6 +16,7 @@ import { dominantColor } from '../lib/dominantColor'
 import { cachedInstanceIcon, cachedInstanceColor, loadInstanceIcon } from '../lib/instanceIcons'
 import WorldDatapacks from './WorldDatapacks'
 import WorldPlayers from './WorldPlayers'
+import WorldCleanup from './WorldCleanup'
 import AiContextModal from './AiContextModal'
 import ContentBrowser, { type BrowseTarget, type InstalledIndex } from './content/ContentBrowser'
 import type { ProjectRef } from '../lib/contentSources'
@@ -561,6 +562,13 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [worldNbt, setWorldNbt] = useState<{ path: string; name: string; kind: NbtKind; playerName?: string; advancements?: { worldDir: string; uuid: string } } | null>(null)
   // Jugadores de un mundo (lista, logros y transferencias)
   const [playersWorld, setPlayersWorld] = useState<string | null>(null)
+  // Limpiar un mundo (quitar chunks sin visitar)
+  const [cleanupWorld, setCleanupWorld] = useState<{ name: string; dir: string; backupDir: string } | null>(null)
+  async function openCleanup(world: string): Promise<void> {
+    const saves = await window.api.instances.savesPath(instance.id)
+    const gameDir = await window.api.ftp.localParent(saves)
+    setCleanupWorld({ name: world, dir: localJoin(saves, world), backupDir: localJoin(gameDir, 'backups') })
+  }
   const worldNbtClose = useRef<CloseRequest | null>(null)
   const worldNbtNav = useRef<number | null>(null)
   const [worldEditorSaving, setWorldEditorSaving] = useState(false)
@@ -2184,6 +2192,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           e.preventDefault()
                           setCtx({ x: e.clientX, y: e.clientY, items: [
                             { label: 'Jugadores', action: () => setPlayersWorld(w.name) },
+                            { label: 'Limpiar chunks sin visitar', action: () => openCleanup(w.name) },
                             { label: 'Datapacks', action: () => setDatapacksWorld(w.name) },
                             { label: 'Crear backup', action: () => handleBackupWorld(w.name) },
                             { label: 'Eliminar', danger: true, action: () => deleteWorldItems([w.name]) }
@@ -2213,6 +2222,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           title="Instalar, activar y desactivar datapacks de este mundo"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
                           📦 Datapacks
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); void openCleanup(w.name) }}
+                          title="Quitar los chunks por los que casi no ha pasado nadie (lo que más ocupa)"
+                          className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
+                          🧹 Limpiar
                         </button>
                         <button onClick={e => { e.stopPropagation(); setPlayersWorld(w.name) }}
                           title="Quién ha jugado, sus inventarios y logros, y pasar sus cosas de una cuenta a otra"
@@ -2662,6 +2676,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           onChange={setLightboxIdx}
           onDelete={s => deleteScreenshotItems([s.filename])}
         />
+      )}
+      {cleanupWorld && (
+        <WorldCleanup worldDir={cleanupWorld.dir} worldName={cleanupWorld.name} backupDir={cleanupWorld.backupDir}
+          onClose={() => setCleanupWorld(null)} onDone={() => { setBackupsLoaded(false) }} />
       )}
       {playersWorld && (
         <PlayersOverlay instanceId={instance.id} world={playersWorld} onClose={() => setPlayersWorld(null)}

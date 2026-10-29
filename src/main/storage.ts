@@ -95,6 +95,23 @@ export async function scanStorage(window: BrowserWindow | null): Promise<Storage
     }
   }
 
+  // Con Rust se recorren las subcarpetas en paralelo (mismo árbol); si no, como siempre
+  const { nativeAvailable, nativeWalk } = await import('./native')
+  if (nativeAvailable()) {
+    try {
+      const r = await nativeWalk(root, 'ModpackLauncher', [...HIDDEN], (p) => {
+        state.files = p.done
+        state.bytes = Number(p.msg) || state.bytes
+        state.tick('')
+      })
+      tree = r.tree as Node
+      return { bytes: r.bytes, files: r.files, current: '', done: true }
+    } catch (e) {
+      console.warn('[almacenamiento] Recorrido con Rust fallido, se hace en JavaScript:', (e as Error).message)
+      state.bytes = 0
+      state.files = 0
+    }
+  }
   tree = await walk(root, '', 'ModpackLauncher', state)
   return { bytes: tree.bytes, files: state.files, current: '', done: true }
 }

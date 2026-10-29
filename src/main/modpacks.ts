@@ -11,6 +11,7 @@ import type { ProgressCallback } from './downloader'
 import { checkCancel } from './cancelToken'
 import { safeJoin, trySafeJoin } from './paths'
 import { checkProtectedInstall, decryptPackZip, encryptPackZip, isProtected, protectInstance } from './protection'
+import { nativeAvailable, nativeZipCreate, nativeZipExtract } from './native'
 
 // ── URL normalizer ──────────────────────────────────────────────────────────
 
@@ -181,10 +182,15 @@ export async function installModpack(
       console.log(`[modpack] Descargando ${manifest.name} ${manifest.version} desde ${manifest.filesZip}`)
       await downloadPackZip(manifest, tmpZip, onProgress, 'Descargando modpack...')
       checkCancel()
-      const zip = new AdmZip(tmpZip)
-      const entries = zip.getEntries().filter(e => !e.isDirectory)
-      console.log(`[modpack] Descargado, extrayendo ${entries.length} archivos`)
-      onProgress?.(0, entries.length, 'Extrayendo archivos...', { phase: 'Extracción', filesDone: 0, filesTotal: entries.length })
+      // Con Rust se descomprime en varios hilos y sin meter el zip entero en memoria
+      const viaNative = nativeAvailable() && await nativeZipExtract(tmpZip, gameDir, { keepExisting: [...FIRST_RUN_FILES] },
+        (p) => onProgress?.(p.done, p.total, 'Extrayendo archivos...', { phase: 'Extracción', filesDone: p.done, filesTotal: p.total, file: p.msg }))
+        .then((r) => { console.log(`[modpack] Extraídos ${r.written} archivos con Rust (${r.skipped} del jugador sin tocar, ${r.unsafe} rutas inseguras ignoradas)`); return true })
+        .catch((e) => { console.warn('[modpack] Extracción con Rust fallida, se hace en JavaScript:', (e as Error).message); return false })
+      const zip = viaNative ? null : new AdmZip(tmpZip)
+      const entries = zip ? zip.getEntries().filter(e => !e.isDirectory) : []
+      if (zip) console.log(`[modpack] Descargado, extrayendo ${entries.length} archivos`)
+      if (zip) onProgress?.(0, entries.length, 'Extrayendo archivos...', { phase: 'Extracción', filesDone: 0, filesTotal: entries.length })
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i]
         const destPath = trySafeJoin(gameDir, entry.entryName)
@@ -282,8 +288,11 @@ export async function updateModpack(
       await downloadPackZip(manifest, tmpZip, onProgress, 'Descargando actualización...')
       checkCancel()
       onProgress?.(1, 2, 'Extrayendo archivos...', { phase: 'Extracción' })
-      const zip = new AdmZip(tmpZip)
-      for (const entry of zip.getEntries()) {
+      const viaNative = nativeAvailable() && await nativeZipExtract(tmpZip, gameDir, { keepExisting: [...FIRST_RUN_FILES] })
+        .then(() => true)
+        .catch((e) => { console.warn('[modpack] Extracción con Rust fallida, se hace en JavaScript:', (e as Error).message); return false })
+      const zip = viaNative ? null : new AdmZip(tmpZip)
+      for (const entry of zip ? zip.getEntries() : []) {
         if (entry.isDirectory) continue
         const destPath = trySafeJoin(gameDir, entry.entryName)
         if (!destPath) {
@@ -759,18 +768,10 @@ export async function exportModpack(params: ExportParams, onProgress: ExportProg
   // Step 1 — build zip (report per-file while packing)
   const sizeMB = (files.reduce((s, f) => s + (f.buf ? f.buf.length : fs.statSync(f.localPath).size ?? 0), 0) / 1024 / 1024).toFixed(1)
   onProgress(`Empaquetando ${files.length.toLocaleString()} archivos (~${sizeMB} MB)...`, 1, EXPORT_TOTAL_STEPS)
-  const zip = new AdmZip()
-  const packFiles: PackFile[] = []
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    onProgress(`Empaquetando ${i + 1}/${files.length}: ${path.basename(file.relativePath)}`, 1, EXPORT_TOTAL_STEPS)
-    const buf = file.buf ?? await fs.readFile(file.localPath)
-    zip.addFile(file.relativePath, buf)
-    packFiles.push({ path: file.relativePath, sha256: file.sha256, url: '' })
-  }
+  const packFiles: PackFile[] = files.map((f) => ({ path: f.relativePath, sha256: f.sha256, url: '' }))
+  const plainZip = await buildPackZip(files, (i) => onProgress(`Empaquetando ${i + 1}/${files.length}: ${path.basename(files[Math.min(i, files.length - 1)].relativePath)}`, 1, EXPORT_TOTAL_STEPS))
   // Modpack protegido: el zip se sube cifrado; la llave va en el manifiesto (que a su vez
   // se cifra si hay clave de acceso), así que bajar files.zip a mano no da los mods
-  const plainZip = zip.toBuffer()
   const sealedZip = params.protection ? encryptPackZip(plainZip) : null
   const zipBuffer = sealedZip ? sealedZip.data : plainZip
 
@@ -982,8 +983,11 @@ export async function importFpack(
   const manifest = await readFpackManifest(fpackPath)
   const gameDir = await getInstanceGameDir(instanceId)
 
-  // Extract overrides/ directly into game dir
-  const overrideEntries = zip.getEntries().filter(e => !e.isDirectory && e.entryName.startsWith('overrides/'))
+  // Extract overrides/ directly into game dir (con Rust si se puede)
+  const viaNative = nativeAvailable() && await nativeZipExtract(fpackPath, gameDir, { stripPrefix: 'overrides/' })
+    .then(() => true)
+    .catch((e) => { console.warn('[fpack] Extracción con Rust fallida, se hace en JavaScript:', (e as Error).message); return false })
+  const overrideEntries = viaNative ? [] : zip.getEntries().filter(e => !e.isDirectory && e.entryName.startsWith('overrides/'))
   for (const entry of overrideEntries) {
     const relPath = entry.entryName.slice('overrides/'.length)
     if (!relPath) continue
@@ -1120,6 +1124,25 @@ export async function saveFpackLocally(
   const total = allFiles.length + 2 // manifest write + zip flush
   let current = 0
 
+  await fs.ensureDir(path.dirname(outputPath))
+  // Con Rust se escribe el zip por partes, sin cargar todos los archivos en memoria
+  if (nativeAvailable()) {
+    const tmpManifest = path.join(os.tmpdir(), `fpack-manifest-${Date.now()}.json`)
+    try {
+      await fs.writeFile(tmpManifest, JSON.stringify(manifest, null, 2), 'utf8')
+      await nativeZipCreate(outputPath, {
+        files: [{ src: tmpManifest, name: 'manifest.json' }, ...allFiles.map((f) => ({ src: f.fullPath, name: `overrides/${f.relPath}` }))],
+        store: ['jar', 'zip', 'png', 'mca', 'ogg'],
+        level: 6,
+      }, (p) => onProgress?.(`Empaquetando ${p.msg}…`, p.done + 1, total))
+      return
+    } catch (e) {
+      console.warn('[fpack] Empaquetado con Rust fallido, se hace en JavaScript:', (e as Error).message)
+    } finally {
+      await fs.remove(tmpManifest).catch(() => {})
+    }
+  }
+
   const zip = new AdmZip()
   onProgress?.('Escribiendo manifest.json…', current, total)
   zip.addFile('manifest.json', Buffer.from(JSON.stringify(manifest, null, 2), 'utf8'))
@@ -1134,4 +1157,44 @@ export async function saveFpackLocally(
   onProgress?.('Escribiendo archivo…', current, total)
   await fs.ensureDir(path.dirname(outputPath))
   zip.writeZip(outputPath)
+}
+
+/**
+ * El files.zip de un modpack. Con Rust se escribe por partes en un temporal (los archivos ya
+ * modificados en memoria, como el options.txt filtrado, van a un temporal también) y luego se
+ * lee; si no, con AdmZip en memoria como siempre.
+ */
+async function buildPackZip(
+  files: { localPath: string; relativePath: string; buf?: Buffer }[],
+  onFile: (i: number) => void
+): Promise<Buffer> {
+  if (nativeAvailable()) {
+    const work = path.join(os.tmpdir(), `modpack-export-${Date.now()}`)
+    try {
+      await fs.ensureDir(work)
+      const items: { src: string; name: string }[] = []
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]
+        if (f.buf) {
+          const tmp = path.join(work, `b${i}`)
+          await fs.writeFile(tmp, f.buf)
+          items.push({ src: tmp, name: f.relativePath })
+        } else items.push({ src: f.localPath, name: f.relativePath })
+      }
+      const out = path.join(work, 'files.zip')
+      await nativeZipCreate(out, { files: items, store: ['jar', 'zip', 'png', 'ogg'], level: 6 }, (p) => onFile(p.done))
+      return await fs.readFile(out)
+    } catch (e) {
+      console.warn('[modpack] Empaquetado con Rust fallido, se hace en JavaScript:', (e as Error).message)
+    } finally {
+      await fs.remove(work).catch(() => {})
+    }
+  }
+  const zip = new AdmZip()
+  for (let i = 0; i < files.length; i++) {
+    onFile(i)
+    const f = files[i]
+    zip.addFile(f.relativePath, f.buf ?? await fs.readFile(f.localPath))
+  }
+  return zip.toBuffer()
 }

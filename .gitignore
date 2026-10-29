@@ -4,3 +4,7 @@ dist/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# Programa auxiliar en Rust (native/)
+native/target/
+native/dist/

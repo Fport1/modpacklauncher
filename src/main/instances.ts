@@ -448,13 +448,24 @@ function tomlIdsAndDeps(toml: string): { ids: string[]; requires: string[] } {
   return { ids, requires }
 }
 
-function readModMeta(jarPath: string, cacheKey: string): ModMeta {
+/** Lo justo de un zip para leer un mod: AdmZip o las entradas que ya trajo Rust. */
+interface ZipLike { getEntry(name: string): { getData(): Buffer } | null }
+
+function readModMeta(jarPath: string, cacheKey: string, source?: ZipLike): ModMeta {
   const hit = modMetaCache.get(cacheKey)
   // Las entradas guardadas antes de leer dependencias se vuelven a leer una vez
   if (hit && hit.modIds !== undefined) return hit
+  let meta: ModMeta
+  try { meta = parseModMeta(source ?? new AdmZip(jarPath)) } catch { meta = { modIds: [], requires: [] } }
+  modMetaCache.set(cacheKey, meta)
+  saveModMetaCacheSoon()
+  return meta
+}
+
+/** Lo que dice el propio mod de sí mismo: Fabric, Quilt, Forge/NeoForge o el mcmod.info antiguo. */
+function parseModMeta(zip: ZipLike): ModMeta {
   const meta: ModMeta = { modIds: [], requires: [] }
   try {
-    const zip = new AdmZip(jarPath)
 
     // ── Fabric ──────────────────────────────────────────────────────────────
     const fabricEntry = zip.getEntry('fabric.mod.json')
@@ -529,10 +540,39 @@ function readModMeta(jarPath: string, cacheKey: string): ModMeta {
       }
     }
   } catch { /* corrupted or unsigned jar — skip */ }
-
-  modMetaCache.set(cacheKey, meta)
-  saveModMetaCacheSoon()
   return meta
+}
+
+/** Los archivos de datos de un mod, en el orden en que se buscan. */
+const MOD_META_ENTRIES = ['fabric.mod.json', 'quilt.mod.json', 'META-INF/neoforge.mods.toml', 'META-INF/mods.toml', 'mcmod.info']
+
+/**
+ * Lee de golpe, con Rust y en varios hilos, los mods que aún no están en la caché. Primero
+ * sus archivos de datos y, con lo que digan, sus iconos. Devuelve cuántos ha podido leer;
+ * si Rust no está, 0 (y listMods los lee uno a uno como siempre).
+ */
+async function prefetchModMeta(jars: { path: string; key: string }[]): Promise<number> {
+  const { nativeAvailable, nativeJarsRead } = await import('./native')
+  if (!jars.length || !nativeAvailable()) return 0
+  try {
+    const first = await nativeJarsRead(jars.map((j) => ({ jar: j.path })), MOD_META_ENTRIES)
+    // Qué más pide cada mod (su icono): se apunta lo que falte al leerlo con lo que hay
+    const wanted = jars.map((j) => {
+      const have = first.get(j.path) ?? new Map<string, Buffer>()
+      const missing: string[] = []
+      parseModMeta({ getEntry: (n) => { const b = have.get(n); if (!b) missing.push(n); return b ? { getData: () => b } : null } })
+      return { jar: j.path, names: missing.filter((n) => !MOD_META_ENTRIES.includes(n)) }
+    })
+    const second = await nativeJarsRead(wanted.filter((w) => w.names.length), [])
+    for (const j of jars) {
+      const all = new Map([...(first.get(j.path) ?? []), ...(second.get(j.path) ?? [])])
+      readModMeta(j.path, j.key, { getEntry: (n) => { const b = all.get(n); return b ? { getData: () => b } : null } })
+    }
+    return jars.length
+  } catch (e) {
+    console.warn('[mods] Lectura con Rust fallida, se hace en JavaScript:', (e as Error).message)
+    return 0
+  }
 }
 
 export async function listMods(instanceId: string): Promise<ModFile[]> {
@@ -542,6 +582,19 @@ export async function listMods(instanceId: string): Promise<ModFile[]> {
   await loadModMetaCache()
   const entries = await fs.readdir(modsDir, { withFileTypes: true })
   const result: ModFile[] = []
+  // Los que no están en la caché, todos a la vez con Rust
+  const uncached: { path: string; key: string }[] = []
+  for (const entry of entries) {
+    const lower = entry.name.toLowerCase()
+    if (!entry.isFile() || (!lower.endsWith('.jar') && !lower.endsWith('.zip') && !lower.endsWith('.disabled'))) continue
+    const filePath = path.join(modsDir, entry.name)
+    const stat = await fs.stat(filePath).catch(() => null)
+    if (!stat) continue
+    const key = `${entry.name}:${stat.size}:${Math.round(stat.mtimeMs)}`
+    const hit = modMetaCache.get(key)
+    if (!hit || hit.modIds === undefined) uncached.push({ path: filePath, key })
+  }
+  await prefetchModMeta(uncached)
   for (const entry of entries) {
     if (!entry.isFile()) continue
     const lower = entry.name.toLowerCase()

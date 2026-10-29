@@ -1315,6 +1315,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
     const filename = `${worldName}_${timestamp}.zip`
     const dest = path.join(backupsDir, filename)
+    // Con Rust el mundo se lee por partes (los de varios GB ya no llenan la memoria) y las
+    // regiones, que ya van comprimidas, se guardan tal cual
+    const { nativeAvailable, nativeZipCreate } = await import('./native')
+    if (nativeAvailable()) {
+      try {
+        await nativeZipCreate(dest, { dirs: [{ dir: worldDir, prefix: worldName }], store: WORLD_STORED_EXT, level: 1, exclude: ['fport1-backups'] })
+        return filename
+      } catch (e) {
+        console.warn('[backup] Con Rust falló, se hace en JavaScript:', (e as Error).message)
+      }
+    }
     const zip = new AdmZip()
     zip.addLocalFolder(worldDir, worldName)
     await new Promise<void>((resolve, reject) =>
@@ -1667,6 +1678,37 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('world:advancements-write', (_e, worldDir: string, uuid: string, data: AdvancementProgress) => writeAdvancements(worldDir, uuid, data))
   ipcMain.handle('world:transfer', (_e, worldDir: string, from: string, to: string, areas: TransferArea[], toName?: string) =>
     transferPlayer(worldDir, from, to, areas, toName))
+  // Limpiar un mundo: quitar los chunks por los que casi no ha pasado nadie (con Rust).
+  // Antes de tocar nada se hace una copia del mundo entero en backupDir.
+  ipcMain.handle('world:prune', async (_e, worldDir: string, opts: { minInhabited: number; dryRun: boolean; backupDir?: string }) => {
+    const { nativeAvailable, nativeWorldPrune, nativeZipCreate } = await import('./native')
+    if (!nativeAvailable()) throw new Error('Limpiar mundos necesita el programa auxiliar del launcher, que no está disponible en este equipo.')
+    const name = path.basename(worldDir)
+    if (opts.dryRun) return { ...(await nativeWorldPrune(worldDir, opts.minInhabited, true)), backup: null }
+    // Con el mundo abierto en el juego, Minecraft volvería a escribir lo que se quita
+    for (const inst of await loadInstances()) {
+      if (!isInstanceRunning(inst.id)) continue
+      const gd = await getInstanceGameDir(inst.id)
+      if (path.resolve(worldDir).toLowerCase().startsWith(path.resolve(gd).toLowerCase() + path.sep)) {
+        throw new Error(`Cierra «${inst.name}» antes de limpiar sus mundos.`)
+      }
+    }
+    if (!opts.backupDir) throw new Error('Falta dónde guardar la copia de seguridad.')
+    const op = makeOpEmitter(`Limpiando ${name}`, 'world-prune')
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const backup = path.join(opts.backupDir, `${name}_antes-de-limpiar_${stamp}.zip`)
+      await nativeZipCreate(backup, { dirs: [{ dir: worldDir, prefix: name }], store: WORLD_STORED_EXT, level: 1, exclude: ['fport1-backups'] },
+        (p) => op.progress(`Copia de seguridad: ${p.msg}`, p.done, Math.max(p.total, 1) * 2))
+      const res = await nativeWorldPrune(worldDir, opts.minInhabited, false, (p) => op.progress(`Limpiando ${p.msg}`, p.total + p.done, Math.max(p.total, 1) * 2))
+      op.done('Mundo limpio')
+      return { ...res, backup }
+    } catch (err) {
+      op.error(describeError(err, 'No se pudo limpiar el mundo'))
+      throw err
+    }
+  })
+
   // Lo mismo en el mundo de un servidor conectado por FTP/SFTP
   ipcMain.handle('world:remote-layout', (_e, world: string) => remoteWorldLayout(world))
   ipcMain.handle('world:remote-players', (_e, world: string) =>
@@ -2011,6 +2053,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
  * Cuenta a la que se ata un modpack con «cuenta obligatoria»: la elegida al instalar o, si
  * no se eligió, la activa. Sin reglas de cuenta no se ata a ninguna.
  */
+/** Lo que ya va comprimido dentro de un mundo y se guarda tal cual en los backups (las regiones no: tienen mucho relleno). */
+const WORLD_STORED_EXT = ['png', 'jar', 'zip', 'gz']
+
 function protectedAccount(manifest: ModpackManifest, accountId?: string): { uuid: string; name: string } | undefined {
   if (!manifest.protection?.account) return undefined
   const { accounts, activeId } = accountsStore.getAll()

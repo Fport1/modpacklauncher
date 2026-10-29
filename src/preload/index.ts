@@ -553,6 +553,9 @@ const api = {
     /** Pasa lo de un jugador a otro; areas vacío = todo. Copia antes lo del destino a <mundo>/fport1-backups */
     transfer: (worldDir: string, from: string, to: string, areas: TransferArea[], toName?: string) =>
       ipcRenderer.invoke('world:transfer', worldDir, from, to, areas, toName) as Promise<{ backup: string; created: boolean; done: TransferArea[] }>,
+    /** Quitar los chunks con menos de minInhabited ticks de jugador cerca; dryRun solo cuenta. Sin dryRun hace antes un zip del mundo en backupDir */
+    prune: (worldDir: string, opts: { minInhabited: number; dryRun: boolean; backupDir?: string }) =>
+      ipcRenderer.invoke('world:prune', worldDir, opts) as Promise<{ dryRun: boolean; backup: string | null; dims: { dim: string; regions: number; chunks: number; remove: number; unknown: number; bytesBefore: number; bytesAfter: number }[] }>,
     /** Lo mismo en el mundo de un servidor conectado (la ruta es la del servidor) */
     remote: {
       layout: (world: string) => ipcRenderer.invoke('world:remote-layout', world) as Promise<WorldLayout>,

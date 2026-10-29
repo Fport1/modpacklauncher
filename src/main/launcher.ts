@@ -9,6 +9,7 @@ import { checkCancel, getAbortSignal } from './cancelToken'
 import { TransferMeter } from './transferMeter'
 import { EventEmitter } from 'events'
 import { HORIZON_REPOS, horizonReleases, horizonInstalledTags, installHorizon, prepareHorizon, startHorizon } from './horizon'
+import { nativeHash, withFallback } from './native'
 
 const runningProcesses = new Map<string, ChildProcess>()
 
@@ -173,6 +174,14 @@ const MAX_STALLED_ROUNDS = 3
 
 /** Cuenta los ficheros que faltan o no tienen el tamaño esperado (sin calcular hashes). */
 async function countMismatched(items: { file: string; size?: number }[]): Promise<number> {
+  // Con Rust se miran todos a la vez en varios hilos; si no, de 200 en 200
+  return withFallback('comprobar archivos', async () => {
+    const res = await nativeHash(items.map((it) => ({ path: it.file })))
+    return res.filter((r, i) => !r.exists || (items[i].size ? r.size !== items[i].size : r.size === 0)).length
+  }, () => countMismatchedJs(items))
+}
+
+async function countMismatchedJs(items: { file: string; size?: number }[]): Promise<number> {
   let bad = 0
   for (let i = 0; i < items.length; i += 200) {
     const res = await Promise.all(items.slice(i, i + 200).map(async (it) => {

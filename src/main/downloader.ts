@@ -124,6 +124,13 @@ export async function downloadFiles(
 }
 
 export async function fileMatchesHash(filePath: string, sha256: string): Promise<boolean> {
+  const { nativeAvailable, nativeHash } = await import('./native')
+  if (nativeAvailable()) {
+    try {
+      const [r] = await nativeHash([{ path: filePath, algo: 'sha256' }])
+      return r.exists && r.hash === sha256.toLowerCase()
+    } catch { /* se hace en JavaScript */ }
+  }
   try {
     const content = await fs.readFile(filePath)
     const digest = crypto.createHash('sha256').update(content).digest('hex')

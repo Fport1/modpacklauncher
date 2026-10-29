@@ -8,6 +8,7 @@ import ImageViewer from './ImageViewer'
 import NbtFileView, { type NbtKind } from './NbtFileView'
 import PropertiesFileView from './PropertiesFileView'
 import WorldPlayers from '../WorldPlayers'
+import WorldCleanup from '../WorldCleanup'
 import type { CloseRequest } from './EditorShell'
 import {
   type Side, type Entry, type SortKey, type DragPayload, type FileKind, type LogKind,
@@ -91,6 +92,8 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
   const [openFile, setOpenFile] = useState<OpenFile | null>(null)
   // Jugadores de un mundo (lista, logros y transferencias) en este lado
   const [playersWorld, setPlayersWorld] = useState<string | null>(null)
+  // Limpiar un mundo de este equipo (las regiones se reescriben aquí, no por FTP)
+  const [cleanupWorld, setCleanupWorld] = useState<string | null>(null)
   const [incoming, setIncoming] = useState<DragPayload | null>(null)
   const [draggingOwn, setDraggingOwn] = useState<Set<string> | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -647,6 +650,10 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
         </div>
       )}
 
+      {cleanupWorld && (
+        <WorldCleanup worldDir={cleanupWorld} worldName={cleanupWorld.split(/[\\/]/).filter(Boolean).pop() ?? cleanupWorld}
+          backupDir={localJoin(parentOf(cleanupWorld), 'backups')} onClose={() => setCleanupWorld(null)} onDone={reload} />
+      )}
       {playersWorld && (
         <WorldPlayers worldDir={playersWorld} worldName={playersWorld.split(/[\\/]/).filter(Boolean).pop() ?? playersWorld} remote={remote}
           onClose={() => setPlayersWorld(null)}
@@ -686,6 +693,9 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
               )}
               {entries.some((e) => e.name === 'level.dat') && (
                 <QuickBtn onClick={() => setPlayersWorld(dir)} disabled={remote && disabled}>☺ Jugadores de este mundo</QuickBtn>
+              )}
+              {!remote && entries.some((e) => e.name === 'level.dat') && (
+                <QuickBtn onClick={() => setCleanupWorld(dir)}>🧹 Limpiar este mundo</QuickBtn>
               )}
             </div>
             {searchOpen && (

@@ -129,7 +129,9 @@ export async function installHorizon(rel: HorizonRelease, onProgress?: Progress)
   await fs.remove(staging)
   await fs.ensureDir(staging)
   if (file.endsWith('.zip')) {
-    new AdmZip(file).extractAllTo(staging, true)
+    const { nativeAvailable, nativeZipExtract } = await import('./native')
+    const ok = nativeAvailable() && await nativeZipExtract(file, staging).then(() => true).catch(() => false)
+    if (!ok) new AdmZip(file).extractAllTo(staging, true)
   } else {
     const { execFile } = await import('child_process')
     await new Promise<void>((resolve, reject) => execFile('tar', ['xzf', file, '-C', staging], (e) => (e ? reject(e) : resolve())))
