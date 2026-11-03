@@ -42,6 +42,8 @@ const RES_PRESETS = [
 
 function javaLabel(mc: string) {
   if (/^\d{2}w\d{2}[a-z]$/i.test(mc)) return 'Java 21'
+  // Desde la 26.1 la versión empieza por el año (26.1.2, 26.4-snapshot-6) y pide Java 25
+  if (parseInt(mc.split('.')[0]) >= 26) return 'Java 25'
   const minor = parseInt(mc.split('.')[1] ?? '0')
   const patch = parseInt(mc.split('.')[2] ?? '0')
   if (minor >= 21 || (minor === 20 && patch >= 5)) return 'Java 21'

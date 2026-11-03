@@ -927,8 +927,12 @@ export async function getNeoForgeVersions(minecraft: string): Promise<string[]> 
     'https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge',
     { timeout: 10_000 }
   )
+  // Hasta la 1.21: MC 1.21.1 → NeoForge 21.1.x. Desde la 26.1 llevan el número de
+  // Minecraft entero: MC 26.1.2 → 26.1.2.x, y MC 26.2 → 26.2.0.x
   const parts = minecraft.split('.')
-  const prefix = `${parts[1] ?? '0'}.${parts[2] ?? '0'}.`
+  const prefix = parts[0] === '1'
+    ? `${parts[1] ?? '0'}.${parts[2] ?? '0'}.`
+    : `${parts[0]}.${parts[1] ?? '0'}.${parts[2] ?? '0'}.`
   return (data.versions ?? [])
     .filter((v) => v.startsWith(prefix))
     .reverse()
