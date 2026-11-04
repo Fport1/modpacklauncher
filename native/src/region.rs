@@ -63,7 +63,7 @@ fn region_dirs(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
 
 // ── Leer el InhabitedTime sin convertir todo el chunk ────────────────────────
 
-fn skip(r: &mut Reader, t: u8) -> Result<(), String> {
+pub(crate) fn skip(r: &mut Reader, t: u8) -> Result<(), String> {
     match t {
         1 => { r.take(1)?; }
         2 => { r.take(2)?; }
@@ -131,20 +131,20 @@ fn chunk_inhabited(data: &[u8], compression: u8) -> Option<i64> {
 
 // ── Regiones ─────────────────────────────────────────────────────────────────
 
-struct Region {
-    data: Vec<u8>,
+pub(crate) struct Region {
+    pub(crate) data: Vec<u8>,
 }
 
 impl Region {
-    fn loc(&self, i: usize) -> (usize, usize) {
+    pub(crate) fn loc(&self, i: usize) -> (usize, usize) {
         let v = u32::from_be_bytes(self.data[i * 4..i * 4 + 4].try_into().unwrap());
         ((v >> 8) as usize, (v & 0xFF) as usize)
     }
-    fn present(&self, i: usize) -> bool {
+    pub(crate) fn present(&self, i: usize) -> bool {
         self.data.len() >= 2 * SECTOR && self.loc(i).0 >= 2
     }
     /// Los bytes del chunk tal como están en el archivo: [longitud][compresión][datos]
-    fn raw(&self, i: usize) -> Option<&[u8]> {
+    pub(crate) fn raw(&self, i: usize) -> Option<&[u8]> {
         let (off, _) = self.loc(i);
         let pos = off * SECTOR;
         if pos + 5 > self.data.len() {
@@ -159,7 +159,7 @@ impl Region {
 }
 
 /// Coordenadas del chunk i de la región r.X.Z.mca
-fn chunk_xz(file: &Path, i: usize) -> Option<(i64, i64)> {
+pub(crate) fn chunk_xz(file: &Path, i: usize) -> Option<(i64, i64)> {
     let name = file.file_name()?.to_string_lossy().to_string();
     let parts: Vec<&str> = name.split('.').collect();
     if parts.len() != 4 || parts[0] != "r" { return None; }
@@ -168,8 +168,10 @@ fn chunk_xz(file: &Path, i: usize) -> Option<(i64, i64)> {
     Some((rx * 32 + (i % 32) as i64, rz * 32 + (i / 32) as i64))
 }
 
-/// Reescribe la región sin los chunks de `remove`, compactada. Devuelve el tamaño nuevo (0 si quedó vacía y se borró).
-fn rewrite(file: &Path, remove: &[usize]) -> Result<u64, String> {
+/// Reescribe la región sin los chunks de `remove` y, si se da, con `replace` (índice y bytes
+/// [longitud][compresión][datos]) en lugar del que había, compactada. Devuelve el tamaño nuevo
+/// (0 si quedó vacía y se borró).
+pub(crate) fn rewrite(file: &Path, remove: &[usize], replace: Option<(usize, &[u8])>) -> Result<u64, String> {
     let data = fs::read(file).map_err(|e| e.to_string())?;
     let reg = Region { data };
     if reg.data.len() < 2 * SECTOR {
@@ -191,6 +193,20 @@ fn rewrite(file: &Path, remove: &[usize]) -> Result<u64, String> {
                 }
             }
             continue;
+        }
+        if let Some((ri, bytes)) = replace {
+            if ri == i {
+                let sectors = bytes.len().div_ceil(SECTOR);
+                let at = out.len() / SECTOR;
+                out.extend_from_slice(bytes);
+                out.resize((at + sectors) * SECTOR, 0);
+                write_loc(&mut out, &reg, i, at, sectors);
+                // Fecha de ahora: el juego la usa para saber que cambió
+                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as u32).unwrap_or(0);
+                out[SECTOR + i * 4..SECTOR + i * 4 + 4].copy_from_slice(&now.to_be_bytes());
+                kept += 1;
+                continue;
+            }
         }
         let Some(raw) = reg.raw(i) else {
             // Dañado: se copian sus sectores tal cual para no perder nada
@@ -291,9 +307,9 @@ pub fn prune(ctx: &Ctx, args: Value) -> Res {
                 // Estimación: lo que se quita ocupa más o menos lo mismo que la media de sus chunks
                 st.bytes_after = if st.chunks > 0 { st.bytes_before - st.bytes_before * st.remove / st.chunks } else { st.bytes_before };
             } else {
-                let mut after = rewrite(file, &remove).unwrap_or_else(|_| size(file));
+                let mut after = rewrite(file, &remove, None).unwrap_or_else(|_| size(file));
                 for s in &siblings {
-                    after += rewrite(s, &remove).unwrap_or_else(|_| size(s));
+                    after += rewrite(s, &remove, None).unwrap_or_else(|_| size(s));
                 }
                 st.bytes_after = after;
             }

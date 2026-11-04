@@ -11,6 +11,7 @@
 //! falla aquí (incluso un pánico), el launcher recibe el error y lo hace en JavaScript como
 //! siempre: este programa solo acelera, nunca es imprescindible.
 
+mod chunks;
 mod hash;
 mod nbt;
 mod region;
@@ -76,6 +77,10 @@ fn dispatch(ctx: &Ctx, cmd: &str, args: Value) -> Res {
         "player-names" => nbt::player_names(args),
         "walk" => walk::run(ctx, args),
         "world-prune" => region::prune(ctx, args),
+        "region-list" => chunks::list(args),
+        "region-read" => chunks::read(args),
+        "region-write" => chunks::write(args),
+        "region-delete" => chunks::delete(args),
         other => Err(format!("orden desconocida: {other}")),
     }
 }

@@ -17,6 +17,7 @@ import { cachedInstanceIcon, cachedInstanceColor, loadInstanceIcon } from '../li
 import WorldDatapacks from './WorldDatapacks'
 import WorldPlayers from './WorldPlayers'
 import WorldCleanup from './WorldCleanup'
+import RegionView from './ftp/RegionView'
 import AiContextModal from './AiContextModal'
 import ContentBrowser, { type BrowseTarget, type InstalledIndex } from './content/ContentBrowser'
 import type { ProjectRef } from '../lib/contentSources'
@@ -564,6 +565,12 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
   const [playersWorld, setPlayersWorld] = useState<string | null>(null)
   // Limpiar un mundo (quitar chunks sin visitar)
   const [cleanupWorld, setCleanupWorld] = useState<{ name: string; dir: string; backupDir: string } | null>(null)
+  // Archivo de región (.mca) abierto: el mapa de chunks
+  const [worldRegion, setWorldRegion] = useState<{ name: string; path: string } | null>(null)
+  async function openWorldRegion(rel: string[]): Promise<void> {
+    const saves = await window.api.instances.savesPath(instance.id)
+    setWorldRegion({ name: rel[rel.length - 1], path: rel.reduce((acc, part) => localJoin(acc, part), saves) })
+  }
   async function openCleanup(world: string): Promise<void> {
     const saves = await window.api.instances.savesPath(instance.id)
     const gameDir = await window.api.ftp.localParent(saves)
@@ -2033,6 +2040,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           )}
 
           {/* ── WORLDS — Monaco editor ── */}
+          {tab === 'worlds' && worldRegion && !worldNbt && (
+            <div className="flex-1 flex flex-col min-h-0 relative">
+              <RegionView name={worldRegion.name} location={worldRegion.path} side="local" path={worldRegion.path} onClose={() => setWorldRegion(null)} />
+            </div>
+          )}
           {tab === 'worlds' && worldNbt && (
             <div className="flex-1 flex flex-col min-h-0 relative">
               <NbtFileView name={worldNbt.name} location={worldNbt.path} kind={worldNbt.kind} playerName={worldNbt.playerName} advancements={worldNbt.advancements}
@@ -2043,7 +2055,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
             </div>
           )}
 
-          {tab === 'worlds' && !worldNbt && editingWorldFile && (
+          {tab === 'worlds' && !worldNbt && !worldRegion && editingWorldFile && (
             <div className="flex-1 flex flex-col overflow-hidden relative" style={{ background: '#1e1e1e' }}>
               {/* Title bar */}
               <div className="flex items-center flex-shrink-0" style={{ height: '35px', background: '#2d2d2d', borderBottom: '1px solid #1e1e1e' }}>
@@ -2097,7 +2109,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           )}
 
           {/* ── WORLDS — file browser ── */}
-          {tab === 'worlds' && !worldNbt && !editingWorldFile && worldFilePath.length > 0 && (
+          {tab === 'worlds' && !worldNbt && !worldRegion && !editingWorldFile && worldFilePath.length > 0 && (
             <div className="flex-1 flex flex-col overflow-hidden"
               onDragOver={e => { e.preventDefault(); setIsDragOver(true) }}
               onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false) }}
@@ -2146,10 +2158,11 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   <div className="flex flex-col gap-0.5">
                     {worldFiles.filter(f => f.name.toLowerCase().includes(search.toLowerCase())).map(f => {
                       const isNbt = !f.isDir && /\.(dat|dat_old|nbt)$/i.test(f.name)
-                      const canEdit = !f.isDir && (isEditableFile(f.name) || isNbt)
+                      const isRegion = !f.isDir && /\.mca$/i.test(f.name)
+                      const canEdit = !f.isDir && (isEditableFile(f.name) || isNbt || isRegion)
                       return (
                         <div key={f.name}
-                          onClick={f.isDir ? () => navigateWorld([...worldFilePath, f.name]) : isNbt ? () => openWorldNbt([...worldFilePath, f.name]) : canEdit ? () => openWorldFile(f) : undefined}
+                          onClick={f.isDir ? () => navigateWorld([...worldFilePath, f.name]) : isRegion ? () => openWorldRegion([...worldFilePath, f.name]) : isNbt ? () => openWorldNbt([...worldFilePath, f.name]) : canEdit ? () => openWorldFile(f) : undefined}
                           className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${f.isDir || canEdit ? 'cursor-pointer hover:bg-bg-hover/60 active:bg-bg-hover' : 'hover:bg-bg-hover/30'}`}>
                           <div className="w-8 h-8 rounded-lg bg-bg-hover flex items-center justify-center flex-shrink-0">
                             {f.isDir
@@ -2172,7 +2185,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           )}
 
           {/* ── WORLDS — world list ── */}
-          {tab === 'worlds' && !worldNbt && !editingWorldFile && worldFilePath.length === 0 && (
+          {tab === 'worlds' && !worldNbt && !worldRegion && !editingWorldFile && worldFilePath.length === 0 && (
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               <div className="flex items-center gap-2">
                 <SearchBar value={search} onChange={setSearch} />

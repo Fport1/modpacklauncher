@@ -598,3 +598,27 @@ export async function identifyByHashes(
   }
   return result
 }
+
+/**
+ * De qué lado hace falta cada .jar de este equipo (Modrinth, por su sha1). Lo usa el panel
+ * de servidores para avisar antes de subir mods que solo son de cliente.
+ */
+export async function identifyLocalJarSides(paths: string[]): Promise<{ path: string; title?: string; clientSide?: string; serverSide?: string }[]> {
+  const { nativeAvailable, nativeHash } = await import('./native')
+  let hashes: (string | null)[]
+  if (nativeAvailable()) {
+    try { hashes = (await nativeHash(paths.map((p) => ({ path: p, algo: 'sha1' as const })))).map((r) => r.hash) }
+    catch { hashes = await Promise.all(paths.map(async (p) => crypto.createHash('sha1').update(await fs.readFile(p)).digest('hex'))) }
+  } else hashes = await Promise.all(paths.map(async (p) => crypto.createHash('sha1').update(await fs.readFile(p)).digest('hex')))
+  const known = hashes.filter((h): h is string => !!h)
+  if (!known.length) return paths.map((p) => ({ path: p }))
+  const { data: files } = await axios.post<Record<string, { project_id: string }>>(`${BASE}/version_files`, { hashes: known, algorithm: 'sha1' }, { headers: HEADERS, timeout: 15_000 })
+  const ids = [...new Set(Object.values(files).map((v) => v.project_id))]
+  const projects = ids.length ? await getProjects(ids) : []
+  const byId = new Map(projects.map((p: { id: string }) => [p.id, p]))
+  return paths.map((p, i) => {
+    const pid = hashes[i] ? files[hashes[i]!]?.project_id : undefined
+    const pr = pid ? byId.get(pid) as { title?: string; client_side?: string; server_side?: string } | undefined : undefined
+    return { path: p, title: pr?.title, clientSide: pr?.client_side, serverSide: pr?.server_side }
+  })
+}

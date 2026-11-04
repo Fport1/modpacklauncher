@@ -68,12 +68,14 @@ export const isNbtFile = (name: string): boolean => NBT_EXTS.includes(ext(name))
 export const PLAYER_FILE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.dat(_old)?$/i
 
 /** Qué editor le toca a cada archivo; los que tienen modo sencillo empiezan en él. */
-export type FileKind = 'text' | 'image' | 'nbt' | 'properties' | 'scoreboard' | 'playerdata' | 'level'
+export type FileKind = 'text' | 'image' | 'nbt' | 'properties' | 'scoreboard' | 'playerdata' | 'level' | 'region'
 export function fileKindOf(name: string, isText: (n: string) => boolean): FileKind | null {
   const lower = name.toLowerCase()
   if (lower === 'server.properties') return 'properties'
   if (lower === 'scoreboard.dat') return 'scoreboard'
   if (lower === 'level.dat') return 'level'
+  // Regiones del mundo (bloques, entidades, puntos de interés): el mapa de chunks
+  if (/\.mca$/.test(lower)) return 'region'
   if (PLAYER_FILE.test(name)) return 'playerdata'
   if (isImageFile(name)) return 'image'
   if (isNbtFile(name)) return 'nbt'

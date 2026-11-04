@@ -1,6 +1,8 @@
 # Editor de mundos (MCA Selector + WorldEdit + Axiom)
 
-Plan apuntado el 29-10-2026 para empezar la semana del 2 de noviembre de 2026. **Todavía no hay nada hecho.**
+Plan apuntado el 29-10-2026. **Estado (04-11-2026):** fase 1 hecha (ver abajo); lo siguiente es la fase 2, el mapa del mundo entero.
+
+**Fase 1 hecha:** al abrir un `.mca` (en los archivos del mundo de una instancia o en el panel de servidores, también en el servidor) sale el mapa de sus 1024 chunks, coloreado por tiempo habitado, generación, tamaño o fecha. Se ven los datos de cada uno, se pueden elegir (clic, Mayús o Ctrl, arrastrar), borrar (también en entities/ y poi/) y abrir el NBT de uno para editarlo y guardarlo. Lo hace `native/src/chunks.rs` (`region-list`, `region-read`, `region-write`, `region-delete`); `src/main/regionEditor.ts`; `RegionView.tsx`. Copia `.mca.bak` antes del primer cambio; en el servidor, `.bak` allí mismo.
 
 ## La idea
 

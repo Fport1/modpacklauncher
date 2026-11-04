@@ -34,6 +34,8 @@ export interface Session {
   upload(local: string, remote: string, onProgress: Progress): Promise<void>
   uploadDir(local: string, remote: string): Promise<void>
   remove(target: string, isDir: boolean): Promise<void>
+  /** Borra una carpeta ya vacía (para borrar carpetas grandes archivo a archivo, con progreso). */
+  removeEmptyDir?(target: string): Promise<void>
   rename(from: string, to: string): Promise<void>
   mkdir(target: string): Promise<void>
   /** Archivo entero en memoria, para el editor de texto. */
@@ -109,6 +111,7 @@ async function openFtp(site: FtpSite, password: string): Promise<Session> {
       if (isDir) await client.removeDir(target)
       else await client.remove(target)
     },
+    removeEmptyDir: async (target) => { await client.removeEmptyDir(target) },
     rename: async (from, to) => { await client.rename(from, to) },
     async mkdir(target) {
       // basic-ftp no tiene un mkdir suelto: ensureDir crea y entra, así que
@@ -198,6 +201,7 @@ async function openSftp(site: FtpSite, password: string): Promise<Session> {
       if (isDir) await client.rmdir(target, true)
       else await client.delete(target)
     },
+    removeEmptyDir: async (target) => { await client.rmdir(target, false) },
     rename: async (from, to) => { await client.rename(from, to) },
     mkdir: async (target) => { await client.mkdir(target, true) },
     readFile: async (remote) => (await client.get(remote)) as Buffer,
@@ -484,6 +488,27 @@ export async function ftpDisconnect(): Promise<void> {
   broadcastState()
   if (current) await closeQuietly(current)
 }
+
+/**
+ * Otra conexión al mismo sitio, para transferir varios archivos a la vez sin ocupar la
+ * principal (que sigue libre para listar y recargar). null en la asistencia remota, que
+ * solo tiene una.
+ */
+export async function ftpExtraSession(): Promise<Session | null> {
+  if (!sessionSite) return null
+  return withTimeout(openSite(sessionSite, sessionPassword), RECONNECT_ATTEMPT_MS, 'Conectar')
+}
+
+/** Una operación sobre la conexión principal (con su reconexión automática). */
+export function ftpRun<T>(fn: (s: Session) => Promise<T>): Promise<T> {
+  return run(fn)
+}
+
+/** Si la conexión principal es FTP (una operación a la vez) o SFTP. */
+export const ftpIsSerial = (): boolean => !!session?.serial
+
+/** Cierra una conexión extra sin esperar para siempre. */
+export const ftpCloseExtra = (s: Session): Promise<void> => closeQuietly(s)
 
 export function ftpList(dir: string): Promise<RemoteEntry[]> {
   return run(async (s) => {

@@ -9,6 +9,7 @@ import NbtFileView, { type NbtKind } from './NbtFileView'
 import PropertiesFileView from './PropertiesFileView'
 import WorldPlayers from '../WorldPlayers'
 import WorldCleanup from '../WorldCleanup'
+import RegionView from './RegionView'
 import type { CloseRequest } from './EditorShell'
 import {
   type Side, type Entry, type SortKey, type DragPayload, type FileKind, type LogKind,
@@ -84,7 +85,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [menu, setMenu] = useState<{ x: number; y: number; names: string[] } | null>(null)
-  const [confirm, setConfirm] = useState<{ text: string; action: () => void; danger?: boolean } | null>(null)
+  const [confirm, setConfirm] = useState<{ text: string; action: () => void; danger?: boolean; okLabel?: string; alt?: { label: string; action: () => void } } | null>(null)
   const [prompt, setPrompt] = useState<{ title: string; value: string; onOk: (v: string) => void } | null>(null)
   const [arrived, setArrived] = useState<Set<string>>(new Set())
   const [undoStack, setUndoStack] = useState<UndoOp[]>([])
@@ -183,6 +184,22 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
     })()
     window.api.ftp.serverDetect(conn.root).then(setServerInfo).catch(() => setServerInfo(null))
   }, [remote, conn.connected, conn.siteId, conn.label, conn.root])
+
+  // Al acabar una transferencia que toca la carpeta que se está viendo, se recarga
+  useEffect(() => {
+    const seen = new Set<string>()
+    return window.api.ftp.onTransfers((jobs) => {
+      for (const j of jobs) {
+        const finished = j.status !== 'running' && j.status !== 'queued'
+        if (!finished || seen.has(j.id)) continue
+        seen.add(j.id)
+        const mine = j.kind === 'down' ? !remote : remote
+        if (mine && j.dest === state.current.dir) openDir(j.dest, false)
+        if (j.failed.length) log('error', `${j.label}: ${j.failed.length} con error (mira el detalle arriba)`)
+        else if (j.status === 'done') log('ok', `${j.label}: ${j.filesDone} archivo${j.filesDone === 1 ? '' : 's'}`)
+      }
+    })
+  }, [remote])
 
   // Lo que pasa en las otras ventanas
   useEffect(() => {
@@ -284,12 +301,19 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
         ? `¿Borrar ${what} del servidor? No se puede deshacer.`
         : `¿Enviar ${what} a la papelera? Se puede recuperar desde la papelera del sistema.`,
       action: async () => {
+        if (remote) {
+          // Archivo a archivo y con progreso: una carpeta como world tiene miles
+          await window.api.ftp.transfer('delete', names.map((name) => {
+            const entry = list.find((x) => x.name === name)
+            return { path: remoteJoin(d, name), isDir: entry?.isDir ?? false, size: entry?.size ?? 0 }
+          }), d)
+          log('info', `Borrando ${what} del servidor (el progreso va arriba)`)
+          return
+        }
         setBusy(true)
         for (const name of names) {
-          const entry = list.find((x) => x.name === name)
           try {
-            if (remote) await window.api.ftp.remove(remoteJoin(d, name), entry?.isDir ?? false)
-            else await window.api.ftp.localTrash(localJoin(d, name))
+            await window.api.ftp.localTrash(localJoin(d, name))
             log('ok', remote ? `Borrado ${name}` : `${name} enviado a la papelera`)
           } catch (e) {
             log('error', `Error al borrar ${name}: ${errText(e)}`)
@@ -334,23 +358,32 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
   // ── Transferencias (hacia el otro cuadro, esté en la ventana que esté) ──
 
   /** Sube rutas locales a una carpeta del servidor. */
-  async function uploadPaths(paths: string[], toDir: string): Promise<void> {
+  async function uploadPaths(paths: string[], toDir: string, checked = false): Promise<void> {
     if (!conn.connected || paths.length === 0 || !toDir) return
+    // A la carpeta mods del servidor: los mods solo de cliente sobran (y pueden impedir que arranque)
+    const jars = paths.filter((p) => p.toLowerCase().endsWith('.jar'))
+    if (!checked && jars.length && /(^|\/)mods\/?$/.test(toDir)) {
+      log('info', `Comprobando ${jars.length} mod${jars.length === 1 ? '' : 's'} en Modrinth…`)
+      const sides = await window.api.ftp.localJarSides(jars).catch(() => [])
+      const client = sides.filter((s) => s.serverSide === 'unsupported')
+      if (client.length) {
+        const skip = new Set(client.map((c) => c.path))
+        setConfirm({
+          text: `${client.length === 1 ? 'Este mod es' : `Estos ${client.length} mods son`} solo de cliente según Modrinth: en un servidor no hacen nada y algunos impiden que arranque.\n\n${client.map((c) => '• ' + (c.title ?? baseNameOf(c.path))).join('\n')}`,
+          okLabel: `Subir sin ellos (${paths.length - client.length})`,
+          action: () => { void uploadPaths(paths.filter((p) => !skip.has(p)), toDir, true) },
+          alt: { label: 'Subir todos', action: () => { void uploadPaths(paths, toDir, true) } },
+        })
+        return
+      }
+    }
     const names = paths.map(baseNameOf)
     const existing = await window.api.ftp.list(toDir).catch(() => [] as RemoteEntry[])
     const clash = names.filter((n) => existing.some((r) => r.name === n))
     const run = async (): Promise<void> => {
-      setBusy(true)
-      for (const p of paths) {
-        try {
-          await window.api.ftp.upload(p, toDir)
-          log('ok', `Subido ${baseNameOf(p)} → ${toDir}`)
-        } catch (e) {
-          log('error', `Error al subir ${baseNameOf(p)}: ${errText(e)}`)
-        }
-      }
-      setBusy(false)
-      window.api.ftp.notifyChanged({ side: 'remote', dir: toDir, names })
+      // Va a la cola de transferencias: archivo a archivo, varios a la vez, con progreso arriba
+      await window.api.ftp.transfer('up', paths.map((p) => ({ path: p })), toDir)
+      log('info', `${paths.length === 1 ? baseNameOf(paths[0]) : `${paths.length} elementos`} en cola para subir a ${toDir}`)
     }
     if (clash.length > 0) setConfirm({ text: `Ya existe en el servidor: ${clash.join(', ')}. ¿Sobrescribir?`, action: run })
     else await run()
@@ -362,18 +395,8 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
     const existing = await window.api.ftp.localList(toDir).catch(() => [] as LocalEntry[])
     const clash = items.filter((i) => existing.some((l) => l.name === i.name)).map((i) => i.name)
     const run = async (): Promise<void> => {
-      setBusy(true)
-      for (const item of items) {
-        try {
-          const saved = await window.api.ftp.download(remoteJoin(fromDir, item.name), toDir, item as RemoteEntry)
-          log('ok', `Descargado ${item.name} en ${toDir}`)
-          void saved
-        } catch (e) {
-          log('error', `Error al descargar ${item.name}: ${errText(e)}`)
-        }
-      }
-      setBusy(false)
-      window.api.ftp.notifyChanged({ side: 'local', dir: toDir, names: items.map((i) => i.name) })
+      await window.api.ftp.transfer('down', items.map((i) => ({ path: remoteJoin(fromDir, i.name), isDir: i.isDir, size: i.size })), toDir)
+      log('info', `${items.length === 1 ? items[0].name : `${items.length} elementos`} en cola para descargar en ${toDir}`)
     }
     if (clash.length > 0) setConfirm({ text: `Ya existe en ${toDir}: ${clash.join(', ')}. ¿Sobrescribir?`, action: run })
     else await run()
@@ -860,10 +883,11 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
 
       {confirm && (
         <Overlay onClose={() => setConfirm(null)} title="Confirmar">
-          <p className="text-sm text-text-secondary">{confirm.text}</p>
+          <p className="text-sm text-text-secondary whitespace-pre-line">{confirm.text}</p>
           <div className="flex justify-end gap-2 mt-4">
             <Btn onClick={() => setConfirm(null)}>Cancelar</Btn>
-            <Btn danger={confirm.danger} primary={!confirm.danger} onClick={() => { const a = confirm.action; setConfirm(null); a() }}>Sí, continuar</Btn>
+            {confirm.alt && <Btn onClick={() => { const a = confirm.alt!.action; setConfirm(null); a() }}>{confirm.alt.label}</Btn>}
+            <Btn danger={confirm.danger} primary={!confirm.danger} onClick={() => { const a = confirm.action; setConfirm(null); a() }}>{confirm.okLabel ?? 'Sí, continuar'}</Btn>
           </div>
         </Overlay>
       )}
@@ -885,6 +909,9 @@ function FileView({ file, remote, conn, closeRef, onClose }: {
     log('ok', `Guardado ${file.name}`)
   }
 
+  if (file.kind === 'region') {
+    return <RegionView name={file.name} location={location} side={remote ? 'remote' : 'local'} path={file.path} onClose={onClose} closeRef={closeRef} />
+  }
   if (file.kind === 'image') {
     return <ImageViewer name={file.name} location={location} closeRef={closeRef} onClose={onClose}
       load={() => (remote ? window.api.ftp.readImage(file.path) : window.api.ftp.localReadImage(file.path))} />

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { FtpConnectionState, FtpProtocol, FtpSiteInput, FtpSiteSummary } from '../../../shared/types'
-import { useStore } from '../store'
+import type { FtpConnectionState, FtpProtocol, FtpSiteInput, FtpSiteSummary, TransferJobState } from '../../../shared/types'
 import { nav } from '../nav'
 import { parseHostInput } from '../../../shared/ftpHost'
 import FilePane, { Btn, type PaneApi } from '../components/ftp/FilePane'
@@ -72,26 +71,69 @@ export function LogBox({ lines, className = '' }: { lines: LogLine[]; className?
   )
 }
 
+const fmtBytes = (b: number): string => b >= 1e9 ? `${(b / 1e9).toFixed(2)} GB` : b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(0, Math.round(b / 1e3))} KB`
+const fmtEta = (s: number): string => !isFinite(s) || s <= 0 ? '' : s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s` : `${Math.round(s)} s`
+
+/**
+ * Las subidas, descargas y borrados en marcha: porcentaje real (por bytes, también al
+ * subir carpetas), velocidad, qué archivos van ahora y cuáles siguen, errores y cancelar.
+ */
 export function TransfersBar() {
-  const operations = useStore((st) => st.operations)
-  const transfers = [...operations.values()].filter((o) => (o.type === 'ftp-upload' || o.type === 'ftp-download') && o.status === 'running')
-  if (transfers.length === 0) return null
+  const [jobs, setJobs] = useState<TransferJobState[]>([])
+  const [open, setOpen] = useState<string | null>(null)
+  useEffect(() => {
+    window.api.ftp.transfers().then(setJobs).catch(() => {})
+    return window.api.ftp.onTransfers(setJobs)
+  }, [])
+  const shown = jobs.filter((j) => j.status === 'running' || j.status === 'queued' || (j.finishedAt && Date.now() - j.finishedAt < 15_000) || j.failed.length)
+  if (shown.length === 0) return null
+  const finished = jobs.some((j) => j.status !== 'running' && j.status !== 'queued')
   return (
-    <div className="bg-bg-secondary border border-accent/40 rounded-xl px-3 py-2 space-y-1.5">
-      {transfers.map((t) => {
-        const pct = t.total ? Math.min(100, Math.round(((t.current ?? 0) / t.total) * 100)) : 0
-        const up = t.type === 'ftp-upload'
+    <div className="bg-bg-secondary border border-accent/40 rounded-xl px-3 py-2 space-y-2 max-h-[40vh] overflow-y-auto">
+      {shown.map((t) => {
+        const pct = t.bytes ? Math.min(100, (t.bytesDone / t.bytes) * 100) : t.files ? (t.filesDone / t.files) * 100 : 0
+        const color = t.kind === 'up' ? 'bg-accent' : t.kind === 'down' ? 'bg-sky-400' : 'bg-red-400'
+        const verb = t.kind === 'up' ? '↑ Subiendo' : t.kind === 'down' ? '↓ Descargando' : '🗑 Borrando'
+        const state = t.status === 'queued' ? 'En cola' : t.status === 'done' ? '✓ Hecho' : t.status === 'cancelled' ? 'Cancelado' : t.status === 'error' ? `⚠ Con ${t.failed.length} error${t.failed.length === 1 ? '' : 'es'}` : verb
+        const eta = t.speed > 0 && t.bytes ? (t.bytes - t.bytesDone) / t.speed : 0
+        const expanded = open === t.id
         return (
-          <div key={t.id} className="flex items-center gap-3 text-sm">
-            <span className={`font-semibold ${up ? 'text-accent' : 'text-sky-400'}`}>{up ? '↑ Subiendo' : '↓ Descargando'}</span>
-            <span className="text-text-secondary truncate w-56">{t.message ?? t.name}</span>
-            <div className="flex-1 h-2 bg-bg-hover rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all duration-200 ${up ? 'bg-accent' : 'bg-sky-400'}`} style={{ width: `${pct}%` }} />
+          <div key={t.id} className="text-sm">
+            <div className="flex items-center gap-3">
+              <span className={`font-semibold shrink-0 ${t.status === 'error' ? 'text-amber-300' : t.kind === 'up' ? 'text-accent' : t.kind === 'down' ? 'text-sky-400' : 'text-red-300'}`}>{state}</span>
+              <button type="button" onClick={() => setOpen(expanded ? null : t.id)} className="text-text-secondary truncate max-w-[16rem] text-left hover:text-text-primary" title="Ver archivos">{t.label}</button>
+              <div className="flex-1 h-2 bg-bg-hover rounded-full overflow-hidden min-w-[4rem]">
+                <div className={`h-full rounded-full transition-all duration-200 ${color}`} style={{ width: `${pct}%` }} />
+              </div>
+              <span className="text-text-muted tabular-nums text-xs shrink-0 text-right">
+                {t.scanning ?? <>{t.filesDone}/{t.files} · {fmtBytes(t.bytesDone)} de {fmtBytes(t.bytes)}{t.status === 'running' && t.speed > 0 ? ` · ${fmtBytes(t.speed)}/s · ${fmtEta(eta)}` : ''}</>}
+              </span>
+              <span className="text-text-muted tabular-nums w-10 text-right shrink-0">{Math.floor(pct)}%</span>
+              {(t.status === 'running' || t.status === 'queued') && (
+                <button type="button" onClick={() => window.api.ftp.cancelTransfer(t.id)} className="text-xs text-text-muted hover:text-red-400 shrink-0">Cancelar</button>
+              )}
             </div>
-            <span className="text-text-muted tabular-nums w-10 text-right">{pct}%</span>
+            {(expanded || (t.status === 'running' && t.active.length > 0)) && (
+              <div className="mt-1 ml-1 pl-3 border-l border-border space-y-0.5 text-xs">
+                {t.active.map((a) => (
+                  <div key={a.name} className="flex items-center gap-2">
+                    <span className="text-text-primary truncate flex-1">{a.name}</span>
+                    {a.size > 0 && <span className="text-text-muted tabular-nums">{Math.floor((a.transferred / a.size) * 100)}%</span>}
+                  </div>
+                ))}
+                {expanded && t.next.length > 0 && (
+                  <p className="text-text-muted truncate">Siguen: {t.next.join(', ')}{t.pending > t.next.length ? ` y ${t.pending - t.next.length} más` : ''}</p>
+                )}
+                {!expanded && t.pending > 0 && <p className="text-text-muted">{t.pending} en cola · <button type="button" className="underline hover:text-text-primary" onClick={() => setOpen(t.id)}>ver cuáles</button></p>}
+                {expanded && t.failed.map((f) => <p key={f.name} className="text-red-400 truncate" title={f.error}>✕ {f.name}: {f.error}</p>)}
+              </div>
+            )}
           </div>
         )
       })}
+      {finished && (
+        <div className="text-right"><button type="button" onClick={() => window.api.ftp.clearTransfers()} className="text-xs text-text-muted hover:text-text-primary">Quitar las terminadas</button></div>
+      )}
     </div>
   )
 }

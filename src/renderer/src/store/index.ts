@@ -136,6 +136,12 @@ export const useStore = create<AppState>((set) => ({
     next.set(update.id, merged)
     if (merged.status === 'done') {
       setTimeout(() => useStore.getState().removeOperation(update.id), 3000)
+    } else if (merged.status === 'error' && existing?.status !== 'error') {
+      // Los errores (un juego que crashea al arrancar…) también se van solos, con tiempo para
+      // leerlos; el detalle queda en la consola de la instancia
+      setTimeout(() => {
+        if (useStore.getState().operations.get(update.id)?.status === 'error') useStore.getState().removeOperation(update.id)
+      }, 20_000)
     }
     return { operations: next }
   }),

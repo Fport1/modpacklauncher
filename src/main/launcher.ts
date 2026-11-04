@@ -605,15 +605,9 @@ export async function launchInstance(
     `-Dfport1.instance=${instance.id}`
   )
 
-  // Resolve target display position for multi-monitor support
+  // La pantalla elegida no se puede pasar como argumento: Minecraft no tiene --x/--y (NeoForge
+  // los ignoraba y Fabric no arrancaba). Se mueve la ventana cuando aparece (moveToDisplay).
   const extraMCArgs: string[] = []
-  if (instance.displayId !== undefined && instance.displayId > 0) {
-    const { screen } = await import('electron')
-    const display = screen.getAllDisplays().find(d => d.id === instance.displayId)
-    if (display) {
-      extraMCArgs.push('--x', String(display.bounds.x), '--y', String(display.bounds.y))
-    }
-  }
 
   const launchOpts: Record<string, unknown> = {
     gamePath: gameDir,
@@ -643,6 +637,10 @@ export async function launchInstance(
   if (!extra) {
     runningProcesses.set(instance.id, proc)
     if (settings.closeOnLaunch && !mainWindow.isDestroyed()) mainWindow.minimize()
+  }
+
+  if (!extra && instance.displayId !== undefined && instance.displayId > 0 && proc.pid) {
+    void moveToDisplay(proc, instance.displayId, note)
   }
 
   const sessionStart = Date.now()
@@ -774,6 +772,51 @@ async function launchHorizonGame(
   checkCancel()
   report(84, 'Abriendo Horizon...', phase)
   return startHorizon(tag, gameDir, account, { width: instance.width, height: instance.height })
+}
+
+/**
+ * Lleva la ventana del juego a la pantalla elegida en cuanto aparece, centrada. Después,
+ * la pantalla completa (F11) se abre en esa pantalla, porque el juego usa la de su ventana.
+ * Solo en Windows (con las funciones del sistema, desde PowerShell); en el resto no hace nada.
+ */
+async function moveToDisplay(proc: ChildProcess, displayId: number, note: (msg: string) => void): Promise<void> {
+  if (process.platform !== 'win32' || !proc.pid) return
+  const { screen } = await import('electron')
+  const display = screen.getAllDisplays().find((d) => d.id === displayId)
+  if (!display) { note('La pantalla elegida para esta instancia ya no está conectada: se abre donde diga Windows.'); return }
+  // Las coordenadas de Electron no cuentan el escalado de Windows; la ventana sí
+  const area = screen.dipToScreenRect(null, display.workArea)
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -Namespace F1 -Name W -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool GetWindowRect(System.IntPtr h, out RECT r);
+[DllImport("user32.dll")] public static extern bool SetWindowPos(System.IntPtr h, System.IntPtr a, int x, int y, int cx, int cy, uint f);
+public struct RECT { public int L; public int T; public int R; public int B; }
+'@
+for ($i = 0; $i -lt 180; $i++) {
+  $p = Get-Process -Id ${proc.pid} -ErrorAction SilentlyContinue
+  if (-not $p) { exit 2 }
+  $h = $p.MainWindowHandle
+  if ($h -ne [System.IntPtr]::Zero) {
+    Start-Sleep -Milliseconds 400
+    $r = New-Object F1.W+RECT
+    [void][F1.W]::GetWindowRect($h, [ref]$r)
+    $w = [Math]::Min($r.R - $r.L, ${area.width}); $hh = [Math]::Min($r.B - $r.T, ${area.height})
+    $x = ${area.x} + [int](( ${area.width} - $w) / 2); $y = ${area.y} + [int]((${area.height} - $hh) / 2)
+    [void][F1.W]::SetWindowPos($h, [System.IntPtr]::Zero, $x, $y, $w, $hh, 0x0014)
+    exit 0
+  }
+  Start-Sleep -Milliseconds 500
+}
+exit 1
+`
+  const { spawn } = await import('child_process')
+  // Codificado: pasado como texto, Windows se come las comillas de dentro
+  const ps = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { windowsHide: true })
+  ps.on('exit', (code) => {
+    if (code === 0) note(`Ventana del juego llevada a la pantalla «${display.label || display.id}».`)
+    else if (code === 1) note('No apareció la ventana del juego a tiempo para moverla a la otra pantalla.')
+  })
 }
 
 function resolveVersionId(instance: Instance): string {

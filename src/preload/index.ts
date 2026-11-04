@@ -32,7 +32,7 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus, TransferPlan, TransferRequest, TransferResult, ItemRender, AdvancementDef, AdvancementProgress, WorldLayout, WorldPlayer, TransferArea } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus, TransferPlan, TransferRequest, TransferResult, TransferJobState, RegionChunkInfo, ItemRender, AdvancementDef, AdvancementProgress, WorldLayout, WorldPlayer, TransferArea } from '../shared/types'
 export type { ModFile, ModMeta }
 
 const api = {
@@ -456,6 +456,19 @@ const api = {
   },
 
   ftp: {
+    /** Subir (sources: rutas locales), descargar o borrar (sources: entradas del servidor). Devuelve el id */
+    transfer: (kind: 'up' | 'down' | 'delete', sources: { path: string; isDir?: boolean; size?: number }[], dest: string) =>
+      ipcRenderer.invoke('ftp:transfer', kind, sources, dest) as Promise<string>,
+    transfers: () => ipcRenderer.invoke('ftp:transfers') as Promise<TransferJobState[]>,
+    /** De qué lado hace falta cada .jar de este equipo (para avisar de los mods solo de cliente) */
+    localJarSides: (paths: string[]) => ipcRenderer.invoke('ftp:local-jar-sides', paths) as Promise<{ path: string; title?: string; clientSide?: string; serverSide?: string }[]>,
+    cancelTransfer: (id: string) => ipcRenderer.invoke('ftp:transfer-cancel', id) as Promise<void>,
+    clearTransfers: () => ipcRenderer.invoke('ftp:transfers-clear') as Promise<void>,
+    onTransfers: (cb: (jobs: TransferJobState[]) => void) => {
+      const h = (_e: unknown, jobs: TransferJobState[]): void => cb(jobs)
+      ipcRenderer.on('ftp:transfers', h)
+      return () => { ipcRenderer.removeListener('ftp:transfers', h) }
+    },
     sites: () => ipcRenderer.invoke('ftp:sites') as Promise<FtpSiteSummary[]>,
     saveSite: (input: FtpSiteInput) => ipcRenderer.invoke('ftp:save-site', input) as Promise<string>,
     deleteSite: (id: string) => ipcRenderer.invoke('ftp:delete-site', id) as Promise<void>,
@@ -541,6 +554,16 @@ const api = {
     /** Textos del juego en el idioma del launcher */
     lang: () => ipcRenderer.invoke('mc:lang') as Promise<Record<string, string>>,
     advancements: () => ipcRenderer.invoke('mc:advancements') as Promise<AdvancementDef[]>,
+  },
+
+  /** Archivos de región (.mca) del editor de mundos */
+  region: {
+    /** Devuelve la ruta local con la que trabajar (los del servidor se bajan a una copia) */
+    open: (side: 'local' | 'remote', file: string) => ipcRenderer.invoke('region:open', side, file) as Promise<string>,
+    list: (local: string) => ipcRenderer.invoke('region:list', local) as Promise<{ size: number; chunks: RegionChunkInfo[] }>,
+    read: (local: string, index: number) => ipcRenderer.invoke('region:read', local, index) as Promise<NbtDocument & { regionCompression: number }>,
+    write: (local: string, index: number, doc: NbtDocument, compression: number) => ipcRenderer.invoke('region:write', local, index, doc, compression) as Promise<void>,
+    delete: (local: string, indices: number[]) => ipcRenderer.invoke('region:delete', local, indices) as Promise<void>,
   },
 
   world: {

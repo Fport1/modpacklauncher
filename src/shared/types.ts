@@ -401,6 +401,53 @@ export interface FtpSiteSummary extends Omit<FtpSite, 'password'> {
   hasPassword: boolean
 }
 
+/** Un chunk de un archivo de región (.mca). */
+export interface RegionChunkInfo {
+  /** 0..1023 dentro de la región */
+  index: number
+  /** Coordenadas del chunk en el mundo */
+  x: number
+  z: number
+  sectors: number
+  bytes: number
+  /** Última vez que el juego lo guardó (segundos Unix) */
+  timestamp: number
+  compression: number
+  external: boolean
+  dataVersion: number | null
+  /** minecraft:full = generado del todo */
+  status: string | null
+  /** Ticks que ha habido un jugador cerca */
+  inhabited: number | null
+  lastUpdate: number | null
+  error: string | null
+}
+
+/** Una subida, descarga o borrado del panel de servidores, archivo a archivo. */
+export interface TransferJobState {
+  id: string
+  kind: 'up' | 'down' | 'delete'
+  label: string
+  /** Carpeta de destino (la del servidor al subir, la local al bajar) */
+  dest: string
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
+  files: number
+  filesDone: number
+  bytes: number
+  bytesDone: number
+  /** Bytes por segundo de los últimos segundos */
+  speed: number
+  active: { name: string; size: number; transferred: number }[]
+  /** Los siguientes en la cola */
+  next: string[]
+  pending: number
+  failed: { name: string; error: string }[]
+  /** Mientras se recorren las carpetas */
+  scanning?: string
+  startedAt: number
+  finishedAt?: number
+}
+
 export interface RemoteEntry {
   name: string
   isDir: boolean

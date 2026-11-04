@@ -1588,6 +1588,21 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       throw err
     }
   })
+  // Transferencias archivo a archivo, varias a la vez y con cola visible (ftpTransfer.ts)
+  ipcMain.handle('ftp:transfer', async (_e, kind: 'up' | 'down' | 'delete', sources: { path: string; isDir?: boolean; size?: number }[], dest: string) => {
+    const { startTransfer } = await import('./ftpTransfer')
+    return startTransfer(kind, sources, dest)
+  })
+  ipcMain.handle('ftp:local-jar-sides', async (_e, paths: string[]) => (await import('./modrinth')).identifyLocalJarSides(paths))
+  ipcMain.handle('ftp:transfers', async () => (await import('./ftpTransfer')).transferJobs())
+  ipcMain.handle('ftp:transfer-cancel', async (_e, id: string) => (await import('./ftpTransfer')).cancelTransfer(id))
+  ipcMain.handle('ftp:transfers-clear', async () => (await import('./ftpTransfer')).clearFinishedTransfers())
+  // Archivos de región (.mca): lista de chunks, NBT de uno, guardar y borrar (regionEditor.ts)
+  ipcMain.handle('region:open', async (_e, side: 'local' | 'remote', file: string) => (await import('./regionEditor')).regionOpen(side, file))
+  ipcMain.handle('region:list', async (_e, local: string) => (await import('./regionEditor')).regionList(local))
+  ipcMain.handle('region:read', async (_e, local: string, index: number) => (await import('./regionEditor')).regionRead(local, index))
+  ipcMain.handle('region:write', async (_e, local: string, index: number, doc: NbtDocument, compression: number) => (await import('./regionEditor')).regionWrite(local, index, doc, compression))
+  ipcMain.handle('region:delete', async (_e, local: string, indices: number[]) => (await import('./regionEditor')).regionDelete(local, indices))
   ipcMain.handle('ftp:local-list', (_e, dir: string) => localList(dir))
   ipcMain.handle('ftp:local-parent', (_e, dir: string) => localParent(dir))
   ipcMain.handle('ftp:local-join', (_e, dir: string, name: string) => localJoin(dir, name))

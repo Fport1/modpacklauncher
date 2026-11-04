@@ -60,6 +60,8 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
   const [meta, setMeta] = useState<Record<string, ServerJarMeta>>({})
   const [identify, setIdentify] = useState<{ done: number; total: number } | null>(null)
   const [search, setSearch] = useState('')
+  // Filtro por lado, como en las instancias: lo de solo cliente sobra en un servidor
+  const [side, setSide] = useState<'all' | 'client' | 'server' | 'both' | 'unknown' | 'updates'>('all')
   const [browser, setBrowser] = useState<{ detail?: ProjectRef; tab?: DetailTab } | null>(null)
   const [override, setOverride] = useState<{ loader: string; minecraft: string } | null>(null)
   const [warn, setWarn] = useState<{ title: string; resolve: (ok: boolean) => void } | null>(null)
@@ -175,8 +177,15 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
     return jars
       .map((j) => ({ entry: j, meta: meta[j.name] }))
       .filter(({ entry, meta: m }) => !q || entry.name.toLowerCase().includes(q) || (m?.title ?? '').toLowerCase().includes(q))
+      .filter(({ meta: m }) => {
+        if (side === 'all') return true
+        if (side === 'updates') return !!m?.hasUpdate
+        if (side === 'unknown') return !m
+        const kind = sideOf(m)
+        return kind === side
+      })
       .sort((a, b) => (a.meta?.title || baseName(a.entry.name)).localeCompare(b.meta?.title || baseName(b.entry.name)))
-  }, [jars, meta, search])
+  }, [jars, meta, search, side])
 
   const updates = rows.filter((r) => r.meta?.hasUpdate).length
   const clientOnly = rows.filter((r) => r.meta?.serverSide === 'unsupported' && isEnabled(r.entry.name))
@@ -213,6 +222,17 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
                 className="w-64 bg-bg-primary border border-border rounded-lg pl-8 pr-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent/60" />
               <svg className="absolute left-2.5 top-2 text-text-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
             </div>
+            {slot === 'mods' && (
+              <select value={side} onChange={(e) => { setSide(e.target.value as typeof side); setSelected(new Set()) }}
+                className="bg-bg-primary border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent/60" title="Filtrar">
+                <option value="all">Todos</option>
+                <option value="client">Solo cliente</option>
+                <option value="server">Solo servidor</option>
+                <option value="both">Cliente y servidor</option>
+                <option value="unknown">Sin identificar</option>
+                <option value="updates">Con actualización</option>
+              </select>
+            )}
             <button type="button" onClick={loadJars} title="Recargar"
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-text-primary bg-bg-primary">⟳</button>
             <span className="text-xs text-text-muted font-mono truncate" title={folder}>{host}:{folder}</span>
@@ -237,13 +257,21 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
           {clientOnly.length > 0 && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
               ⚠ {clientOnly.length === 1 ? 'Hay 1 mod' : `Hay ${clientOnly.length} mods`} que Modrinth marca como solo de cliente:{' '}
-              {clientOnly.map((r) => r.meta!.title).join(', ')}. Si el servidor no arranca, prueba a desactivarlos.
+              {clientOnly.map((r) => r.meta!.title).join(', ')}. Si el servidor no arranca, prueba a desactivarlos.{' '}
+              <button type="button" className="underline font-medium" onClick={() => { setSide('client'); setSelected(new Set(clientOnly.map((r) => r.entry.name))) }}>
+                Seleccionarlos
+              </button>
             </p>
           )}
 
           <div className="flex items-center gap-3 text-xs text-text-muted">
             <span>{rows.length} {slot === 'mods' ? (rows.length === 1 ? 'mod' : 'mods') : (rows.length === 1 ? 'plugin' : 'plugins')}</span>
             {updates > 0 && <span className="text-accent">{updates} con actualización</span>}
+            {rows.length > 0 && selected.size < rows.length && (
+              <button type="button" onClick={() => setSelected(new Set(rows.map((r) => r.entry.name)))} className="hover:underline">
+                Seleccionar {side === 'all' ? 'todos' : 'los que se ven'}
+              </button>
+            )}
             {selected.size > 0 && (
               <>
                 <span className="text-text-secondary">{selected.size} seleccionados</span>
@@ -429,4 +457,14 @@ function Spinner({ small }: { small?: boolean }) {
       <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" strokeOpacity="0.2" /><path d="M21 12a9 9 0 00-9-9" />
     </svg>
   )
+}
+
+/** Dónde hace falta un mod según Modrinth/CurseForge: solo cliente, solo servidor o los dos. */
+function sideOf(m: ServerJarMeta | undefined): 'client' | 'server' | 'both' | 'unknown' {
+  if (!m) return 'unknown'
+  const c = m.clientSide !== 'unsupported', sv = m.serverSide !== 'unsupported'
+  if (c && !sv) return 'client'
+  if (sv && (m.clientSide === 'unsupported' || m.clientSide === 'optional') && m.serverSide === 'required') return 'server'
+  if (c && sv) return 'both'
+  return 'unknown'
 }
