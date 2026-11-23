@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import EditorShell, { type CloseRequest } from './EditorShell'
 import { errText } from './shared'
+import G from '../ui/Glyph'
 
 // Visor de imágenes dentro del cuadro: texturas, server-icon.png, capturas…
 // Sobre todo texturas de 16×16, así que al ampliar se ven los píxeles tal
@@ -54,12 +55,12 @@ export default function ImageViewer({ name, location, load, onClose, closeRef }:
       }}
       headerExtra={
         <div className="flex items-center gap-1 shrink-0">
-          <ToolBtn onClick={() => step(-1)} title="Alejar (−)">−</ToolBtn>
+          <ToolBtn onClick={() => step(-1)} title="Alejar (−)"><G n="minus" /></ToolBtn>
           <span className="text-xs text-text-secondary tabular-nums w-12 text-center">{Math.round(zoom * 100)}%</span>
-          <ToolBtn onClick={() => step(1)} title="Acercar (+)">＋</ToolBtn>
+          <ToolBtn onClick={() => step(1)} title="Acercar (+)"><G n="plus" /></ToolBtn>
           <ToolBtn onClick={fit} title="Ajustar (0)" active={fitted}>Ajustar</ToolBtn>
           <ToolBtn onClick={() => setExact(1)} title="Tamaño real (1)" active={!fitted && zoom === 1}>1:1</ToolBtn>
-          <ToolBtn onClick={() => setDark((d) => !d)} title="Fondo claro u oscuro">{dark ? '☀' : '☾'}</ToolBtn>
+          <ToolBtn onClick={() => setDark((d) => !d)} title="Fondo claro u oscuro"><G n={dark ? 'sun' : 'moon'} /></ToolBtn>
         </div>
       }>
       <div ref={areaRef}

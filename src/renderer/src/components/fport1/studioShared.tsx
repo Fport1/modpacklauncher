@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Channel, Fport1License, Fport1Type } from '../../lib/fport1Content'
 import { catLabel } from '../../lib/categoryNames'
+import G from '../ui/Glyph'
 
 // Piezas comunes del panel «Mis creaciones».
 
@@ -81,7 +82,7 @@ export function Chips({ options, value, onChange, names }: { options: string[]; 
         return (
           <button key={o} type="button" onClick={() => onChange(on ? value.filter(x => x !== o) : [...value, o])}
             className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${on ? 'bg-[#a855f7]/25 border-[#a855f7]/60 text-[#e9d5ff]' : 'border-border text-text-secondary hover:bg-bg-hover'}`}>
-            {on && '✓ '}{names?.[o] ?? o}
+            {on && <><G n="check" /> </>}{names?.[o] ?? o}
           </button>
         )
       })}
@@ -102,7 +103,7 @@ export function TagInput({ value, onChange, placeholder, max = 20 }: { value: st
       {value.map(t => (
         <span key={t} className="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-[#a855f7]/20 text-[#e9d5ff] text-xs">
           #{t}
-          <button type="button" onClick={() => onChange(value.filter(x => x !== t))} className="w-4 h-4 rounded hover:bg-white/10 text-[10px]">✕</button>
+          <button type="button" onClick={() => onChange(value.filter(x => x !== t))} className="w-4 h-4 rounded hover:bg-white/10 text-[10px]"><G n="x" /></button>
         </span>
       ))}
       <input value={text} onChange={e => { const v = e.target.value; if (v.endsWith(',')) add(v.slice(0, -1)); else setText(v) }}

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import G from './ui/Glyph'
 
 // Si algo falla al pintar una pantalla, React desmonta todo y la ventana se queda
 // en negro. Esto lo atrapa, lo guarda en el registro del launcher (también en
@@ -76,7 +77,7 @@ export default class ErrorBoundary extends Component<Props, { error: Error | nul
                   <button onClick={() => this.setState({ error: null })} className="px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover text-white text-sm font-bold">Reintentar</button>
                   {this.props.onHome && <button onClick={() => { this.setState({ error: null }); this.props.onHome?.() }} className={btn}>Ir a Inicio</button>}
                 </>}
-            <button onClick={this.copy} className={btn}>{copied ? 'Copiado ✓' : 'Copiar el error'}</button>
+            <button onClick={this.copy} className={btn}>{copied ? <>Copiado <G n="check" /></> : 'Copiar el error'}</button>
             <button onClick={() => window.api.console.showErrorsLog().catch(() => {})} className={btn}>Ver el registro</button>
           </div>
         </div>

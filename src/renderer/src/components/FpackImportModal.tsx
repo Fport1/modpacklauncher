@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { Instance, ModpackManifest } from '../../../shared/types'
 import ProtectionNotice from './ProtectionNotice'
+import G, { type GlyphName } from './ui/Glyph'
 
-const MODLOADER_ICON: Record<string, string> = {
-  fabric: '🧵', forge: '⚙️', quilt: '🪡', neoforge: '🔩', vanilla: '🟩'
+const MODLOADER_ICON: Record<string, GlyphName> = {
+  fabric: 'thread', forge: 'hammer', quilt: 'grid', neoforge: 'bolt', vanilla: 'bricks'
 }
 
 interface Props {
@@ -49,7 +50,7 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
 
         <div className="flex items-center gap-3 mb-5">
           <div className="w-12 h-12 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center text-2xl flex-shrink-0">
-            📦
+            <G n="package" className="text-accent" />
           </div>
           <div className="min-w-0">
             <p className="text-xs font-semibold text-accent uppercase tracking-wider mb-0.5">Instalar modpack</p>
@@ -66,9 +67,9 @@ export default function FpackImportModal({ filePath, onClose, onInstalled }: Pro
         {manifest && (
           <>
             <div className="flex flex-wrap gap-2 mb-4">
-              <span className="text-xs px-2 py-1 rounded-md bg-bg-hover text-text-secondary">⛏ {manifest.minecraft}</span>
+              <span className="text-xs px-2 py-1 rounded-md bg-bg-hover text-text-secondary"><G n="pickaxe" /> {manifest.minecraft}</span>
               <span className="text-xs px-2 py-1 rounded-md bg-bg-hover text-text-secondary">
-                {MODLOADER_ICON[manifest.modloader] ?? '•'} {manifest.modloader}
+                <G n={MODLOADER_ICON[manifest.modloader] ?? 'cube'} /> {manifest.modloader}
                 {manifest.modloaderVersion ? ` ${manifest.modloaderVersion}` : ''}
               </span>
               <span className="text-xs px-2 py-1 rounded-md bg-bg-hover text-text-secondary">v{manifest.version}</span>

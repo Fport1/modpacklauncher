@@ -46,7 +46,7 @@ export default function QRDisplay({ url, filename = 'qr.png', size = 220 }: Prop
         style={{ imageRendering: 'pixelated' }}
         onContextMenu={e => { e.preventDefault(); save() }}
         draggable={false}
-        title="Click derecho → Guardar imagen"
+        title="Clic derecho y «Guardar imagen»"
       />
       <button
         onClick={save}

@@ -2,16 +2,17 @@ import { useEffect, useState } from 'react'
 import type { AiActivity } from '../../../../shared/types'
 import AiToolPicker from './AiToolPicker'
 import { useStore } from '../../store'
+import G, { type GlyphName } from '../ui/Glyph'
 
 // La IA de todo el launcher (no de una instancia): ayuda con cualquier
 // instancia, crea modelos, efectos, sonido o vídeo para Minecraft y convierte
 // los archivos que le pases.
 
-const CAN_DO: { icon: string; title: string; hint: string }[] = [
-  { icon: '🧰', title: 'Cualquier instancia', hint: 'Arregla crashes, cambia mods y packs o mira un mundo de la instancia que le digas' },
-  { icon: '🧊', title: 'Modelos y animaciones', hint: 'Bloques, ítems y entidades; Blockbench, GeckoLib, Blender y el sistema de modelos de Minecraft' },
-  { icon: '✨', title: 'Efectos y shaders', hint: 'Partículas, post-procesado, shaderpacks y lo que equivale a VFX de Unity' },
-  { icon: '🎵', title: 'Audio, vídeo e imágenes', hint: 'Convierte mp3, wav, mp4, gif o jpg a lo que Minecraft acepta y lo mete en un pack' },
+const CAN_DO: { icon: GlyphName; title: string; hint: string }[] = [
+  { icon: 'toolbox', title: 'Cualquier instancia', hint: 'Arregla crashes, cambia mods y packs o mira un mundo de la instancia que le digas' },
+  { icon: 'cube', title: 'Modelos y animaciones', hint: 'Bloques, ítems y entidades; Blockbench, GeckoLib, Blender y el sistema de modelos de Minecraft' },
+  { icon: 'sparkles', title: 'Efectos y shaders', hint: 'Partículas, post-procesado, shaderpacks y lo que equivale a VFX de Unity' },
+  { icon: 'music', title: 'Audio, vídeo e imágenes', hint: 'Convierte mp3, wav, mp4, gif o jpg a lo que Minecraft acepta y lo mete en un pack' },
 ]
 
 export default function LauncherAiModal({ onClose }: { onClose: () => void }) {
@@ -43,14 +44,14 @@ export default function LauncherAiModal({ onClose }: { onClose: () => void }) {
             <p className="text-lg font-bold text-text-primary">IA del launcher</p>
             <p className="text-xs text-text-muted">Una IA para todo el launcher: todas tus instancias, crear contenido para Minecraft y convertir archivos</p>
           </div>
-          <button onClick={onClose} className="w-9 h-9 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg-hover">✕</button>
+          <button onClick={onClose} className="w-9 h-9 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg-hover"><G n="x" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div className="grid grid-cols-2 gap-2.5">
             {CAN_DO.map((c) => (
               <div key={c.title} className="flex gap-3 p-3 rounded-2xl bg-bg-card border border-border">
-                <span className="text-xl leading-none mt-0.5">{c.icon}</span>
+                <span className="text-xl leading-none mt-0.5 text-accent"><G n={c.icon} /></span>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-text-primary">{c.title}</p>
                   <p className="text-[11px] text-text-muted mt-0.5 leading-snug">{c.hint}</p>

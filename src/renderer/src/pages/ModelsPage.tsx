@@ -34,6 +34,7 @@ import {
 } from '../lib/bedrockGeo'
 import { isJemModel, buildJemModel } from '../lib/jemModel'
 import { loadVanillaAnims, animsForMob, tickerFor, isPoseAnim, type AnimSet, type BedrockAnim } from '../lib/bedrockAnim'
+import G from '../components/ui/Glyph'
 
 // ─── 3D viewer ───────────────────────────────────────────────────────────────
 
@@ -312,7 +313,7 @@ function SourcePicker({ title, emptyLabel, sources, instances, value, onChange, 
       <button onClick={openPanel}
         className="bg-bg-secondary border border-border rounded-md px-2 py-1 text-text-primary max-w-[180px] truncate text-left hover:border-accent/60 transition-colors">
         <span className="text-text-muted">{title}:</span> {currentName}
-        <span className="text-text-muted ml-1">▾</span>
+        <span className="text-text-muted ml-1"><G n="chevronDown" /></span>
       </button>
       {open && (
         <>
@@ -325,7 +326,7 @@ function SourcePicker({ title, emptyLabel, sources, instances, value, onChange, 
                   {value !== '' && (
                     <button onClick={() => pick('')}
                       className="w-full text-left px-2 py-1.5 rounded text-text-muted hover:bg-bg-primary">
-                      ✕ Quitar selección ({emptyLabel})
+                      <G n="x" /> Quitar selección ({emptyLabel})
                     </button>
                   )}
                   {withItems.length === 0 && <div className="px-2 py-3 text-text-muted">Ninguna instancia tiene {title.toLowerCase()}s</div>}
@@ -503,7 +504,7 @@ function TexturePreview({ dataUrl, w, h, anim }: { dataUrl: string; w: number; h
       {anim && (
         <button onClick={() => setPlaying(p => !p)}
           className="px-3 py-1 rounded-md border border-border text-xs text-text-primary hover:border-accent/60 hover:text-accent transition-colors">
-          {playing ? '⏸ Pausar' : '▶ Reproducir animación'}
+          <G n={playing ? 'pause' : 'play'} /> {playing ? 'Pausar' : 'Reproducir animación'}
         </button>
       )}
       <div className="text-[11px] text-text-muted">
@@ -1227,7 +1228,7 @@ export default function ModelsPage() {
               {crumbs.length > 1 && (
                 <button onClick={() => setDir(crumbs.slice(0, -1).join('/'))}
                   className="w-full text-left px-2 py-1 rounded text-xs text-text-muted hover:bg-bg-primary flex items-center gap-2">
-                  <span>↩</span> ..
+                  <G n="arrowUp" /> ..
                 </button>
               )}
               {loadingList && <div className="px-2 py-3 text-xs text-text-muted">Cargando…</div>}
@@ -1239,7 +1240,7 @@ export default function ModelsPage() {
                   onClick={() => e.isDir ? (setDir(`${dir}/${e.name}`), setFilter('')) : openFile(e.name)}
                   className={`w-full text-left px-2 py-1 rounded text-xs flex items-center gap-2 hover:bg-bg-primary transition-colors ${!e.isDir && preview.kind !== 'none' && 'path' in preview && preview.path === `${dir}/${e.name}` ? 'bg-accent/15 text-accent' : 'text-text-primary'}`}>
                   <span className="shrink-0 opacity-80">
-                    {e.isDir ? '📁' : e.name.endsWith('.png') ? '🖼️' : e.name.endsWith('.json') ? '🧊' : '📄'}
+                    <G n={e.isDir ? 'folder' : e.name.endsWith('.png') ? 'image' : e.name.endsWith('.json') ? 'cube' : 'file'} />
                   </span>
                   <span className="truncate flex-1">{e.name}</span>
                   {!e.isDir && <span className="text-[10px] text-text-muted shrink-0">{formatSize(e.size)}</span>}
@@ -1274,7 +1275,7 @@ export default function ModelsPage() {
                 <div className="border-t border-border px-3 py-2 text-[11px] text-text-muted flex flex-wrap gap-x-4 gap-y-1">
                   <span className="text-text-primary font-medium">{preview.path.split('/').pop()}</span>
                   <span>Elementos: {preview.model.elements.length}</span>
-                  <span className="truncate">Herencia: {preview.model.parentChain.map(p => p.split('/').pop()).join(' → ')}</span>
+                  <span className="truncate">Herencia: {preview.model.parentChain.map(p => p.split('/').pop()).join(' › ')}</span>
                   {preview.missing.length > 0 && <span className="text-amber-400">Texturas no encontradas: {preview.missing.join(', ')}</span>}
                 </div>
               </>
@@ -1373,12 +1374,12 @@ export default function ModelsPage() {
                     <>
                       <button onClick={() => setGizmoMode('translate')}
                         className={`px-2 py-1 rounded ${gizmoMode === 'translate' || editSel.kind === 'cube' ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text-primary'}`}>
-                        ✥ Mover
+                        <G n="move" /> Mover
                       </button>
                       {editSel.kind === 'bone' && (
                         <button onClick={() => setGizmoMode('rotate')}
                           className={`px-2 py-1 rounded ${gizmoMode === 'rotate' ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text-primary'}`}>
-                          ⟲ Girar
+                          <G n="rotateLeft" /> Girar
                         </button>
                       )}
                       <span className="px-2 text-text-muted">Arrastra las flechas de la pieza</span>
@@ -1388,9 +1389,9 @@ export default function ModelsPage() {
                   )}
                   <span className="w-px h-4 bg-border mx-1" />
                   <button onClick={undoOverride} disabled={history.past.length === 0} title="Deshacer (Ctrl+Z)"
-                    className="px-2 py-1 rounded text-text-muted hover:text-text-primary disabled:opacity-30">↶</button>
+                    className="px-2 py-1 rounded text-text-muted hover:text-text-primary disabled:opacity-30"><G n="undo" /></button>
                   <button onClick={redoOverride} disabled={history.future.length === 0} title="Rehacer (Ctrl+Y)"
-                    className="px-2 py-1 rounded text-text-muted hover:text-text-primary disabled:opacity-30">↷</button>
+                    className="px-2 py-1 rounded text-text-muted hover:text-text-primary disabled:opacity-30"><G n="redo" /></button>
                 </div>
               )}
             </div>
@@ -1409,7 +1410,7 @@ export default function ModelsPage() {
                   </select>
                   <button onClick={() => setAnimPlaying(p => !p)} disabled={!selAnim && !mobAnimNames.some(isPoseAnim)}
                     className={`px-2 py-0.5 rounded border transition-colors ${animPlaying ? 'border-accent/60 text-accent' : 'border-border text-text-muted hover:text-accent hover:border-accent/60'}`}>
-                    {animPlaying ? '⏸' : '▶'}
+                    <G n={animPlaying ? 'pause' : 'play'} />
                   </button>
                 </span>
               )}
@@ -1420,7 +1421,7 @@ export default function ModelsPage() {
                 className={`${mobAnimNames.length > 0 ? '' : 'ml-auto'} px-2 py-0.5 rounded border transition-colors disabled:opacity-40 ${
                   editing ? 'border-accent/60 bg-accent/15 text-accent' : 'border-border text-text-muted hover:text-accent hover:border-accent/60'
                 }`}>
-                ✎ {editing ? 'Editando' : 'Editar'}
+                <G n="edit" /> {editing ? 'Editando' : 'Editar'}
               </button>
             </div>
           </div>

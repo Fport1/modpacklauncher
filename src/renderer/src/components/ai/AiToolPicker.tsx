@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import type { AiToolId, AiToolMissing } from '../../../../shared/types'
 import { CLAUDE_PATH, GEMINI_PATH, OPENAI_PATH } from '../aiLogos'
+import G from '../ui/Glyph'
 
 // Botones para abrir cada IA de terminal y, si no está instalada, el panel con
 // su orden oficial y un botón que la instala. Lo usan la IA de una instancia y
@@ -77,20 +78,20 @@ export default function AiToolPicker({ open, beforeOpen, extra, onError }: {
       {missing && (
         <div className="mt-3 p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 space-y-3">
           <div className="flex items-start gap-3">
-            <span className="text-lg leading-none mt-0.5">⬇</span>
+            <span className="text-lg leading-none mt-0.5"><G n="download" /></span>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-amber-100">{`${missing.name} no está instalado en este equipo`}</p>
               {missing.needsNode
                 ? <p className="text-xs text-amber-200/80 mt-1">Se instala con npm, que viene con Node.js, y no lo tienes. Descarga Node.js (la versión LTS), instálalo, cierra y vuelve a abrir el launcher, y luego pulsa «Instalar».</p>
                 : <p className="text-xs text-amber-200/80 mt-1">{`Se instala con su orden oficial. Pulsa «Instalar» y se abrirá una terminal que lo hace sola; cuando termine, vuelve aquí y pulsa «Abrir ${missing.name}».`}</p>}
             </div>
-            <button onClick={() => setMissing(null)} className="text-amber-200/60 hover:text-amber-100 text-sm" title="Cerrar">✕</button>
+            <button onClick={() => setMissing(null)} className="text-amber-200/60 hover:text-amber-100 text-sm" title="Cerrar"><G n="x" /></button>
           </div>
           {!missing.needsNode && (
             <div className="flex items-center gap-2">
               <code className="flex-1 min-w-0 truncate px-3 py-2 rounded-xl bg-black/30 text-xs text-text-primary font-mono" title={missing.command}>{missing.command}</code>
               <button onClick={() => { window.api.clipboard.writeText(missing.command).catch(() => {}); setCmdCopied(true); setTimeout(() => setCmdCopied(false), 2000) }}
-                className="px-3 py-2 rounded-xl border border-border text-xs text-text-secondary hover:text-text-primary shrink-0">{cmdCopied ? 'Copiado ✓' : 'Copiar'}</button>
+                className="px-3 py-2 rounded-xl border border-border text-xs text-text-secondary hover:text-text-primary shrink-0">{cmdCopied ? <>Copiado <G n="check" /></> : 'Copiar'}</button>
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">

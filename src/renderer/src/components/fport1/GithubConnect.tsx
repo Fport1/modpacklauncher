@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { GithubStatus } from '../../../../shared/types'
+import G from '../ui/Glyph'
 
 // Conectar la cuenta de GitHub al launcher (Ajustes › Cuentas y entrada a
 // «Mis creaciones»). La clave se queda cifrada en el proceso principal: aquí
@@ -82,7 +83,7 @@ export default function GithubConnect({ status, onChange, compact }: { status: G
           <div className="flex items-center gap-2">
             <code className="flex-1 text-center text-xl font-bold tracking-[0.3em] text-text-primary py-2 rounded-lg bg-black/30">{device.userCode}</code>
             <button onClick={() => { window.api.clipboard.writeText(device.userCode).catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-              className="px-3 py-2 rounded-lg border border-border text-xs text-text-secondary hover:text-text-primary">{copied ? 'Copiado ✓' : 'Copiar'}</button>
+              className="px-3 py-2 rounded-lg border border-border text-xs text-text-secondary hover:text-text-primary">{copied ? <>Copiado <G n="check" /></> : 'Copiar'}</button>
           </div>
           <div className="flex items-center justify-between">
             <button onClick={() => window.api.shell.openExternal(device.verificationUri)} className="text-xs text-[#c084fc] hover:underline">Volver a abrir GitHub</button>

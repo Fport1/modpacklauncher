@@ -16,6 +16,7 @@ import {
   MAX_EDIT_BYTES, PLAYER_FILE, formatBytes, formatDate, remoteJoin, remoteParent, localJoin, joinFor,
   errText, typingIn, fileKindOf, baseNameOf
 } from './shared'
+import G, { type GlyphName } from '../ui/Glyph'
 
 // Un cuadro del gestor de servidores: "Este equipo" o el servidor.
 //
@@ -255,7 +256,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
     try {
       await doRename(dir, from, to)
       record({ kind: 'rename', dir, from, to })
-      log('ok', `Renombrado ${from} → ${to}`)
+      log('ok', `Renombrado «${from}» como «${to}»`)
       await openDir(dir, false)
       flash([to])
     } catch (e) {
@@ -348,7 +349,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
       else await doMkdir(op.dir, op.name)
       setRedoStack((s) => s.slice(0, -1))
       setUndoStack((s) => [...s, op])
-      log('info', op.kind === 'rename' ? `Rehecho: ${op.from} → ${op.to}` : `Rehecho: carpeta ${op.name} creada`)
+      log('info', op.kind === 'rename' ? `Rehecho: «${op.from}» renombrado como «${op.to}»` : `Rehecho: carpeta ${op.name} creada`)
       if (state.current.dir === op.dir) await openDir(op.dir, false)
     } catch (e) {
       log('error', `No se pudo rehacer: ${errText(e)}`)
@@ -576,7 +577,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
     setMenu({ x: e.clientX, y: e.clientY, names })
   }
 
-  type MenuItem = { label: string; icon: string; run: () => void; danger?: boolean; disabled?: boolean } | 'sep'
+  type MenuItem = { label: string; icon: GlyphName; run: () => void; danger?: boolean; disabled?: boolean } | 'sep'
   const menuItems = ((): MenuItem[] => {
     if (!menu) return []
     const { names } = menu
@@ -585,32 +586,32 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
     const count = names.length > 1 ? ` (${names.length})` : ''
     if (single) {
       const kind = single.isDir ? null : fileKindOf(single.name, isTextFile)
-      if (single.isDir) items.push({ label: 'Abrir', icon: '📂', run: () => openEntry(single) })
-      else if (kind === 'image') items.push({ label: 'Ver imagen', icon: '🖼', run: () => openEntry(single) })
-      else if (kind === 'scoreboard') items.push({ label: 'Editar equipos y puntos', icon: '⚑', run: () => openEntry(single) })
-      else if (kind === 'playerdata') items.push({ label: 'Editar jugador', icon: '☺', run: () => openEntry(single) })
-      if (single.isDir) items.push({ label: 'Jugadores (si es un mundo)', icon: '☺', run: () => setPlayersWorld(join(dir, single.name)) })
-      else if (kind === 'level') items.push({ label: 'Editar mundo (hora, reglas…)', icon: '🌍', run: () => openEntry(single) })
-      else if (kind === 'properties') items.push({ label: 'Editar opciones del servidor', icon: '⚙', run: () => openEntry(single) })
-      else if (kind === 'nbt') items.push({ label: 'Editar NBT', icon: '⌬', run: () => openEntry(single) })
-      else if (kind === 'text') items.push({ label: 'Editar', icon: '✎', run: () => openEntry(single) })
+      if (single.isDir) items.push({ label: 'Abrir', icon: 'folderOpen', run: () => openEntry(single) })
+      else if (kind === 'image') items.push({ label: 'Ver imagen', icon: 'image', run: () => openEntry(single) })
+      else if (kind === 'scoreboard') items.push({ label: 'Editar equipos y puntos', icon: 'flag', run: () => openEntry(single) })
+      else if (kind === 'playerdata') items.push({ label: 'Editar jugador', icon: 'smile', run: () => openEntry(single) })
+      if (single.isDir) items.push({ label: 'Jugadores (si es un mundo)', icon: 'smile', run: () => setPlayersWorld(join(dir, single.name)) })
+      else if (kind === 'level') items.push({ label: 'Editar mundo (hora, reglas…)', icon: 'globe', run: () => openEntry(single) })
+      else if (kind === 'properties') items.push({ label: 'Editar opciones del servidor', icon: 'settings', run: () => openEntry(single) })
+      else if (kind === 'nbt') items.push({ label: 'Editar NBT', icon: 'braces', run: () => openEntry(single) })
+      else if (kind === 'text') items.push({ label: 'Editar', icon: 'edit', run: () => openEntry(single) })
     }
     if (names.length > 0) {
-      if (remote) items.push({ label: `Descargar${count}`, icon: '⬇', run: () => sendSelection(names), disabled: !downloadDest })
+      if (remote) items.push({ label: `Descargar${count}`, icon: 'download', run: () => sendSelection(names), disabled: !downloadDest })
       else {
-        items.push({ label: `Subir al servidor${count}`, icon: '⬆', run: () => sendSelection(names), disabled: !conn.connected || !otherDirs.remote })
-        if (single) items.push({ label: 'Mostrar en el explorador', icon: '🗂', run: () => window.api.ftp.localReveal(localJoin(dir, single.name)) })
+        items.push({ label: `Subir al servidor${count}`, icon: 'upload', run: () => sendSelection(names), disabled: !conn.connected || !otherDirs.remote })
+        if (single) items.push({ label: 'Mostrar en el explorador', icon: 'folder', run: () => window.api.ftp.localReveal(localJoin(dir, single.name)) })
       }
       if (single) {
-        items.push({ label: 'Renombrar', icon: '✏', run: () => startRename(single.name) })
-        items.push({ label: 'Copiar ruta', icon: '⧉', run: () => navigator.clipboard.writeText(join(dir, single.name)) })
+        items.push({ label: 'Renombrar', icon: 'edit', run: () => startRename(single.name) })
+        items.push({ label: 'Copiar ruta', icon: 'copy', run: () => navigator.clipboard.writeText(join(dir, single.name)) })
       }
-      items.push({ label: remote ? `Borrar${count}` : `Enviar a la papelera${count}`, icon: '🗑', danger: true, run: () => removeSelection(names) })
+      items.push({ label: remote ? `Borrar${count}` : `Enviar a la papelera${count}`, icon: 'trash', danger: true, run: () => removeSelection(names) })
       items.push('sep')
     }
-    items.push({ label: 'Carpeta nueva', icon: '＋', run: newFolder })
-    items.push({ label: 'Recargar', icon: '⟳', run: reload })
-    if (!remote && names.length === 0) items.push({ label: 'Abrir esta carpeta en el explorador', icon: '🗂', run: () => window.api.ftp.localReveal(dir) })
+    items.push({ label: 'Carpeta nueva', icon: 'plus', run: newFolder })
+    items.push({ label: 'Recargar', icon: 'rotate', run: reload })
+    if (!remote && names.length === 0) items.push({ label: 'Abrir esta carpeta en el explorador', icon: 'folder', run: () => window.api.ftp.localReveal(dir) })
     return items
   })()
 
@@ -649,16 +650,16 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
         <span className={`text-sm font-semibold truncate min-w-0 ${focused ? 'text-green-400' : 'text-text-primary'}`}>{title}</span>
         {remote && conn.kind === 'assist' && conn.connected && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 shrink-0">asistencia</span>}
         <div className="ml-auto flex items-center gap-1 shrink-0">
-          <NavBtn title="Atrás" onClick={() => historyStep(-1)} disabled={disabled || !canBack || !!openFile}>←</NavBtn>
-          <NavBtn title="Adelante" onClick={() => historyStep(1)} disabled={disabled || !canForward || !!openFile}>→</NavBtn>
-          <NavBtn title="Subir un nivel (Retroceso)" onClick={goUp} disabled={disabled || !!openFile}>↑</NavBtn>
-          <NavBtn title="Buscar (Ctrl+F)" onClick={() => { setSearchOpen(!searchOpen); setFilter('') }} disabled={disabled || !!openFile} active={searchOpen}>⌕</NavBtn>
-          <NavBtn title="Recargar (F5)" onClick={reload} disabled={disabled}>⟳</NavBtn>
+          <NavBtn title="Atrás" onClick={() => historyStep(-1)} disabled={disabled || !canBack || !!openFile}><G n="arrowLeft" /></NavBtn>
+          <NavBtn title="Adelante" onClick={() => historyStep(1)} disabled={disabled || !canForward || !!openFile}><G n="arrowRight" /></NavBtn>
+          <NavBtn title="Subir un nivel (Retroceso)" onClick={goUp} disabled={disabled || !!openFile}><G n="arrowUp" /></NavBtn>
+          <NavBtn title="Buscar (Ctrl+F)" onClick={() => { setSearchOpen(!searchOpen); setFilter('') }} disabled={disabled || !!openFile} active={searchOpen}><G n="search" /></NavBtn>
+          <NavBtn title="Recargar (F5)" onClick={reload} disabled={disabled}><G n="rotate" /></NavBtn>
           <span className="w-px h-5 bg-border mx-0.5" />
           {detached ? (
-            <NavBtn title="Devolver este cuadro a la ventana del launcher" onClick={() => window.api.ftp.paneClose(side)}>↙</NavBtn>
+            <NavBtn title="Devolver este cuadro a la ventana del launcher" onClick={() => window.api.ftp.paneClose(side)}><G n="arrowDownLeft" /></NavBtn>
           ) : (
-            <NavBtn title="Sacar este cuadro a otra ventana" onClick={() => window.api.ftp.paneOpen(side)}>⧉</NavBtn>
+            <NavBtn title="Sacar este cuadro a otra ventana" onClick={() => window.api.ftp.paneOpen(side)}><G n="popout" /></NavBtn>
           )}
         </div>
       </div>
@@ -666,7 +667,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
       {/* Aviso de conexión perdida */}
       {remote && (conn.lost || conn.reconnecting) && (
         <div className={`px-3 py-2 text-xs flex items-center gap-2 border-b ${conn.reconnecting ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' : 'bg-red-500/10 text-red-300 border-red-500/30'}`}>
-          {conn.reconnecting ? '⟳ Se cortó la conexión. Reconectando…' : `⚠ Se perdió la conexión${conn.reason ? ` (${conn.reason})` : ''}.`}
+          <G n={conn.reconnecting ? 'rotate' : 'warning'} className={conn.reconnecting ? 'animate-spin mr-1' : 'mr-1'} />{conn.reconnecting ? 'Se cortó la conexión. Reconectando…' : `Se perdió la conexión${conn.reason ? ` (${conn.reason})` : ''}.`}
           {!conn.reconnecting && conn.kind === 'site' && (
             <button type="button" onClick={() => window.api.ftp.reconnect()} className="ml-auto px-2.5 py-1 rounded-md bg-red-500/80 text-white font-medium">Reconectar</button>
           )}
@@ -701,24 +702,24 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
             <div className="flex items-center gap-1.5 flex-wrap">
               {remote ? (
                 <>
-                  <QuickBtn onClick={() => openDir(conn.root)} disabled={disabled}>⌂ Inicio del servidor</QuickBtn>
+                  <QuickBtn onClick={() => openDir(conn.root)} disabled={disabled}><G n="home" /> Inicio del servidor</QuickBtn>
                   {serverInfo?.mods && <QuickBtn onClick={() => openDir(serverInfo.mods!.folder)} disabled={disabled}>Mods</QuickBtn>}
                   {serverInfo?.plugins && <QuickBtn onClick={() => openDir(serverInfo.plugins!.folder)} disabled={disabled}>Plugins</QuickBtn>}
-                  <QuickBtn onClick={newFolder} disabled={disabled}>＋ Carpeta nueva</QuickBtn>
+                  <QuickBtn onClick={newFolder} disabled={disabled}><G n="plus" /> Carpeta nueva</QuickBtn>
                 </>
               ) : (
                 <>
                   <QuickBtn onClick={async () => openDir(await window.api.ftp.localStart())}>Instancias</QuickBtn>
                   <QuickBtn onClick={() => { if (downloadsDir) openDir(downloadsDir) }}>Descargas</QuickBtn>
                   <QuickBtn onClick={async () => openDir(await window.api.ftp.localHome())}>Personal</QuickBtn>
-                  <QuickBtn onClick={newFolder}>＋ Carpeta nueva</QuickBtn>
+                  <QuickBtn onClick={newFolder}><G n="plus" /> Carpeta nueva</QuickBtn>
                 </>
               )}
               {entries.some((e) => e.name === 'level.dat') && (
-                <QuickBtn onClick={() => setPlayersWorld(dir)} disabled={remote && disabled}>☺ Jugadores de este mundo</QuickBtn>
+                <QuickBtn onClick={() => setPlayersWorld(dir)} disabled={remote && disabled}><G n="smile" /> Jugadores de este mundo</QuickBtn>
               )}
               {!remote && entries.some((e) => e.name === 'level.dat') && (
-                <QuickBtn onClick={() => setCleanupWorld(dir)}>🧹 Limpiar este mundo</QuickBtn>
+                <QuickBtn onClick={() => setCleanupWorld(dir)}><G n="broom" /> Limpiar este mundo</QuickBtn>
               )}
             </div>
             {searchOpen && (
@@ -757,7 +758,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
                     onClick={() => setSort({ key, asc: sort.key === key ? !sort.asc : key === 'name' })}
                     className={`${key === 'name' ? 'text-left' : 'text-right'} hover:text-text-primary`}>
                     {key === 'name' ? 'Nombre' : key === 'size' ? 'Tamaño' : 'Modificado'}
-                    {sort.key === key ? (sort.asc ? ' ▲' : ' ▼') : ''}
+                    {sort.key === key ? <G n={sort.asc ? 'chevronUp' : 'chevronDown'} className="ml-0.5" /> : ''}
                   </button>
                 ))}
               </div>
@@ -824,15 +825,15 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
                 </label>
                 <div className="ml-auto flex items-center gap-2">
                   <Btn primary onClick={() => sendSelection([...selected])} disabled={disabled || selected.size === 0 || busy || !downloadDest}>
-                    ⬇ Descargar {selected.size > 0 ? `(${selected.size})` : ''}
+                    <G n="download" /> Descargar {selected.size > 0 ? `(${selected.size})` : ''}
                   </Btn>
-                  <Btn danger onClick={() => removeSelection([...selected])} disabled={disabled || selected.size === 0 || busy}>🗑 Borrar</Btn>
+                  <Btn danger onClick={() => removeSelection([...selected])} disabled={disabled || selected.size === 0 || busy}><G n="trash" /> Borrar</Btn>
                 </div>
               </>
             ) : (
               <div className="ml-auto">
                 <Btn primary onClick={() => sendSelection([...selected])} disabled={!conn.connected || selected.size === 0 || busy || !otherDirs.remote}>
-                  ⬆ Subir al servidor {selected.size > 0 ? `(${selected.size})` : ''}
+                  <G n="upload" /> Subir al servidor {selected.size > 0 ? `(${selected.size})` : ''}
                 </Btn>
               </div>
             )}
@@ -844,7 +845,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
       {dropLabel && !openFile && (
         <div className={`absolute inset-0 z-10 flex items-center justify-center p-6 pointer-events-none transition-colors ${dragOver ? 'bg-accent/25' : 'bg-accent/10'}`}>
           <div className={`border-2 border-dashed rounded-2xl px-6 py-5 text-center transition-all ${dragOver ? 'border-accent scale-105 bg-bg-secondary/90' : 'border-accent/50 bg-bg-secondary/70'}`}>
-            <p className="text-3xl mb-1">{dragOver ? '⬇' : '⇣'}</p>
+            <p className="text-3xl mb-1"><G n="download" className={dragOver ? '' : 'opacity-60'} /></p>
             <p className="text-sm font-semibold text-text-primary">{dropLabel}</p>
           </div>
         </div>
@@ -861,7 +862,7 @@ export default function FilePane({ side, conn, focused, onFocus, apiRef, detache
             <button key={i} type="button" disabled={item.disabled}
               onClick={() => { setMenu(null); item.run() }}
               className={`w-full flex items-center gap-3 px-3 py-2 text-sm text-left disabled:opacity-40 ${item.danger ? 'text-red-400 hover:bg-red-500/10' : 'text-text-primary hover:bg-bg-hover'}`}>
-              <span className="w-5 text-center">{item.icon}</span>{item.label}
+              <span className="w-5 text-center"><G n={item.icon} /></span>{item.label}
             </button>
           ))}
         </div>

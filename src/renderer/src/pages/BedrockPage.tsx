@@ -3,6 +3,7 @@ import type { BedrockEdition, BedrockStatus, BedrockWindowSettings } from '../..
 import { useStore, activeAccount } from '../store'
 import { useTextures } from '../lib/mcTextures'
 import { IconPlay, IconDownload, IconRefresh, IconCheck } from '../components/ui/icons'
+import G from '../components/ui/Glyph'
 
 // Minecraft Bedrock (Minecraft for Windows) como en el launcher oficial:
 // jugar si está instalado, instalar si no. Lo instala y actualiza la
@@ -89,7 +90,7 @@ export default function BedrockPage() {
             <div className="mt-4 flex items-center gap-3 flex-wrap text-xs">
               {release && <span className="px-2.5 py-1 rounded-full bg-white/10 text-white/70">Instalado · paquete {release.version}</span>}
               {!release && status && <span className="px-2.5 py-1 rounded-full bg-white/10 text-white/70">No está instalado en este equipo</span>}
-              {isMicrosoft && owned === true && <span className="px-2.5 py-1 rounded-full bg-[#3c8527]/30 text-[#8bd26a]">✓ Incluido en tu cuenta</span>}
+              {isMicrosoft && owned === true && <span className="px-2.5 py-1 rounded-full bg-[#3c8527]/30 text-[#8bd26a]"><G n="check" /> Incluido en tu cuenta</span>}
               {isMicrosoft && owned === false && (
                 <span className="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300">
                   Esta cuenta no tiene Bedrock: puedes comprarlo en la Store

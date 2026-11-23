@@ -7,6 +7,7 @@ import {
   type ContentKind, type ProjectRef, type SearchContext, type SearchFilters, type SortKey, type SourceCategory, type SourceId,
   type SourceResult, type SourceVersion
 } from '../../lib/contentSources'
+import G from '../ui/Glyph'
 
 // Explorador para instalar en un destino (una instancia, un mundo o un
 // servidor). Una sola ventana con todas las fuentes que sirven para ese
@@ -352,7 +353,7 @@ export default function ContentBrowser({ target, initialSource, initialDetail, i
                           </button>
                           {source === 'modrinth' && (
                             <button onClick={() => toggleCat(c.id, 'exclude')} title="Excluir"
-                              className={`w-5 h-5 rounded flex items-center justify-center text-[11px] ${off ? 'text-red-400' : 'text-text-muted opacity-0 group-hover:opacity-100 hover:text-red-400'}`}>⊘</button>
+                              className={`w-5 h-5 rounded flex items-center justify-center text-[11px] ${off ? 'text-red-400' : 'text-text-muted opacity-0 group-hover:opacity-100 hover:text-red-400'}`}><G n="ban" /></button>
                           )}
                         </div>
                         {kids.length > 0 && (
@@ -406,7 +407,7 @@ export default function ContentBrowser({ target, initialSource, initialDetail, i
                   <div key={key} onClick={() => openDetail(ref)}
                     className="group flex items-center gap-4 p-4 rounded-2xl bg-bg-card border border-border hover:border-accent/40 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg">
                     <div className="w-16 h-16 rounded-2xl bg-bg-hover overflow-hidden shrink-0 ring-1 ring-white/5">
-                      {r.icon ? <img src={r.icon} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <div className="w-full h-full flex items-center justify-center text-2xl">📦</div>}
+                      {r.icon ? <img src={r.icon} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <div className="w-full h-full flex items-center justify-center text-2xl text-text-muted"><G n="package" /></div>}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
@@ -435,7 +436,7 @@ export default function ContentBrowser({ target, initialSource, initialDetail, i
                       </div>
                     </div>
                     {inst ? (
-                      <span className="shrink-0 px-3.5 py-2 rounded-xl text-sm font-semibold bg-green-500/15 text-green-300 border border-green-500/30">✓ Instalado</span>
+                      <span className="shrink-0 px-3.5 py-2 rounded-xl text-sm font-semibold bg-green-500/15 text-green-300 border border-green-500/30"><G n="check" /> Instalado</span>
                     ) : (
                       <button onClick={(e) => { e.stopPropagation(); install(ref) }} disabled={!!busy}
                         className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white disabled:opacity-50 transition-transform active:scale-95" style={{ background: accent }}>

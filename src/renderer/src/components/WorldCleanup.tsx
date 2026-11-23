@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { errText } from './ftp/shared'
+import G from './ui/Glyph'
 
 // Limpiar un mundo: quitar los chunks por los que casi no ha pasado nadie. Es lo que más
 // ocupa en un mundo de servidor (todo lo que se generó al volar o explorar de lejos) y se
@@ -62,12 +63,12 @@ export default function WorldCleanup({ worldDir, worldName, backupDir, onClose, 
       <div className="w-[min(600px,100%)] bg-bg-secondary border border-border rounded-2xl p-5 space-y-4">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[15px] font-semibold text-text-primary">🧹 Limpiar «{worldName}»</p>
+            <p className="text-[15px] font-semibold text-text-primary"><G n="broom" /> Limpiar «{worldName}»</p>
             <p className="text-xs text-text-muted mt-0.5">
               Quita los chunks por los que casi no ha pasado nadie. Si alguien vuelve, el juego los genera otra vez igual (sale de la misma semilla), pero sin lo que hubiera cambiado ahí.
             </p>
           </div>
-          <button type="button" onClick={onClose} disabled={!!busy} className="w-8 h-8 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover">✕</button>
+          <button type="button" onClick={onClose} disabled={!!busy} className="w-8 h-8 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover"><G n="x" /></button>
         </div>
 
         <div className="grid grid-cols-2 gap-1.5">
@@ -93,7 +94,7 @@ export default function WorldCleanup({ worldDir, worldName, backupDir, onClose, 
                     <td className="px-3 py-1.5 text-text-primary">{DIM_NAMES[d.dim] ?? d.dim}</td>
                     <td className="text-right px-2 text-text-secondary">{d.chunks.toLocaleString('es')}</td>
                     <td className="text-right px-2 text-amber-300">{d.remove.toLocaleString('es')}{d.unknown ? <span className="text-text-muted" title="Chunks que no se pueden leer (otra compresión o dañados): se dejan como están"> · {d.unknown} sin leer</span> : null}</td>
-                    <td className="text-right px-3 text-text-secondary">{mb(d.bytesBefore)} → <span className="text-green-300">{result ? '' : '~'}{mb(d.bytesAfter)}</span></td>
+                    <td className="text-right px-3 text-text-secondary">{mb(d.bytesBefore)} <G n="arrowRight" /> <span className="text-green-300">{result ? '' : '~'}{mb(d.bytesAfter)}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -102,14 +103,14 @@ export default function WorldCleanup({ worldDir, worldName, backupDir, onClose, 
                   <td className="px-3 py-1.5 font-semibold text-text-primary">Total</td>
                   <td className="text-right px-2 text-text-secondary">{totals.chunks.toLocaleString('es')}</td>
                   <td className="text-right px-2 text-amber-300">{totals.remove.toLocaleString('es')} ({totals.chunks ? Math.round((totals.remove / totals.chunks) * 100) : 0} %)</td>
-                  <td className="text-right px-3 text-text-secondary">{mb(totals.before)} → <span className="text-green-300">{result ? '' : '~'}{mb(totals.after)}</span></td>
+                  <td className="text-right px-3 text-text-secondary">{mb(totals.before)} <G n="arrowRight" /> <span className="text-green-300">{result ? '' : '~'}{mb(totals.after)}</span></td>
                 </tr>
               </tfoot>
             </table>
           </div>
         )}
 
-        {result?.backup && <p className="text-xs text-green-400 break-all">✓ Mundo limpio. Copia de antes en {result.backup}</p>}
+        {result?.backup && <p className="text-xs text-green-400 break-all"><G n="check" /> Mundo limpio. Copia de antes en {result.backup}</p>}
         {error && <p className="text-xs text-red-400">{error}</p>}
 
         <div className="flex justify-end gap-2">

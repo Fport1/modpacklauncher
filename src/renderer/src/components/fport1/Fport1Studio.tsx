@@ -9,6 +9,7 @@ import ImagesTab from './ImagesTab'
 import CodeTab, { type CodeForm } from './CodeTab'
 import VersionsTab from './VersionsTab'
 import { CLOSED_LICENSES, CategoryPicker, OPEN_LICENSES, SIDES, TYPES, TagInput, cleanErr, inputCls, labelCls } from './studioShared'
+import G from '../ui/Glyph'
 
 // Panel de @fport1 para publicar sus creaciones en la fuente Fport1 de
 // Explorar (y en fport1web, que lee el mismo catálogo). Solo se abre con la
@@ -100,7 +101,7 @@ export default function Fport1Studio({ mcVersions, onClose, onChanged }: { mcVer
                   <button key={p.id} onClick={() => { setSelectedId(p.id); setCreating(false) }}
                     className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-colors ${selectedId === p.id && !creating ? 'bg-[#a855f7]/15 ring-1 ring-[#a855f7]/40' : 'hover:bg-bg-hover'}`}>
                     <div className="w-11 h-11 rounded-xl bg-bg-hover overflow-hidden shrink-0 flex items-center justify-center">
-                      {p.iconUrl ? <img src={p.iconUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg">📦</span>}
+                      {p.iconUrl ? <img src={p.iconUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-lg text-text-muted"><G n="package" /></span>}
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-text-primary truncate">{p.title}</p>
@@ -316,7 +317,7 @@ function ProjectEditor({ project, mcVersions: _mcVersions, flash, github, onChan
         {project.bannerUrl && <div className="h-20 -mt-5 -mx-6 mb-4 overflow-hidden"><img src={project.bannerUrl} alt="" className="w-full h-full object-cover opacity-70" /></div>}
         <div className="flex items-center gap-4 mb-4">
           <div className="w-16 h-16 rounded-2xl bg-bg-hover overflow-hidden shrink-0 ring-1 ring-white/10 flex items-center justify-center">
-            {project.iconUrl ? <img src={project.iconUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-3xl">📦</span>}
+            {project.iconUrl ? <img src={project.iconUrl} alt="" className="w-full h-full object-cover" /> : <span className="text-3xl text-text-muted"><G n="package" /></span>}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xl font-bold text-text-primary truncate">{project.title}</p>
@@ -332,7 +333,7 @@ function ProjectEditor({ project, mcVersions: _mcVersions, flash, github, onChan
               {([[false, 'Privado', 'Borrador: solo lo ves tú'], [true, 'Público', 'Sale en Explorar y en la web']] as const).map(([pub, label, hint]) => (
                 <button key={label} onClick={() => setPublished(pub)} title={hint}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${project.published === pub ? (pub ? 'bg-green-600 text-white shadow-lg shadow-green-600/25' : 'bg-bg-hover text-text-primary') : 'text-text-muted hover:text-text-primary'}`}>
-                  {pub ? '🌍 ' : '🔒 '}{label}
+                  <G n={pub ? 'globe' : 'lock'} className="mr-1" />{label}
                 </button>
               ))}
             </div>

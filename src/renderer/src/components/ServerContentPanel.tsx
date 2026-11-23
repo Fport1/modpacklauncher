@@ -4,6 +4,7 @@ import ContentBrowser, { type BrowseTarget, type InstalledIndex } from './conten
 import { resolveDownloadUrl, sourcesFor, SOURCE_INFO, type ProjectRef } from '../lib/contentSources'
 import type { DetailTab } from './explore/ExploreDetail'
 import FileIcon from './FileIcon'
+import G from './ui/Glyph'
 
 // Mods y plugins de un servidor, con el mismo aspecto que en las instancias y
 // con el buscador de Modrinth filtrado a lo que ese servidor puede cargar.
@@ -234,7 +235,7 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
               </select>
             )}
             <button type="button" onClick={loadJars} title="Recargar"
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-text-primary bg-bg-primary">⟳</button>
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-border text-text-muted hover:text-text-primary bg-bg-primary"><G n="rotate" /></button>
             <span className="text-xs text-text-muted font-mono truncate" title={folder}>{host}:{folder}</span>
             <button type="button" onClick={() => setBrowser({})} disabled={!target}
               title={info ? `Busca en ${sourcesFor({ kind: slot === 'mods' ? 'mod' : 'plugin', minecraft: info.minecraft, loader: info.loader }).map(x => SOURCE_INFO[x].label).join(', ')}` : undefined}
@@ -256,7 +257,7 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
 
           {clientOnly.length > 0 && (
             <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
-              ⚠ {clientOnly.length === 1 ? 'Hay 1 mod' : `Hay ${clientOnly.length} mods`} que Modrinth marca como solo de cliente:{' '}
+              <G n="warning" /> {clientOnly.length === 1 ? 'Hay 1 mod' : `Hay ${clientOnly.length} mods`} que Modrinth marca como solo de cliente:{' '}
               {clientOnly.map((r) => r.meta!.title).join(', ')}. Si el servidor no arranca, prueba a desactivarlos.{' '}
               <button type="button" className="underline font-medium" onClick={() => { setSide('client'); setSelected(new Set(clientOnly.map((r) => r.entry.name))) }}>
                 Seleccionarlos
@@ -356,7 +357,7 @@ export default function ServerContentPanel({ info, slot, host, onLog, onRedetect
       {warn && (
         <div className="fixed inset-0 z-[400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="w-[520px] bg-bg-secondary border border-amber-500/40 rounded-2xl p-6 shadow-2xl">
-            <h2 className="text-base font-bold text-amber-400 mb-3">⚠ «{warn.title}» es un mod solo de cliente</h2>
+            <h2 className="text-base font-bold text-amber-400 mb-3"><G n="warning" /> «{warn.title}» es un mod solo de cliente</h2>
             <div className="text-sm text-text-secondary space-y-2 leading-relaxed">
               <p>Modrinth indica que este mod es para el juego de cada jugador, no para el servidor. Si lo instalas aquí:</p>
               <ul className="list-disc pl-5 space-y-1">

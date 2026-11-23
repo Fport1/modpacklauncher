@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import type { ModpackProtection } from '../../../shared/types'
 import { useStore } from '../store'
+import G from './ui/Glyph'
 
 // Aviso antes de instalar un modpack protegido: cuándo caduca (en tu hora y en la del
 // creador), con qué cuenta habrá que jugarlo y qué se podrá cambiar.
@@ -39,7 +40,7 @@ export default function ProtectionNotice({ protection, accountId, onAccount }: {
   return (
     <div className="bg-amber-500/5 border border-amber-500/30 rounded-xl p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-base">🔒</span>
+        <span className="text-base"><G n="lock" /></span>
         <p className="text-sm font-semibold text-amber-200">Modpack protegido por su creador</p>
       </div>
 
@@ -76,7 +77,7 @@ export default function ProtectionNotice({ protection, accountId, onAccount }: {
       <div className="grid grid-cols-1 gap-1">
         {rules.map((r) => (
           <p key={r.text} className={`text-[11px] flex items-center gap-1.5 ${r.ok ? 'text-green-300' : 'text-text-muted'}`}>
-            <span>{r.ok ? '✓' : '✕'}</span>{r.text}
+            <G n={r.ok ? 'check' : 'x'} />{r.text}
           </p>
         ))}
       </div>

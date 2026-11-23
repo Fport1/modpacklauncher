@@ -10,6 +10,10 @@ import { nativeTitleBar } from './titleBar'
 import { registerSocialSession } from './socialSession'
 import { registerSocialBridge } from './social'
 import { attachContextMenu } from './contextMenu'
+import { attachRendererInbox, deliverToRenderer } from './rendererInbox'
+import { findLaunchArg, registerShortcutIpc, runInstanceShortcut } from './shortcuts'
+import { registerLinuxIntegration } from './linuxIntegration'
+import { launchFromMain } from './ipc'
 
 let socialSessionRegistered = false
 
@@ -33,29 +37,79 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { bypassCSP: true, stream: true } }
 ])
 
-// macOS: open-file can fire before whenReady — capture early
+let mainWindow: BrowserWindow | null = null
+/** true cuando ya se decidió cerrar (confirmado, o saliendo de la app para actualizar). */
+let allowClose = false
+/** Acceso directo de instancia que llegó antes de que el launcher estuviera listo. */
+let pendingLaunchId: string | null = gotLock ? findLaunchArg(process.argv) : null
+/** Enlace modpacklauncher:// que llegó antes de tener ventana (macOS en frío). */
+let pendingDeepLink: string | null = null
+
+// macOS: open-file y open-url pueden llegar antes de whenReady (abrir un .fpack o un
+// enlace con la app cerrada), así que se escuchan desde el principio.
 app.on('open-file', (event, filePath) => {
   event.preventDefault()
   handleFpackFile(filePath)
 })
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  handleDeepLink(url)
+})
 
-let mainWindow: BrowserWindow | null = null
-/** true cuando ya se decidió cerrar (confirmado, o saliendo de la app para actualizar). */
-let allowClose = false
-let pendingFpackFile: string | null = null
+// Windows/Linux: abrir un .fpack, un enlace o un acceso directo con el launcher ya
+// abierto arranca otra copia, que se cierra y pasa aquí sus argumentos.
+app.on('second-instance', (_event, argv) => {
+  const launchId = findLaunchArg(argv)
+  if (launchId) { requestInstanceLaunch(launchId); return }
+  showMainWindow()
+  const url = argv.find(a => a.startsWith('modpacklauncher://'))
+  if (url) handleDeepLink(url)
+  const fpack = argv.find(a => a.toLowerCase().endsWith('.fpack'))
+  if (fpack) handleFpackFile(fpack)
+})
 
-function handleFpackFile(filePath: string): void {
-  if (!filePath.toLowerCase().endsWith('.fpack')) return
-  if (mainWindow) {
-    mainWindow.show()
-    mainWindow.focus()
-    mainWindow.webContents.send('fpack:open', filePath)
-  } else {
-    pendingFpackFile = filePath
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    // macOS: la app sigue viva sin ventanas; se vuelve a abrir una
+    if (app.isReady()) createWindow(true)
+    return
   }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
 }
 
-function createWindow(): void {
+/**
+ * Doble clic en un .fpack. La ruta se guarda hasta que la interfaz esté
+ * escuchando (ver rendererInbox): con el launcher cerrado la ventana aún no ha
+ * cargado cuando llega, y antes el aviso se perdía y solo se abría la app.
+ */
+function handleFpackFile(filePath: string): void {
+  if (!filePath.toLowerCase().endsWith('.fpack')) return
+  deliverToRenderer('fpack:open', filePath)
+  if (app.isReady()) showMainWindow()
+}
+
+/** Acceso directo de una instancia (ver shortcuts.ts). */
+let lastShortcutAt = 0
+function requestInstanceLaunch(instanceId: string): void {
+  lastShortcutAt = Date.now()
+  if (!app.isReady()) { pendingLaunchId = instanceId; return }
+  // macOS: la app sigue abierta sin ventanas; se crea una oculta
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow(false)
+  if (!mainWindow) return
+  // «En frío»: el launcher solo está abierto por los accesos directos y nadie ha visto la ventana
+  const coldStart = !mainWindow.isVisible()
+  runInstanceShortcut(instanceId, {
+    launch: launchFromMain,
+    getWindow: () => mainWindow,
+    showWindow: showMainWindow,
+    deliver: deliverToRenderer,
+    language: () => (getSettings().language === 'en' ? 'en' : 'es')
+  }, coldStart).catch((e) => console.error('[Acceso directo]', e))
+}
+
+function createWindow(show = true): void {
   const iconExt = process.platform === 'win32' ? 'ico' : process.platform === 'darwin' ? 'icns' : 'png'
   const iconPath = path.join(__dirname, `../../build/icon.${iconExt}`)
   mainWindow = new BrowserWindow({
@@ -64,6 +118,8 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     ...nativeTitleBar(),
+    // Oculta al abrir un acceso directo de instancia: si no hay actualización se juega sin verla
+    show,
     backgroundColor: '#0f0f14',
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
@@ -86,6 +142,7 @@ function createWindow(): void {
   }
 
   registerIpcHandlers(mainWindow)
+  attachRendererInbox(mainWindow)
   if (!socialSessionRegistered) { registerSocialSession(); registerSocialBridge(); socialSessionRegistered = true }
   if (getSettings().devTools) mainWindow.webContents.openDevTools({ mode: 'detach' })
   setLoggerWindow(mainWindow)
@@ -103,11 +160,12 @@ function createWindow(): void {
   })
   mainWindow.on('unresponsive', () => console.error('[Ventana] La página no responde'))
 
-  // Send any pending .fpack file once the renderer is ready
+  // Enlace modpacklauncher:// que llegó antes de tener ventana
   mainWindow.webContents.once('did-finish-load', () => {
-    if (pendingFpackFile) {
-      mainWindow?.webContents.send('fpack:open', pendingFpackFile)
-      pendingFpackFile = null
+    if (pendingDeepLink) {
+      const url = pendingDeepLink
+      pendingDeepLink = null
+      handleDeepLink(url)
     }
   })
 
@@ -141,7 +199,7 @@ function createWindow(): void {
   })
 
   // Los cuadros de Servidores sacados aparte dependen de la principal: se cierran con ella
-  mainWindow.on('closed', () => closeAllPaneWindows())
+  mainWindow.on('closed', () => { closeAllPaneWindows(); mainWindow = null })
 
   // Titlebar window controls
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
@@ -161,18 +219,29 @@ function createWindow(): void {
 }
 
 function handleDeepLink(url: string): void {
-  if (!mainWindow) return
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== 'modpacklauncher:') return
     const host = parsed.hostname // e.g. 'friend-add' or 'install'
-    mainWindow.show()
-    mainWindow.focus()
+    // Accesos directos de instancia en macOS (ver shortcuts.ts): no abren la ventana
+    if (host === 'launch-instance') {
+      const id = parsed.searchParams.get('id')
+      if (id) requestInstanceLaunch(id)
+      return
+    }
+    if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
+      pendingDeepLink = url
+      if (app.isReady() && (!mainWindow || mainWindow.isDestroyed())) createWindow(true)
+      return
+    }
+    showMainWindow()
     mainWindow.webContents.send('deep-link', host, Object.fromEntries(parsed.searchParams.entries()))
   } catch { /* ignore malformed URLs */ }
 }
 
 app.whenReady().then(() => {
+  // Copia secundaria: ya le pasó sus argumentos a la principal y se está cerrando
+  if (!gotLock) return
   // Cámara (para leer QR) y portapapeles. Sin el permiso del portapapeles,
   // navigator.clipboard.writeText fallaba con «Write permission denied» y botones como
   // «Copiar dirección» no hacían nada.
@@ -195,32 +264,29 @@ app.whenReady().then(() => {
 
   // Register modpacklauncher:// protocol handler
   app.setAsDefaultProtocolClient('modpacklauncher')
+  // AppImage: sin esto el sistema no sabe que los .fpack (ni los enlaces) se abren con el launcher
+  registerLinuxIntegration()
+  registerShortcutIpc()
 
-  createWindow()
+  // Acceso directo de instancia: la ventana se crea oculta y se decide luego si se enseña
+  const launchId = pendingLaunchId
+  pendingLaunchId = null
+  createWindow(!launchId)
+  if (launchId) requestInstanceLaunch(launchId)
 
-  // Handle deep links / .fpack files from argv on Windows/Linux (first launch)
+  // Windows/Linux, primer arranque: el .fpack o el enlace llegan como argumentos.
+  // El .fpack se encola hasta que la interfaz escucha (antes se perdía aquí).
   const urlArg = process.argv.find(a => a.startsWith('modpacklauncher://'))
   if (urlArg) handleDeepLink(urlArg)
   const fpackArg = process.argv.find(a => a.toLowerCase().endsWith('.fpack'))
   if (fpackArg) handleFpackFile(fpackArg)
 
-  // Handle second-instance (Windows/Linux — subsequent launches pass args via argv)
-  app.on('second-instance', (_event, argv) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
-    const url = argv.find(a => a.startsWith('modpacklauncher://'))
-    if (url) handleDeepLink(url)
-    const fpack = argv.find(a => a.toLowerCase().endsWith('.fpack'))
-    if (fpack) handleFpackFile(fpack)
-  })
-
-  // Handle deep links on macOS via open-url event
-  app.on('open-url', (_event, url) => handleDeepLink(url))
-
-  // open-file is already handled by the early listener registered before whenReady
+  // Acceso directo que llegó (macOS, open-url) mientras se creaba la ventana
+  if (pendingLaunchId) {
+    const id = pendingLaunchId
+    pendingLaunchId = null
+    requestInstanceLaunch(id)
+  }
 
   // Apply startup setting on launch
   const startupSetting = getSettings().launchAtStartup
@@ -235,8 +301,10 @@ app.whenReady().then(() => {
   setInterval(checkQuietly, UPDATE_CHECK_INTERVAL_MS)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-    else mainWindow?.show()
+    // macOS manda 'activate' también al abrir la app por un enlace: si viene de un acceso
+    // directo de instancia no se enseña la ventana (ya la enseña él si hace falta).
+    if (Date.now() - lastShortcutAt < 3000) return
+    showMainWindow()
   })
 })
 

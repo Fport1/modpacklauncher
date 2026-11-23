@@ -15,6 +15,7 @@ import SkinEditorPage from './pages/SkinEditorPage'
 import StatusPage from './pages/StatusPage'
 import DiscoverPage from './pages/DiscoverPage'
 import AdminPage from './pages/AdminPage'
+import ModelStudioPage from './pages/ModelStudioPage'
 import ModelsPage from './pages/ModelsPage'
 import FriendsPage from './pages/FriendsPage'
 import ConsolePage from './pages/ConsolePage'
@@ -25,25 +26,15 @@ import AssistHostPanel from './components/assist/AssistHostPanel'
 import { useStore } from './store'
 import ChatNotifier from './components/chat/ChatNotifier'
 import AiAgentHost from './components/AiAgentHost'
+import LaunchRequests from './components/LaunchRequests'
 import { setAutoTranslate } from './i18n/autoTranslate'
+import G from './components/ui/Glyph'
 
 /** Un fallo al pintar una página solo se lleva esa página: la barra lateral sigue y al cambiar de página se reintenta. */
 function PageBoundary({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const navigate = useNavigate()
   return <ErrorBoundary key={location.pathname} scope="page" onHome={() => navigate('/home')}>{children}</ErrorBoundary>
-}
-
-function FpackOpenHandler() {
-  const navigate = useNavigate()
-  const setPendingFpackFile = useStore(s => s.setPendingFpackFile)
-  useEffect(() => {
-    return window.api.fpack.onOpen(path => {
-      setPendingFpackFile(path)
-      navigate('/modpacks')
-    })
-  }, [])
-  return null
 }
 
 export function MouseNavHandler() {
@@ -340,7 +331,7 @@ export default function App() {
 
   return (
     <HashRouter>
-      <FpackOpenHandler />
+      <LaunchRequests />
       <ChatNotifier />
       <AiAgentHost />
       <MouseNavHandler />
@@ -368,6 +359,7 @@ export default function App() {
               <Route path="/console" element={<ConsolePage />} />
               <Route path="/mac-tools" element={<MacToolsPage />} />
               <Route path="/admin" element={<AdminPage />} />
+              <Route path="/studio" element={<ModelStudioPage />} />
             </Routes>
             </PageBoundary>
           </main>
@@ -378,9 +370,9 @@ export default function App() {
           <div className="fixed top-12 left-1/2 -translate-x-1/2 z-[400] space-y-2 w-[min(520px,90vw)]">
             {expiryNotices.map((n) => (
               <div key={n.key} className={'flex items-start gap-3 px-4 py-3 rounded-xl border shadow-2xl text-sm ' + (n.tone === 'warn' ? 'bg-amber-950/95 border-amber-500/50 text-amber-100' : 'bg-bg-secondary border-border text-text-primary')}>
-                <span>{n.tone === 'warn' ? '⏳' : '🗑️'}</span>
+                <G n={n.tone === 'warn' ? 'hourglass' : 'trash'} />
                 <span className="flex-1">{n.text}</span>
-                <button onClick={() => setExpiryNotices((prev) => prev.filter((x) => x.key !== n.key))} className="text-text-muted hover:text-text-primary">✕</button>
+                <button onClick={() => setExpiryNotices((prev) => prev.filter((x) => x.key !== n.key))} className="text-text-muted hover:text-text-primary"><G n="x" /></button>
               </div>
             ))}
           </div>

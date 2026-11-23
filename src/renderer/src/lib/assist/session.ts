@@ -112,7 +112,7 @@ export async function startHosting(instanceId: string): Promise<void> {
       try {
         const result = await window.api.assist.hostOp(msg.op, msg.args)
         const path = String(msg.args.path ?? '')
-        if (OP_TEXT[msg.op]) hostLog(`${OP_TEXT[msg.op]} ${path}${msg.op === 'rename' ? ` → ${msg.args.to}` : ''}`)
+        if (OP_TEXT[msg.op]) hostLog(`${OP_TEXT[msg.op]} ${path}${msg.op === 'rename' ? ` como ${msg.args.to}` : ''}`)
         else if (msg.op === 'read' && !msg.args.max && !/\.jar$/i.test(path)) hostLog(`Abrió ${path}`)
         await channel.send({ t: 'res', id: msg.id, ok: true, result })
       } catch (e) {

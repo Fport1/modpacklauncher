@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AiActivity, Instance } from '../../../shared/types'
 import { useStore } from '../store'
 import AiToolPicker from './ai/AiToolPicker'
+import G, { type GlyphName } from './ui/Glyph'
 
 // La IA de una instancia: prepara su carpeta y abre Claude Code, Codex, Gemini o
 // Grok ya conectados al launcher. Aquí se enseña qué puede hacer, no cómo está
@@ -9,11 +10,11 @@ import AiToolPicker from './ai/AiToolPicker'
 
 type Status = Awaited<ReturnType<typeof window.api.aiContext.status>>
 
-const CAN_DO: { icon: string; title: string; hint: string }[] = [
-  { icon: '🩺', title: 'Arreglar crashes', hint: 'Encuentra el mod o la config que rompe la partida y lo arregla' },
-  { icon: '⚡', title: 'Rendimiento', hint: 'Mira por qué va lento y ajusta memoria, mods y opciones' },
-  { icon: '🧩', title: 'Mods, packs y configs', hint: 'Instala, cambia o quita mods, resource packs, shaders y datapacks' },
-  { icon: '🌍', title: 'Crear y probar', hint: 'Datapacks, mundos, mobs, packs y mods, con el juego al lado' },
+const CAN_DO: { icon: GlyphName; title: string; hint: string }[] = [
+  { icon: 'heartPulse', title: 'Arreglar crashes', hint: 'Encuentra el mod o la config que rompe la partida y lo arregla' },
+  { icon: 'zap', title: 'Rendimiento', hint: 'Mira por qué va lento y ajusta memoria, mods y opciones' },
+  { icon: 'puzzle', title: 'Mods, packs y configs', hint: 'Instala, cambia o quita mods, resource packs, shaders y datapacks' },
+  { icon: 'globe', title: 'Crear y probar', hint: 'Datapacks, mundos, mobs, packs y mods, con el juego al lado' },
 ]
 
 const clean = (e: unknown): string => e instanceof Error ? e.message.replace(/^Error invoking remote method [^:]+: (Error: )?/, '') : 'Algo ha fallado'
@@ -67,14 +68,14 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
             <p className="text-lg font-bold text-text-primary">IA en esta instancia</p>
             <p className="text-xs text-text-muted">Claude Code, Codex, Gemini, Grok, Copilot o Cursor trabajando en «{instance.name}» a través del launcher: arreglar crashes, cambiar mods y packs, configs y desarrollo</p>
           </div>
-          <button onClick={onClose} className="w-9 h-9 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg-hover">✕</button>
+          <button onClick={onClose} className="w-9 h-9 rounded-xl text-text-muted hover:text-text-primary hover:bg-bg-hover"><G n="x" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div className="grid grid-cols-2 gap-2.5">
             {CAN_DO.map((c) => (
               <div key={c.title} className="flex gap-3 p-3 rounded-2xl bg-bg-card border border-border">
-                <span className="text-xl leading-none mt-0.5">{c.icon}</span>
+                <span className="text-xl leading-none mt-0.5 text-accent"><G n={c.icon} /></span>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-text-primary">{c.title}</p>
                   <p className="text-[11px] text-text-muted mt-0.5 leading-snug">{c.hint}</p>
@@ -107,7 +108,7 @@ export default function AiContextModal({ instance, onClose }: { instance: Instan
           )}
 
           <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border ${!status?.exists ? 'bg-bg-card border-border' : status.stale ? 'bg-amber-500/10 border-amber-500/30' : 'bg-green-500/10 border-green-500/30'}`}>
-            <span className="text-xl">{!status ? '…' : !status.exists ? '○' : status.stale ? '⚠' : '✓'}</span>
+            <span className="text-xl">{!status ? '…' : <G n={!status.exists ? 'circle' : status.stale ? 'warning' : 'check'} />}</span>
             <div className="flex-1 text-sm">
               {!status ? 'Comprobando…'
                 : !status.exists ? <span className="text-text-secondary">Esta instancia aún no está preparada.</span>

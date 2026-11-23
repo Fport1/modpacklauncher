@@ -18,6 +18,15 @@ fileAssociations:
     role: Editor
     mimeType: application/x-fpack
 
+# Enlaces modpacklauncher:// (añadir amigo, accesos directos de instancia en macOS).
+# En macOS el esquema tiene que ir declarado en el Info.plist (CFBundleURLTypes):
+# setAsDefaultProtocolClient por sí solo no basta. En Windows lo registra la app al
+# arrancar y en Linux va al MimeType del .desktop.
+protocols:
+  - name: ModpackLauncher
+    schemes:
+      - modpacklauncher
+
 directories:
   buildResources: build
   output: dist

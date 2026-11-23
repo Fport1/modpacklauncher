@@ -10,6 +10,7 @@ import { fileKindOf, localJoin, PLAYER_FILE } from './ftp/shared'
 import type { CloseRequest } from './ftp/EditorShell'
 import ZoomableImage from './ZoomableImage'
 import { nav } from '../nav'
+import { useT } from '../i18n'
 import { IconCube, IconSettings, IconGlobe, IconPalette, IconSun, IconCamera, IconTerminal, IconSliders } from './ui/icons'
 import { getMonacoLanguage } from '../lib/monacoLanguage'
 import { dominantColor } from '../lib/dominantColor'
@@ -24,6 +25,7 @@ import type { ProjectRef } from '../lib/contentSources'
 import type { DetailTab } from './explore/ExploreDetail'
 import { resolveDownloadUrl } from '../lib/contentSources'
 import { lazy, Suspense } from 'react'
+import G from './ui/Glyph'
 const ConfigFileEditor = lazy(() => import('./ConfigFileEditor'))
 
 type Tab = 'mods' | 'config' | 'worlds' | 'resourcepacks' | 'shaderpacks' | 'screenshots' | 'console' | 'options'
@@ -107,11 +109,11 @@ function SortSelect({ value, onChange, withDate }: {
   const opts: { key: SortKey; label: string }[] = [
     { key: 'name-asc',  label: 'Nombre A–Z' },
     { key: 'name-desc', label: 'Nombre Z–A' },
-    { key: 'size-asc',  label: 'Tamaño ↑' },
-    { key: 'size-desc', label: 'Tamaño ↓' },
+    { key: 'size-asc',  label: 'Tamaño (menor primero)' },
+    { key: 'size-desc', label: 'Tamaño (mayor primero)' },
     ...(withDate ? [
-      { key: 'date-asc'  as SortKey, label: 'Fecha ↑' },
-      { key: 'date-desc' as SortKey, label: 'Fecha ↓' },
+      { key: 'date-asc'  as SortKey, label: 'Fecha (más antigua primero)' },
+      { key: 'date-desc' as SortKey, label: 'Fecha (más reciente primero)' },
     ] : [])
   ]
   return (
@@ -529,6 +531,8 @@ interface Props {
   onDuplicate?: () => void
   onDelete?: () => void
   onChangeIcon?: () => void
+  /** Acceso directo en el escritorio que abre la instancia como un juego */
+  onCreateShortcut?: () => void
 }
 
 /**
@@ -538,7 +542,8 @@ interface Props {
  */
 const modsSnapshot = new Map<string, ModFile[]>()
 
-export default function InstanceDetailModal({ instance, onClose, onPlay, fullPage, onEdit, onExport, onDuplicate, onDelete, onChangeIcon }: Props) {
+export default function InstanceDetailModal({ instance, onClose, onPlay, fullPage, onEdit, onExport, onDuplicate, onDelete, onChangeIcon, onCreateShortcut }: Props) {
+  const t = useT()
   const { updateInstance: updateInstanceStore, settings } = useStore(s => ({ updateInstance: s.updateInstance, settings: s.settings }), shallow)
   const aiConfigs = settings?.aiConfigs ?? []
   const aiDefaultId = settings?.aiDefaultId
@@ -1568,14 +1573,14 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  const TABS: { key: Tab; label: string; icon: JSX.Element }[] = [
+  const TABS: { key: Tab; label: React.ReactNode; icon: JSX.Element }[] = [
     { key: 'mods', label: 'Mods', icon: <IconCube size={15} /> },
     { key: 'config', label: 'Config', icon: <IconSettings size={15} /> },
     { key: 'worlds', label: 'Mundos', icon: <IconGlobe size={15} /> },
     { key: 'resourcepacks', label: 'Resource Packs', icon: <IconPalette size={15} /> },
     { key: 'shaderpacks', label: 'Shaders', icon: <IconSun size={15} /> },
     { key: 'screenshots', label: 'Capturas', icon: <IconCamera size={15} /> },
-    { key: 'console', label: isRunning ? '● Consola' : 'Consola', icon: <IconTerminal size={15} /> },
+    { key: 'console', label: isRunning ? <><G n="dot" className="text-green-400" /> Consola</> : 'Consola', icon: <IconTerminal size={15} /> },
     { key: 'options', label: 'Opciones', icon: <IconSliders size={15} /> },
   ]
 
@@ -1624,7 +1629,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
           <button onClick={() => { startHosting(instance.id).catch(() => {}) }}
             title="Genera un código para que un amigo vea y arregle los archivos de esta instancia desde su launcher"
             className="flex items-center gap-1.5 px-3.5 py-2 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-sm rounded-lg transition-colors">
-            🤝 Pedir ayuda
+            <G n="handshake" /> Pedir ayuda
           </button>
           {!isRunning && (
             <button
@@ -1684,6 +1689,10 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
                       Abrir carpeta
                     </button>
+                    {onCreateShortcut && <button onClick={() => { setGearOpen(false); onCreateShortcut() }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M10 12l4-4M10.5 8H14v3.5"/></svg>
+                      {t('shortcut_create')}
+                    </button>}
                     <div className="h-px bg-border/50 mx-2 my-1"/>
                     <button onClick={() => { setGearOpen(false); setConfirm({ title: 'Reparar instancia', message: 'Se reverificarán y redescargarán los archivos de Minecraft, el modloader y los mods del modpack. ¿Continuar?', onConfirm: () => window.api.launcher.repair(instance.id).catch(() => {}) }) }} className="flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-left">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
@@ -1758,7 +1767,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   </button>
                   {updateStatus && (
                     <span className={`text-[13px] flex-shrink-0 ${updateStatus.hasUpdate ? 'text-accent' : 'text-green-400'}`}>
-                      {updateStatus.hasUpdate ? `v${updateStatus.version} disponible` : '✓ Al día'}
+                      {updateStatus.hasUpdate ? `v${updateStatus.version} disponible` : <><G n="check" /> Al día</>}
                     </span>
                   )}
                 </div>
@@ -1881,8 +1890,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   {/* Spacer */}
                   <div className="flex-1" />
                   {/* Save feedback + button */}
-                  {configEditorMsg === 'success' && <span style={{ fontSize: '11px', color: '#4ec9b0', paddingRight: '8px' }}>✓ Guardado</span>}
-                  {configEditorMsg === 'error' && <span style={{ fontSize: '11px', color: '#f48771', paddingRight: '8px' }}>✗ Error al guardar</span>}
+                  {configEditorMsg === 'success' && <span style={{ fontSize: '11px', color: '#4ec9b0', paddingRight: '8px' }}><G n="check" /> Guardado</span>}
+                  {configEditorMsg === 'error' && <span style={{ fontSize: '11px', color: '#f48771', paddingRight: '8px' }}><G n="x" /> Error al guardar</span>}
                   <button
                     onClick={saveConfigFile}
                     disabled={configEditorSaving || editingConfigFile.content === editingConfigFile.savedContent}
@@ -2075,8 +2084,8 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   </button>
                 </div>
                 <div className="flex-1" />
-                {worldEditorMsg === 'success' && <span style={{ fontSize: '11px', color: '#4ec9b0', paddingRight: '8px' }}>✓ Guardado</span>}
-                {worldEditorMsg === 'error' && <span style={{ fontSize: '11px', color: '#f48771', paddingRight: '8px' }}>✗ Error al guardar</span>}
+                {worldEditorMsg === 'success' && <span style={{ fontSize: '11px', color: '#4ec9b0', paddingRight: '8px' }}><G n="check" /> Guardado</span>}
+                {worldEditorMsg === 'error' && <span style={{ fontSize: '11px', color: '#f48771', paddingRight: '8px' }}><G n="x" /> Error al guardar</span>}
                 <button onClick={saveWorldFile} disabled={worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent}
                   className="flex items-center gap-1 text-xs px-3 mr-2 py-1 rounded transition-colors flex-shrink-0"
                   style={{ background: '#007acc', color: 'white', opacity: (worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent) ? 0.35 : 1, cursor: (worldEditorSaving || editingWorldFile.content === editingWorldFile.savedContent) ? 'not-allowed' : 'pointer' }}>
@@ -2229,22 +2238,22 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         <button onClick={e => { e.stopPropagation(); openWorldNbt([w.name, 'level.dat']) }}
                           title="Hora, tiempo, reglas del juego y tu jugador"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
-                          🌍 Editar
+                          <G n="globe" /> Editar
                         </button>
                         <button onClick={e => { e.stopPropagation(); setDatapacksWorld(w.name) }}
                           title="Instalar, activar y desactivar datapacks de este mundo"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
-                          📦 Datapacks
+                          <G n="package" /> Datapacks
                         </button>
                         <button onClick={e => { e.stopPropagation(); void openCleanup(w.name) }}
                           title="Quitar los chunks por los que casi no ha pasado nadie (lo que más ocupa)"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
-                          🧹 Limpiar
+                          <G n="broom" /> Limpiar
                         </button>
                         <button onClick={e => { e.stopPropagation(); setPlayersWorld(w.name) }}
                           title="Quién ha jugado, sus inventarios y logros, y pasar sus cosas de una cuenta a otra"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
-                          ☺ Jugadores
+                          <G n="smile" /> Jugadores
                         </button>
                         <button onClick={async e => {
                           e.stopPropagation()
@@ -2254,7 +2263,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                         }}
                           title="Equipos, objetivos y puntos (scoreboard)"
                           className="flex-shrink-0 flex items-center gap-1 px-2 py-1 text-[13px] rounded opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-primary hover:bg-bg-hover border border-border transition-colors">
-                          ⚑ Equipos
+                          <G n="flag" /> Equipos
                         </button>
                         <button onClick={e => { e.stopPropagation(); navigateWorld([w.name]) }}
                           title="Explorar archivos"
@@ -2505,7 +2514,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                 {(['live', 'log', 'crash'] as const).map(v => (
                   <button key={v} onClick={() => setConsoleView(v)}
                     className={`px-3 py-1 text-[13px] rounded-lg transition-colors ${consoleView === v ? 'bg-accent text-white' : 'text-text-muted hover:text-text-secondary border border-border'}`}>
-                    {v === 'live' ? (isRunning ? '● En vivo' : 'Logs en vivo') : v === 'log' ? 'latest.log' : 'Crash Reports'}
+                    {v === 'live' ? (isRunning ? <><G n="dot" className="text-red-400" /> En vivo</> : 'Logs en vivo') : v === 'log' ? 'latest.log' : 'Crash Reports'}
                   </button>
                 ))}
                 <div className="flex-1" />
@@ -2536,7 +2545,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   {!logFollow && gameLogs.length > 0 && (
                     <button onClick={logToBottom}
                       className="absolute bottom-3 right-5 px-3 py-1.5 rounded-full bg-accent text-white text-xs font-semibold shadow-lg shadow-black/40 hover:bg-accent-hover">
-                      ↓ Ir al final
+                      <G n="arrowDown" /> Ir al final
                     </button>
                   )}
                 </div>
@@ -2553,7 +2562,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           className="flex items-center gap-1.5 px-2.5 py-1 text-[13px] rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
                         >
                           {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
-                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && ' ▾'}
+                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && <G n="chevronDown" className="ml-1" />}
                         </button>
                         {showAIPicker === 'log' && (
                           <div className="absolute top-8 right-0 z-20 bg-bg-secondary border border-border rounded-xl shadow-xl min-w-48 py-1 text-sm">
@@ -2612,7 +2621,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                           className="flex items-center gap-1.5 px-2.5 py-1 text-[13px] rounded-lg border border-purple-500/40 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
                         >
                           {aiLoading ? <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 00-9-9"/></svg> : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
-                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && ' ▾'}
+                          {aiLoading ? 'Analizando...' : 'Analizar con IA'}{!aiDefaultId && aiConfigs.length > 0 && <G n="chevronDown" className="ml-1" />}
                         </button>
                         {showAIPicker === 'crash' && (
                           <div className="absolute top-8 left-0 z-20 bg-bg-secondary border border-border rounded-xl shadow-xl min-w-48 py-1 text-sm">
@@ -2770,7 +2779,7 @@ export default function InstanceDetailModal({ instance, onClose, onPlay, fullPag
                   <p className="text-base font-bold text-text-primary truncate">{name(depInfo)}</p>
                   <p className="text-xs text-text-muted truncate">{depInfo.meta?.modIds?.join(', ') || displayName(depInfo.filename)}</p>
                 </div>
-                <button onClick={() => setDepInfo(null)} className="w-8 h-8 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover">✕</button>
+                <button onClick={() => setDepInfo(null)} className="w-8 h-8 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover"><G n="x" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-5 space-y-5">
                 <div>

@@ -216,6 +216,62 @@ Al construir un efecto, di primero qué se puede hacer **sin mod** (comandos, di
 - Tamaños potencia de 2; el atlas de bloques se reduce si hay texturas enormes.
 - Polytone y otros mods amplían colores/biomas por resource pack: mira su documentación.`,
   },
+  arquitectura: {
+    title: 'Arquitectura en Minecraft: casas, iglesias, edificios públicos y pueblos',
+    body: `# Arquitectura en Minecraft
+
+Lo que separa una construcción buena de una caja con tejado. Sirve para construir a mano (Axiom, WorldEdit) y para
+generar edificios por código o esquemática. Antes de construir, busca referencias reales (Planet Minecraft, GrabCraft,
+Pinterest, mapas de CurseForge) y mira **todo** el proyecto, no solo la foto principal: planta, interior, alrededores,
+lista de bloques y capas.
+
+## Las seis capas (de una caja a un edificio con vida)
+1. **Proporciones**: altura de piso 4-5 bloques (3 se siente agobiante), anchos impares para que la puerta y el tejado
+   queden centrados, tejados empinados (45° = una escalera por bloque) en estilos nórdicos/medievales.
+2. **Detalle**: marcos de ventana, alféizares (escalera del revés bajo la ventana), dinteles (losa encima), canes
+   (escaleras del revés bajo las vigas), cornisas, pináculos.
+3. **Profundidad**: nada plano. Postes y vigas que sobresalen 1 de la pared, ventanas metidas 1 hacia dentro, segundo
+   piso que vuela sobre el primero, contrafuertes, aleros de 1-2. Las sombras dan el volumen.
+4. **Textura**: degradados (más musgo y grietas abajo, más claro arriba), mezcla de 3-4 bloques de tono parecido por
+   material, nunca un solo bloque en una pared grande.
+5. **Personalidad**: cada edificio tiene que reconocerse por fuera (cartel, forma, colores, un elemento propio:
+   torre, pórtico, toldo, campanario).
+6. **Entorno y vida**: caminos, faroles, plantas, barriles, leña, nieve acumulada, gente/NPCs, que el edificio se
+   asiente en el terreno (cimientos hasta el suelo, sin tierra al aire ni bordes rectos artificiales).
+
+## Errores típicos
+- Tejados con escaleras del revés por dentro que dejan **huecos** por fuera: bajo cada escalera del tejado, bloque lleno.
+- Muebles o bancos con 1 bloque entre ellos: deja **2 libres** para moverse, y pasillos centrales de 3.
+- Columnas, faroles o decoración delante de puertas o en mitad de un paso: el tránsito manda.
+- Contraventanas (trampillas) o leña en la planta baja junto a la puerta.
+- Arcos y fachadas **asimétricos**: con anchos impares y calculando las alturas desde el centro hacia fuera (igual a los
+  dos lados).
+- Bloques de luz visibles (linternas de mar, piedra luminosa sueltas): usa el bloque de luz invisible.
+- Estructuras a 1 bloque de otras: separa los edificios; parcelas generosas.
+- Copiar el mismo edificio: varía tamaño, colores y forma del tejado.
+
+## Tipologías
+- **Casa nórdica/medieval**: zócalo de piedra 1-2 de alto, entramado de troncos (postes cada 3-4, viga en cada
+  piso), relleno claro, tejado empinado de madera oscura o pizarra, chimenea de ladrillo por fuera en el hastial.
+- **Iglesia**: nave alargada y alta (8-10 de muro), contrafuertes, vidrieras altas, tejado de pizarra, torre-campanario
+  en la fachada o a un lado con la entrada bajo un arco, ábside semicircular detrás del altar. Dentro: pasillo central,
+  bancos mirando al altar, altar elevado con espacio detrás para el sacerdote, confesionario y sacristía (despacho).
+- **Juzgado**: podio con escalinata, pórtico de columnas con frontón, sala alta: estrado del juez elevado (con espacio
+  detrás), banquillo del testigo, jurado a un lado, baranda que separa al público, bancos del público y despacho del juez.
+- **Comisaría/cárcel**: piedra sólida, ventanas con barrotes, mostrador de entrada, celdas con barrotes al fondo.
+- **Mercado**: puestos cerrados por detrás y los lados, toldos a rayas, mostradores, mercancía amontonada (barriles,
+  cajas, sacos), pasillo despejado y una entrada clara (arco o pórtico).
+- **Navidad**: guirnaldas con luces en los aleros, coronas en las puertas, árboles decorados, regalos, faroles cálidos,
+  nieve acumulada; con Macaw's Holidays hay guirnaldas, árboles, regalos y trineos listos.
+
+## Mods de decoración (si están en el modpack, úsalos)
+Macaw's (muebles, ventanas, luces, puertas, vallas, puentes, festivos), Handcrafted, Decorative Blocks: mira sus ids con
+\`registro\` y sus propiedades (facing, part…) con \`ver_recurso\` antes de colocarlos.
+
+## Comprobar
+Míralo desde lejos (silueta y proporciones), desde la calle (fachada, entrada), por dentro (moverse sin chocar) y de
+noche (luz). Anota lo aprendido con \`anotar_leccion\` tipo construccion.`,
+  },
 }
 
 export const GUIDE_TOPICS = Object.keys(GUIDES)

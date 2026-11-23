@@ -3,6 +3,7 @@ import type { TransferArea, WorldPlayer } from '../../../shared/types'
 import { useStore } from '../store'
 import { headUrl, errText } from './ftp/shared'
 import AdvancementsView from './ftp/AdvancementsView'
+import G from './ui/Glyph'
 
 // Los jugadores de un mundo: quién es quién (nombre, premium o no) y pasar sus
 // cosas de una cuenta a otra. Pensado para un mundo de un servidor no premium
@@ -62,7 +63,7 @@ export default function WorldPlayers({ worldDir, worldName, remote, onOpenPlayer
           </div>
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar nombre o UUID"
             className="w-48 bg-bg-primary border border-border rounded-lg px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent/60" />
-          <button type="button" onClick={onClose} className="w-8 h-8 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover">✕</button>
+          <button type="button" onClick={onClose} className="w-8 h-8 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover"><G n="x" /></button>
         </div>
 
         {pairs.length > 0 && (
@@ -74,7 +75,7 @@ export default function WorldPlayers({ worldDir, worldName, remote, onOpenPlayer
               <div key={off.uuid} className="flex items-center gap-2 text-sm">
                 <img src={headUrl(off.name!, 20)} alt="" className="w-5 h-5 rounded" />
                 <span className="text-text-primary">{off.name}</span>
-                <span className="text-text-muted text-xs">no premium → premium</span>
+                <span className="text-text-muted text-xs">de no premium a premium</span>
                 <button type="button" onClick={() => setTransfer({ from: off })} className="ml-auto px-2.5 py-1 rounded-lg bg-accent text-white text-xs">Transferir…</button>
               </div>
             ))}
@@ -161,7 +162,7 @@ function TransferDialog({ worldDir, remote, from, players, onClose, onDone }: {
     setBusy(true); setMsg(null)
     try {
       const r = await (remote ? window.api.world.remote : window.api.world).transfer(worldDir, from.uuid, target.uuid, all ? [] : [...areas], target.name)
-      setMsg({ kind: 'ok', text: `✓ Hecho${r.created ? ' (el destino no existía: se ha copiado el jugador entero)' : ''}. Copia de lo anterior en ${r.backup}` })
+      setMsg({ kind: 'ok', text: `Hecho${r.created ? ' (el destino no existía: se ha copiado el jugador entero)' : ''}. Copia de lo anterior en ${r.backup}` })
       setTimeout(onDone, 1800)
     } catch (e) {
       setMsg({ kind: 'error', text: errText(e) })
@@ -175,7 +176,7 @@ function TransferDialog({ worldDir, remote, from, players, onClose, onDone }: {
 
         <div className="flex items-center gap-3">
           <Who name={from.name} uuid={from.uuid} premium={from.premium} />
-          <span className="text-text-muted">→</span>
+          <span className="text-text-muted"><G n="arrowRight" /></span>
           {target ? <Who name={target.name} uuid={target.uuid} premium={target.premium} /> : <span className="text-sm text-text-muted">Elige destino</span>}
         </div>
 
@@ -226,7 +227,7 @@ function TransferDialog({ worldDir, remote, from, players, onClose, onDone }: {
           )}
         </div>
 
-        {msg && <p className={`text-xs break-all ${msg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
+        {msg && <p className={`text-xs break-all ${msg.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}><G n={msg.kind === 'ok' ? 'check' : 'warning'} /> {msg.text}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={busy} className="px-3 py-1.5 rounded-lg border border-border text-sm text-text-secondary">Cancelar</button>
           <button type="button" onClick={run} disabled={busy || !target || (!all && areas.size === 0)} className="px-4 py-1.5 rounded-lg bg-accent text-white text-sm disabled:opacity-40">

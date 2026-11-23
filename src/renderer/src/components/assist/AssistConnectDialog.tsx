@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { connectHelper, disconnectHelper, resetHelper, useAssistHelper } from '../../lib/assist/session'
+import G from '../ui/Glyph'
 
 // "Ayudar a un amigo": se mete el código que te ha pasado y, cuando él acepta,
 // su instancia aparece en el cuadro del servidor como si fuera uno más.
@@ -18,7 +19,7 @@ export default function AssistConnectDialog({ onClose }: { onClose: () => void }
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onMouseDown={() => { if (!busy) onClose() }}>
       <div className="w-full max-w-md bg-bg-secondary border border-border rounded-2xl shadow-2xl p-5 space-y-4" onMouseDown={(e) => e.stopPropagation()}>
         <div>
-          <h2 className="text-base font-semibold text-text-primary">🤝 Ayudar a un amigo</h2>
+          <h2 className="text-base font-semibold text-text-primary"><G n="handshake" className="mr-1.5 text-purple-400" />Ayudar a un amigo</h2>
           <p className="text-sm text-text-muted mt-1">
             Tu amigo pulsa «Pedir ayuda» en su instancia y te pasa el código. Cuando lo acepte, verás los archivos de esa
             instancia aquí, en el cuadro del servidor, y podrás editarlos, instalar mods, etc. Solo esa instancia, nada más de su equipo.

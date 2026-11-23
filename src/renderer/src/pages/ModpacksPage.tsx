@@ -7,6 +7,7 @@ import FpackSaveModal from '../components/FpackSaveModal'
 import ProtectionNotice from '../components/ProtectionNotice'
 import QRDisplay from '../components/QRDisplay'
 import jsQR from 'jsqr'
+import G from '../components/ui/Glyph'
 
 interface UpdateStatus {
   instanceId: string
@@ -678,7 +679,7 @@ export default function ModpacksPage() {
 
                   {showKeyInput && (
                     <div>
-                      <label className="block text-xs text-text-muted mb-1.5">🔒 Clave de acceso</label>
+                      <label className="block text-xs text-text-muted mb-1.5"><G n="lock" /> Clave de acceso</label>
                       <div className="flex gap-2">
                         <div className="relative flex-1">
                           <input
@@ -781,8 +782,8 @@ export default function ModpacksPage() {
               {/* Tab 1: .fpack file */}
               {addTab === 1 && (
                 <div className="text-center py-8">
-                  <div className="w-16 h-16 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center mx-auto mb-4 text-3xl">
-                    📦
+                  <div className="w-16 h-16 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center mx-auto mb-4 text-3xl text-accent">
+                    <G n="package" />
                   </div>
                   <p className="text-sm font-medium text-text-primary mb-1">Instalar desde archivo .fpack</p>
                   <p className="text-xs text-text-muted mb-6 max-w-xs mx-auto">

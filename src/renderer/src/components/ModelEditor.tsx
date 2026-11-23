@@ -4,6 +4,7 @@ import {
   applyGeoOverride, currentFaces, cubeKey,
   type BoneOverride, type CubeOverride, type FaceOverride, type GeoOverride
 } from '../lib/modelOverrides'
+import G from './ui/Glyph'
 
 type Vec3 = [number, number, number]
 type Vec2 = [number, number]
@@ -109,7 +110,7 @@ export default function ModelEditor({
                     ? 'bg-accent/20 text-accent' : 'text-text-primary hover:bg-bg-primary'
                 }`}
               >
-                <span className="text-text-muted">▸</span>
+                <span className="text-text-muted"><G n="chevronRight" /></span>
                 <span className="truncate flex-1">{bone.name}</span>
                 {hasEdits(bone.name) && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
               </button>
@@ -199,17 +200,17 @@ export default function ModelEditor({
                 <div className="flex flex-wrap gap-1">
                   <SmallButton onClick={() => setFace(face, {
                     rotation: ((((faces[face].uv_rotation ?? 0) + 90) % 360) as FaceOverride['rotation'])
-                  })}>↻ Girar 90°</SmallButton>
+                  })}><G n="rotate" /> Girar 90°</SmallButton>
                   <SmallButton onClick={() => {
                     const [u, v] = faces[face].uv
                     const [w, h] = faces[face].uv_size ?? [0, 0]
                     setFace(face, { uv: [u + w, v], size: [-w, h] })
-                  }}>⇆ Voltear H</SmallButton>
+                  }}><G n="flipH" /> Voltear H</SmallButton>
                   <SmallButton onClick={() => {
                     const [u, v] = faces[face].uv
                     const [w, h] = faces[face].uv_size ?? [0, 0]
                     setFace(face, { uv: [u, v + h], size: [w, -h] })
-                  }}>⇅ Voltear V</SmallButton>
+                  }}><G n="flipV" /> Voltear V</SmallButton>
                   <SmallButton onClick={() => setFace(face, { hidden: !faces[face].hidden })}>
                     {faces[face].hidden ? 'Mostrar' : 'Ocultar'}
                   </SmallButton>

@@ -6,6 +6,7 @@ import ScoreboardSimple from './ScoreboardSimple'
 import PlayerSimple from './PlayerSimple'
 import LevelSimple from './LevelSimple'
 import { errText, typingIn } from './shared'
+import G from '../ui/Glyph'
 
 // Un archivo NBT abierto dentro del cuadro. scoreboard.dat y los playerdata
 // tienen además un modo sencillo; los dos modos trabajan sobre el mismo
@@ -92,7 +93,7 @@ export default function NbtFileView({ name, location, kind, remote, playerName, 
     const d = docRef.current!
     await save(d)
     setSavedRoot(d.root)
-  }, `✓ Guardado. El archivo anterior queda como ${name}.bak`)
+  }, `Guardado. El archivo anterior queda como ${name}.bak`)
 
   const format = doc ? ` · NBT ${doc.compression === 'none' ? 'sin comprimir' : doc.compression}${doc.format === 'big' ? '' : ' · Bedrock'}` : ''
 
@@ -108,8 +109,8 @@ export default function NbtFileView({ name, location, kind, remote, playerName, 
       }}
       headerExtra={
         <div className="flex items-center gap-1.5 shrink-0">
-          <HeadBtn onClick={undo} disabled={past.length === 0} title="Deshacer (Ctrl+Z)">↶</HeadBtn>
-          <HeadBtn onClick={redo} disabled={future.length === 0} title="Rehacer (Ctrl+Y)">↷</HeadBtn>
+          <HeadBtn onClick={undo} disabled={past.length === 0} title="Deshacer (Ctrl+Z)"><G n="undo" /></HeadBtn>
+          <HeadBtn onClick={redo} disabled={future.length === 0} title="Rehacer (Ctrl+Y)"><G n="redo" /></HeadBtn>
           {kind !== 'nbt' && (
             <div className="flex rounded-lg border border-border overflow-hidden">
               {(['simple', 'advanced'] as const).map((m) => (
@@ -123,10 +124,10 @@ export default function NbtFileView({ name, location, kind, remote, playerName, 
         </div>
       }
       banner={warning ? (
-        <p className="px-3 py-1.5 text-[11px] text-amber-300 bg-amber-500/10 border-b border-amber-500/20">⚠ {warning}</p>
+        <p className="px-3 py-1.5 text-[11px] text-amber-300 bg-amber-500/10 border-b border-amber-500/20"><G n="warning" /> {warning}</p>
       ) : remote && (
         <p className="px-3 py-1.5 text-[11px] text-amber-300 bg-amber-500/10 border-b border-amber-500/20">
-          ⚠ Guarda con el servidor apagado{kind === 'playerdata' ? ' o con el jugador desconectado' : ''}: si está encendido, sobrescribe estos cambios al guardar el mundo.
+          <G n="warning" /> Guarda con el servidor apagado{kind === 'playerdata' ? ' o con el jugador desconectado' : ''}: si está encendido, sobrescribe estos cambios al guardar el mundo.
         </p>
       )}>
       {loadError ? (

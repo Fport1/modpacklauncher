@@ -57,7 +57,7 @@ export default function FileIcon({ name, isDir, size = 18 }: { name: string; isD
   // Hoja con la esquina doblada y una marca de color según el tipo
   const badge: Record<Exclude<Kind, 'folder'>, string> = {
     jar: 'JAR', archive: 'ZIP', config: 'CFG', json: '{ }', text: 'TXT', log: 'LOG',
-    image: 'IMG', world: 'MAP', script: '>_', audio: '♪', file: ''
+    image: 'IMG', world: 'MAP', script: '>_', audio: 'SND', file: ''
   }
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className="shrink-0">

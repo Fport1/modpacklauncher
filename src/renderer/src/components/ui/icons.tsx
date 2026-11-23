@@ -40,3 +40,5 @@ export const IconSun = (p: P) => <Svg {...p}><circle cx="12" cy="12" r="4" /><pa
 export const IconCamera = (p: P) => <Svg {...p}><path d="M14.5 4h-5L7 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2h-3l-2.5-3z" /><circle cx="12" cy="13" r="3" /></Svg>
 export const IconSliders = (p: P) => <Svg {...p}><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" /></Svg>
 export const IconTransfer = (p: P) => <Svg {...p}><path d="M8 3 4 7l4 4" /><path d="M4 7h16" /><path d="m16 21 4-4-4-4" /><path d="M20 17H4" /></Svg>
+/** Acceso directo (pantalla con flecha) */
+export const IconShortcut = (p: P) => <Svg {...p}><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /><path d="M10 12l4-4M10.5 8H14v3.5" /></Svg>

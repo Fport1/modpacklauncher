@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import ContentBrowser, { type InstalledIndex } from './content/ContentBrowser'
 import { resolveDownloadUrl } from '../lib/contentSources'
+import G from './ui/Glyph'
 
 // Datapacks de un mundo: activar, desactivar, añadir (archivo, arrastrando o
 // desde Modrinth / CurseForge / Fport1) y borrar.
@@ -120,7 +121,7 @@ export default function WorldDatapacks({ instanceId, minecraft, world, onClose }
                 <p className="text-[11px] font-bold uppercase tracking-widest text-text-muted mb-2">En la carpeta del mundo · {filePacks.length}</p>
                 {filePacks.length === 0 ? (
                   <div className="text-center py-10 border border-dashed border-border rounded-2xl">
-                    <p className="text-3xl mb-2">📦</p>
+                    <p className="text-3xl mb-2 text-text-muted"><G n="package" /></p>
                     <p className="text-sm text-text-secondary">Este mundo no tiene datapacks</p>
                     <p className="text-xs text-text-muted mt-1">Arrastra aquí un .zip o una carpeta, o búscalos en Modrinth, CurseForge y Fport1</p>
                   </div>
@@ -129,7 +130,7 @@ export default function WorldDatapacks({ instanceId, minecraft, world, onClose }
                     {filePacks.map((p) => (
                       <div key={p.id} className={`group flex items-center gap-3 p-3 rounded-2xl border bg-bg-card transition-opacity ${p.enabled ? 'border-border' : 'border-border opacity-60'}`}>
                         <div className="w-12 h-12 rounded-xl bg-bg-hover overflow-hidden shrink-0 flex items-center justify-center" style={{ imageRendering: 'pixelated' }}>
-                          {p.iconBase64 ? <img src={p.iconBase64} alt="" className="w-full h-full object-cover" /> : <span className="text-xl">📦</span>}
+                          {p.iconBase64 ? <img src={p.iconBase64} alt="" className="w-full h-full object-cover" /> : <span className="text-xl text-text-muted"><G n="package" /></span>}
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold text-text-primary truncate">{p.filename}</p>
@@ -155,7 +156,7 @@ export default function WorldDatapacks({ instanceId, minecraft, world, onClose }
                   <div className="space-y-1.5">
                     {builtIn.map((p) => (
                       <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-bg-card border border-border">
-                        <span className="text-lg">🧱</span>
+                        <span className="text-lg"><G n="bricks" /></span>
                         <p className="flex-1 text-sm text-text-primary">{BUILTIN_NAMES[p.id] ?? p.id}</p>
                         <button onClick={() => toggle(p)} disabled={busy === p.id || p.id === 'vanilla'} title={p.id === 'vanilla' ? 'Siempre activo' : undefined}
                           className={`relative w-11 h-6 rounded-full transition-colors shrink-0 disabled:opacity-50 ${p.enabled ? 'bg-accent' : 'bg-border'}`}>

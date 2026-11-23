@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import G from '../components/ui/Glyph'
 
 interface LogEntry {
   level: string
@@ -183,7 +184,7 @@ export default function ConsolePage() {
             setAutoScroll(true)
             bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
           }}>
-          {autoScroll ? '↓ Auto' : '↓ Ir al final'}
+          <G n="arrowDown" /> {autoScroll ? 'Auto' : 'Ir al final'}
         </span>
       </div>
     </div>

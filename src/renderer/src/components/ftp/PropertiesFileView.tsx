@@ -5,6 +5,7 @@ import { Toggle } from './ScoreboardSimple'
 import { DEFAULTS, PROPERTIES, PROPERTY_BY_KEY, SECTIONS, parseProperties, setProperty, type PropMeta } from '../../lib/serverProperties'
 import { parseCodes } from '../../lib/mcText'
 import { errText } from './shared'
+import G from '../ui/Glyph'
 
 // server.properties dentro del cuadro: en modo sencillo cada opción con su
 // explicación y el control que le toca (interruptor, número, lista), y en
@@ -71,7 +72,7 @@ export default function PropertiesFileView({ name, location, load, save, onClose
     const c = contentRef.current ?? ''
     await save(c)
     setSaved(c)
-  }, '✓ Guardado. Los cambios se aplican al reiniciar el servidor')
+  }, 'Guardado. Los cambios se aplican al reiniciar el servidor')
   const saveRef = useRef(saver.run)
   saveRef.current = saver.run
 
@@ -96,7 +97,7 @@ export default function PropertiesFileView({ name, location, load, save, onClose
       const { png, preview } = await toServerIcon(await window.api.ftp.localReadImage(file))
       await saveIcon(png)
       setIcon(preview)
-      setIconMsg({ ok: true, text: '✓ Icono guardado (64×64). Se verá al reiniciar el servidor.' })
+      setIconMsg({ ok: true, text: 'Icono guardado (64×64). Se verá al reiniciar el servidor.' })
     } catch (e) {
       setIconMsg({ ok: false, text: `No se pudo poner el icono: ${errText(e)}` })
     }
@@ -184,13 +185,13 @@ export default function PropertiesFileView({ name, location, load, save, onClose
                         <div className="flex items-center gap-2 flex-wrap">
                           <button type="button" onClick={pickIcon}
                             className="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary hover:text-text-primary hover:border-accent/50">
-                            🖼 {icon ? 'Cambiar icono' : 'Poner icono'}
+                            <G n="image" /> {icon ? 'Cambiar icono' : 'Poner icono'}
                           </button>
                           {icon && <button type="button" onClick={removeIcon} className="text-xs text-text-muted hover:text-red-400">Quitar</button>}
                           <span className="text-[11px] text-text-muted">Cualquier imagen: el launcher la recorta y la deja en 64×64.</span>
                         </div>
                       )}
-                      {iconMsg && <p className={`text-[11px] ${iconMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{iconMsg.text}</p>}
+                      {iconMsg && <p className={`text-[11px] ${iconMsg.ok ? 'text-green-400' : 'text-red-400'}`}><G n={iconMsg.ok ? 'check' : 'warning'} /> {iconMsg.text}</p>}
                     </div>
                   ) : (
                     <PropRow key={meta.key} meta={meta} missing={!values.has(meta.key)}

@@ -5,6 +5,7 @@ import {
 } from '../../lib/fport1Content'
 import { GithubLogo } from './GithubConnect'
 import { CHANNELS, Chips, LOADERS, LOADER_NAMES, TYPES, cleanErr, fmtSize, inputCls, labelCls } from './studioShared'
+import G from '../ui/Glyph'
 
 // Versiones del proyecto (release/beta/alpha). Con alojamiento GitHub, cada
 // versión es una release del repo que toque, con el archivo adjunto.
@@ -89,7 +90,7 @@ export default function VersionsTab({ project, flash, onChanged, dirty }: {
       {loading && <p className="text-sm text-text-muted py-6 text-center">Cargando…</p>}
       {!loading && versions.length === 0 && (
         <div className="text-center py-14 border border-dashed border-border rounded-2xl">
-          <p className="text-3xl mb-2">⬆️</p>
+          <p className="text-3xl mb-2 text-text-muted"><G n="upload" /></p>
           <p className="text-sm text-text-secondary">Sube la primera versión para poder publicar el proyecto</p>
         </div>
       )}
@@ -262,7 +263,7 @@ function VersionForm({ project, version, last, onCancel, onDone }: {
         <input ref={fileRef} type="file" accept={type.accept} hidden onChange={e => { pickFile(e.target.files?.[0]); e.target.value = '' }} />
         {d.file ? (
           <>
-            <p className="text-sm font-semibold text-text-primary">📄 {d.file.name}</p>
+            <p className="text-sm font-semibold text-text-primary"><G n="file" /> {d.file.name}</p>
             <p className="text-xs text-text-muted mt-1">{fmtSize(d.file.size)} · haz clic para cambiarlo</p>
           </>
         ) : version ? (
@@ -341,7 +342,7 @@ function VersionForm({ project, version, last, onCancel, onDone }: {
                   className={`px-1.5 py-0.5 rounded ${x.type === 'required' ? 'bg-[#a855f7]/20 text-[#e9d5ff]' : 'bg-bg-hover text-text-muted'}`} title="Cambiar entre necesaria y opcional">
                   {x.type === 'required' ? 'necesaria' : 'opcional'}
                 </button>
-                <button onClick={() => set({ deps: d.deps.filter(y => y.projectId !== x.projectId) }, 'deps')} className="w-5 h-5 rounded hover:bg-white/10 text-text-muted">✕</button>
+                <button onClick={() => set({ deps: d.deps.filter(y => y.projectId !== x.projectId) }, 'deps')} className="w-5 h-5 rounded hover:bg-white/10 text-text-muted"><G n="x" /></button>
               </span>
             ))}
           </div>

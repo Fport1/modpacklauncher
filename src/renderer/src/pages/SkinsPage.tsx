@@ -4,6 +4,7 @@ import { useStore, activeAccount } from '../store'
 import * as skinview3d from 'skinview3d'
 import ZoomableImage from '../components/ZoomableImage'
 import SkinCard, { Icon, Svg, Toggle } from '../components/skins/SkinCard'
+import G, { type GlyphName } from '../components/ui/Glyph'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -635,10 +636,10 @@ export default function SkinsPage() {
     )
   }
 
-  const TABS: { key: Tab; label: string; icon: string }[] = [
-    { key: 'mine',    label: 'Mi skin',  icon: '🧍' },
-    { key: 'library', label: 'Librería', icon: '📚' },
-    { key: 'browse',  label: 'Explorar', icon: '🔎' },
+  const TABS: { key: Tab; label: string; icon: GlyphName }[] = [
+    { key: 'mine',    label: 'Mi skin',  icon: 'user' },
+    { key: 'library', label: 'Librería', icon: 'book' },
+    { key: 'browse',  label: 'Explorar', icon: 'search' },
   ]
 
   return (
@@ -663,7 +664,7 @@ export default function SkinsPage() {
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === t.key ? 'border-accent text-accent' : 'border-transparent text-text-secondary hover:text-text-primary'}`}>
-              <span className="mr-1.5">{t.icon}</span>{t.label}
+              <G n={t.icon} className="mr-1.5" />{t.label}
             </button>
           ))}
         </div>
@@ -682,7 +683,7 @@ export default function SkinsPage() {
           )}
           {error && !loading && (
             <div className="max-w-lg p-5 rounded-2xl border border-red-500/30 bg-red-500/10 flex items-start gap-4">
-              <span className="text-2xl leading-none">⚠️</span>
+              <span className="text-2xl leading-none text-red-400"><G n="warning" /></span>
               <div className="flex-1">
                 <p className="text-sm font-bold text-red-200">{error}</p>
                 <p className="text-xs text-red-200/70 mt-1">Puede que la sesión de Microsoft haya caducado o que no haya conexión. Prueba otra vez o vuelve a iniciar sesión en Ajustes › Cuentas.</p>
@@ -984,7 +985,7 @@ export default function SkinsPage() {
                     </div>
                     <button onClick={() => { setSelectedBrowseSkin(null); setBrowseSaveStatus('idle'); setTab('library') }}
                       className="px-5 py-2.5 border border-accent/50 hover:border-accent text-accent text-sm rounded-lg transition-colors font-medium">
-                      Ir a librería →
+                      Ir a librería <G n="arrowRight" />
                     </button>
                   </>
                 ) : browseSaveStatus === 'error' ? (

@@ -3,6 +3,7 @@ import type { AdvancementDef, AdvancementProgress } from '../../../../shared/typ
 import { useTextures } from '../../lib/mcTextures'
 import { McItem, useLang, anyName } from '../../lib/mcItems'
 import { errText } from './shared'
+import G from '../ui/Glyph'
 
 // Los logros de un jugador como en el juego: pestañas (Minecraft, Nether, End,
 // Aventura, Agricultura), el árbol con sus marcos y, al elegir uno, qué le
@@ -149,7 +150,7 @@ export default function AdvancementsView({ worldDir, uuid, remote, playerName, o
     try {
       await io.writeAdvancements(worldDir, uuid, progress)
       setSaved(JSON.stringify(progress))
-      setStatus({ kind: 'ok', text: '✓ Guardado. El archivo anterior queda como .json.bak' })
+      setStatus({ kind: 'ok', text: 'Guardado. El archivo anterior queda como .json.bak' })
     } catch (e) {
       setStatus({ kind: 'error', text: errText(e) })
     } finally { setSaving(false) }
@@ -177,10 +178,10 @@ export default function AdvancementsView({ worldDir, uuid, remote, playerName, o
           <button type="button" onClick={() => allInTab(true)} className="px-2 h-7 text-xs rounded bg-[#8b8b8b] text-white hover:bg-[#9b9b9b]">Dar todos</button>
           <button type="button" onClick={() => allInTab(false)} className="px-2 h-7 text-xs rounded bg-[#8b8b8b] text-white hover:bg-[#9b9b9b]">Quitar todos</button>
           <button type="button" onClick={save} disabled={!dirty || saving} className="px-3 h-7 text-xs rounded bg-accent text-white disabled:opacity-40">{saving ? 'Guardando…' : 'Guardar'}</button>
-          <button type="button" onClick={close} className="w-7 h-7 rounded text-[#3f3f3f] hover:bg-black/10" title="Cerrar">✕</button>
+          <button type="button" onClick={close} className="w-7 h-7 rounded text-[#3f3f3f] hover:bg-black/10" title="Cerrar"><G n="x" /></button>
         </div>
-        {status && <p className={`px-3 pb-1 text-xs ${status.kind === 'ok' ? 'text-green-800' : 'text-red-700'}`}>{status.text}</p>}
-        <p className="px-3 pb-1 text-[11px] text-[#6b4a00]">⚠ Guarda con el juego o el servidor cerrados: si no, el juego sobrescribe los logros al salir.</p>
+        {status && <p className={`px-3 pb-1 text-xs ${status.kind === 'ok' ? 'text-green-800' : 'text-red-700'}`}><G n={status.kind === 'ok' ? 'check' : 'warning'} /> {status.text}</p>}
+        <p className="px-3 pb-1 text-[11px] text-[#6b4a00]"><G n="warning" /> Guarda con el juego o el servidor cerrados: si no, el juego sobrescribe los logros al salir.</p>
 
         {/* Pestañas */}
         <div className="flex gap-1 px-3">
@@ -232,7 +233,7 @@ export default function AdvancementsView({ worldDir, uuid, remote, playerName, o
                         filter: !done && !onlyMissing ? 'saturate(0.85)' : undefined,
                       }}>
                       <McItem id={d.display!.icon} size={30} />
-                      {d.display!.hidden && !done && <span className="absolute -top-1 -right-1 text-[10px]" title="Logro oculto en el juego">👁</span>}
+                      {d.display!.hidden && !done && <span className="absolute -top-1 -right-1 text-[10px]" title="Logro oculto en el juego"><G n="eye" /></span>}
                     </button>
                   )
                 })}
@@ -315,7 +316,7 @@ function AdvDetail({ def, entry, lang, onGrant, onRevoke, onToggle }: {
                 <button key={c} type="button" onClick={() => onToggle(c)}
                   className={`w-full text-left flex items-center gap-2 px-2 py-1 rounded text-[12.5px] hover:bg-black/10 ${has ? 'text-[#1d5e1d]' : 'text-[#7a1f1f]'}`}
                   title={has ? `Conseguido el ${entry!.criteria[c]}` : 'Le falta'}>
-                  <span className="w-4 shrink-0">{has ? '✓' : '✕'}</span>
+                  <span className="w-4 shrink-0"><G n={has ? 'check' : 'x'} /></span>
                   <span className="flex-1 truncate">{criterionName(c, lang)}</span>
                 </button>
               )

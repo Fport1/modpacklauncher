@@ -8,6 +8,7 @@ import type { MinecraftAccount, AIConfig } from '../../../shared/types'
 import { OFFLINE_USERNAME_REGEX, APP_VERSION } from '../../../shared/types'
 import UpdateCheckBtn from '../components/UpdateCheckBtn'
 import GithubConnect, { useGithubStatus } from '../components/fport1/GithubConnect'
+import G, { type GlyphName } from '../components/ui/Glyph'
 
 
 
@@ -67,57 +68,57 @@ function AIProviderIcon({ provider }: { provider: string }) {
 }
 
 // ── API Key tutorial per provider ─────────────────────────────────────────────
-type TutorialStep = { text: string; url?: string }
+type TutorialStep = { icon?: GlyphName; text: string; url?: string }
 type Tutorial = { title: string; steps: TutorialStep[]; note?: string }
 
 const AI_TUTORIALS: Record<string, Tutorial> = {
   claude: {
-    title: '🟣 Cómo conseguir tu clave de Claude (Anthropic)',
+    title: 'Cómo conseguir tu clave de Claude (Anthropic)',
     steps: [
-      { text: '🌐 Ve a console.anthropic.com (cuenta gratis)', url: 'https://console.anthropic.com' },
-      { text: '📧 Verifica tu correo electrónico cuando te lo pidan' },
-      { text: '💳 Añade un método de pago (cobran muy poco, ~$0.001 por análisis)' },
-      { text: '🔑 En el menú izquierdo, haz clic en "API Keys"' },
-      { text: '➕ Clic en "Create Key", ponle un nombre (ej: "Minecraft Launcher")' },
-      { text: '📋 ¡Copia el código que empieza por sk-ant-! Solo se muestra UNA vez' },
-      { text: '📌 Pégalo en el campo de arriba y guarda' },
+      { icon: 'globe', text: 'Ve a console.anthropic.com (cuenta gratis)', url: 'https://console.anthropic.com' },
+      { icon: 'mail', text: 'Verifica tu correo electrónico cuando te lo pidan' },
+      { icon: 'card', text: 'Añade un método de pago (cobran muy poco, ~$0.001 por análisis)' },
+      { icon: 'key', text: 'En el menú izquierdo, haz clic en "API Keys"' },
+      { icon: 'plus', text: 'Clic en "Create Key", ponle un nombre (ej: "Minecraft Launcher")' },
+      { icon: 'clipboard', text: '¡Copia el código que empieza por sk-ant-! Solo se muestra UNA vez' },
+      { icon: 'pin', text: 'Pégalo en el campo de arriba y guarda' },
     ],
-    note: '💡 Con $5 de crédito puedes hacer miles de análisis de crashes.'
+    note: 'Con $5 de crédito puedes hacer miles de análisis de crashes.'
   },
   openai: {
-    title: '🟢 Cómo conseguir tu clave de ChatGPT (OpenAI)',
+    title: 'Cómo conseguir tu clave de ChatGPT (OpenAI)',
     steps: [
-      { text: '🌐 Ve a platform.openai.com (cuenta gratis)', url: 'https://platform.openai.com' },
-      { text: '📧 Verifica tu correo electrónico' },
-      { text: '💳 Añade crédito en "Billing" → "Add to credit balance" (mínimo $5)' },
-      { text: '🔑 Ve a "API Keys" en el menú izquierdo' },
-      { text: '➕ Clic en "Create new secret key", ponle un nombre' },
-      { text: '📋 ¡Copia el código que empieza por sk-! Solo se muestra UNA vez' },
-      { text: '📌 Pégalo en el campo de arriba y guarda' },
+      { icon: 'globe', text: 'Ve a platform.openai.com (cuenta gratis)', url: 'https://platform.openai.com' },
+      { icon: 'mail', text: 'Verifica tu correo electrónico' },
+      { icon: 'card', text: 'Añade crédito en "Billing", en "Add to credit balance" (mínimo $5)' },
+      { icon: 'key', text: 'Ve a "API Keys" en el menú izquierdo' },
+      { icon: 'plus', text: 'Clic en "Create new secret key", ponle un nombre' },
+      { icon: 'clipboard', text: '¡Copia el código que empieza por sk-! Solo se muestra UNA vez' },
+      { icon: 'pin', text: 'Pégalo en el campo de arriba y guarda' },
     ],
-    note: '💡 GPT-4o mini es muy barato. Con $5 puedes hacer muchos análisis.'
+    note: 'GPT-4o mini es muy barato. Con $5 puedes hacer muchos análisis.'
   },
   gemini: {
-    title: '🔵 Cómo conseguir tu clave de Gemini (Google)',
+    title: 'Cómo conseguir tu clave de Gemini (Google)',
     steps: [
-      { text: '🌐 Ve a Google AI Studio (cuenta de Google, es gratis)', url: 'https://aistudio.google.com' },
-      { text: '🔑 Haz clic en el botón "Get API key" (arriba a la izquierda)' },
-      { text: '➕ Clic en "Create API key in new project"' },
-      { text: '📋 Copia el código que aparece (empieza por AIza...)' },
-      { text: '📌 Pégalo en el campo de arriba y guarda' },
+      { icon: 'globe', text: 'Ve a Google AI Studio (cuenta de Google, es gratis)', url: 'https://aistudio.google.com' },
+      { icon: 'key', text: 'Haz clic en el botón "Get API key" (arriba a la izquierda)' },
+      { icon: 'plus', text: 'Clic en "Create API key in new project"' },
+      { icon: 'clipboard', text: 'Copia el código que aparece (empieza por AIza...)' },
+      { icon: 'pin', text: 'Pégalo en el campo de arriba y guarda' },
     ],
-    note: '🎉 ¡Gemini 2.5 Flash tiene una capa GRATUITA muy generosa! No necesitas pagar.'
+    note: '¡Gemini 2.5 Flash tiene una capa GRATUITA muy generosa! No necesitas pagar.'
   },
   grok: {
-    title: '⚫ Cómo conseguir tu clave de Grok (xAI)',
+    title: 'Cómo conseguir tu clave de Grok (xAI)',
     steps: [
-      { text: '🌐 Ve a console.x.ai (necesitas crear una cuenta)', url: 'https://console.x.ai' },
-      { text: '🔑 Ve a la sección "API Keys"' },
-      { text: '➕ Clic en "Create API Key", ponle un nombre' },
-      { text: '📋 Copia el código que empieza por xai-' },
-      { text: '📌 Pégalo en el campo de arriba y guarda' },
+      { icon: 'globe', text: 'Ve a console.x.ai (necesitas crear una cuenta)', url: 'https://console.x.ai' },
+      { icon: 'key', text: 'Ve a la sección "API Keys"' },
+      { icon: 'plus', text: 'Clic en "Create API Key", ponle un nombre' },
+      { icon: 'clipboard', text: 'Copia el código que empieza por xai-' },
+      { icon: 'pin', text: 'Pégalo en el campo de arriba y guarda' },
     ],
-    note: '💡 xAI ofrece créditos gratuitos al registrarte por primera vez.'
+    note: 'xAI ofrece créditos gratuitos al registrarte por primera vez.'
   },
 }
 
@@ -144,7 +145,7 @@ function AIKeyTutorial({ provider }: { provider: string }) {
           <ol className="text-xs text-text-muted space-y-1.5 list-decimal list-inside">
             {tutorial.steps.map((step, i) => (
               <li key={i}>
-                {step.text}
+                {step.icon && <G n={step.icon} className="mr-1 text-text-secondary" />}{step.text}
                 {step.url && (
                   <button
                     onClick={() => window.api.shell.openExternal(step.url!)}
@@ -160,7 +161,7 @@ function AIKeyTutorial({ provider }: { provider: string }) {
             ))}
           </ol>
           {tutorial.note && (
-            <p className="text-xs text-amber-400/90 pt-1 border-t border-border/40">{tutorial.note}</p>
+            <p className="text-xs text-amber-400/90 pt-1 border-t border-border/40"><G n="bulb" className="mr-1" />{tutorial.note}</p>
           )}
         </div>
       )}
@@ -379,7 +380,7 @@ ${account.type === 'microsoft'
                     {acc.type === 'microsoft' ? 'Microsoft (Premium)' : 'Offline (No premium)'}
                   </p>
                   {acc.type === 'microsoft' && isExpired(acc) && (
-                    <p className="text-[10px] text-amber-400 mt-0.5">⚠ Vuelve a iniciar sesión</p>
+                    <p className="text-[10px] text-amber-400 mt-0.5"><G n="warning" /> Vuelve a iniciar sesión</p>
                   )}
                   {refreshError?.id === acc.id && (
                     <p className="text-[10px] text-red-400 mt-0.5">{refreshError.message}</p>
@@ -636,9 +637,9 @@ ${account.type === 'microsoft'
               <li>Click <span className="font-semibold">"Generate token"</span>, copia el token que empieza por <span className="font-mono bg-bg-card px-1 rounded">ghp_</span> y pégalo arriba</li>
             </ol>
             <div className="pt-2 border-t border-border space-y-1">
-              <p className="text-xs text-amber-400/80">⚠ El token solo se muestra una vez en GitHub — guárdalo bien.</p>
+              <p className="text-xs text-amber-400/80"><G n="warning" /> El token solo se muestra una vez en GitHub — guárdalo bien.</p>
               <p className="text-xs text-text-muted">
-                Una vez configurado, ve a una instancia → menú ··· → <span className="font-semibold">Exportar Modpack</span> para publicarlo.
+                Una vez configurado, abre el menú <G n="more" /> de una instancia y elige <span className="font-semibold">Exportar modpack</span> para publicarlo.
               </p>
             </div>
           </div>
@@ -719,7 +720,7 @@ ${account.type === 'microsoft'
                   }}
                   className={`h-9 px-4 text-sm font-semibold rounded-xl border transition-colors ${localSettings.language === lang ? 'bg-accent text-white border-accent' : 'border-border text-text-secondary hover:border-accent/50'}`}
                 >
-                  {lang === 'es' ? '🇪🇸 Español' : '🇬🇧 English'}
+                  {lang === 'es' ? 'Español' : 'English'}
                 </button>
               ))}
             </div>
@@ -831,11 +832,11 @@ ${account.type === 'microsoft'
                     setAiForm(f => f && ({ ...f, provider: p, model: defaults[p] ?? '' }))
                   }}
                   className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent">
-                  <option value="claude">🟣 Claude (Anthropic)</option>
-                  <option value="openai">🟢 ChatGPT (OpenAI)</option>
-                  <option value="gemini">🔵 Gemini (Google)</option>
-                  <option value="grok">⚫ Grok (xAI)</option>
-                  <option value="ollama">🦙 Ollama — gratis, local</option>
+                  <option value="claude">Claude (Anthropic)</option>
+                  <option value="openai">ChatGPT (OpenAI)</option>
+                  <option value="gemini">Gemini (Google)</option>
+                  <option value="grok">Grok (xAI)</option>
+                  <option value="ollama">Ollama — gratis, local</option>
                 </select>
               </div>
               <div>
@@ -848,28 +849,28 @@ ${account.type === 'microsoft'
                   <select value={aiForm.model} onChange={e => setAiForm(f => f && ({ ...f, model: e.target.value }))}
                     className="w-full h-11 bg-bg-primary border border-border rounded-xl px-3.5 text-sm text-text-primary focus:outline-none focus:border-accent">
                     {aiForm.provider === 'claude' && <>
-                      <option value="claude-haiku-4-5-20251001">Haiku 4.5 — rápido ⚡</option>
-                      <option value="claude-sonnet-4-6">Sonnet 4.6 — equilibrado ⚖️</option>
-                      <option value="claude-opus-4-7">Opus 4.7 — el más potente 🏆</option>
+                      <option value="claude-haiku-4-5-20251001">Haiku 4.5 — rápido</option>
+                      <option value="claude-sonnet-4-6">Sonnet 4.6 — equilibrado</option>
+                      <option value="claude-opus-4-7">Opus 4.7 — el más potente</option>
                     </>}
                     {aiForm.provider === 'openai' && <>
-                      <option value="gpt-4o-mini">GPT-4o mini — económico ⚡</option>
-                      <option value="gpt-4o">GPT-4o — potente ⚖️</option>
+                      <option value="gpt-4o-mini">GPT-4o mini — económico</option>
+                      <option value="gpt-4o">GPT-4o — potente</option>
                       <option value="gpt-4.1">GPT-4.1 — nuevo</option>
                       <option value="gpt-4.1-mini">GPT-4.1 mini — económico</option>
-                      <option value="o4-mini">o4-mini — razonamiento 🧠</option>
-                      <option value="o3">o3 — razonamiento avanzado 🏆</option>
+                      <option value="o4-mini">o4-mini — razonamiento</option>
+                      <option value="o3">o3 — razonamiento avanzado</option>
                     </>}
                     {aiForm.provider === 'gemini' && <>
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash — rápido ⚡</option>
-                      <option value="gemini-2.5-pro">Gemini 2.5 Pro — potente 🏆</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash — rápido</option>
+                      <option value="gemini-2.5-pro">Gemini 2.5 Pro — potente</option>
                       <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
                       <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
                       <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
                     </>}
                     {aiForm.provider === 'grok' && <>
-                      <option value="grok-3-mini">Grok 3 Mini — económico ⚡</option>
-                      <option value="grok-3">Grok 3 — potente 🏆</option>
+                      <option value="grok-3-mini">Grok 3 Mini — económico</option>
+                      <option value="grok-3">Grok 3 — potente</option>
                       <option value="grok-2-1212">Grok 2</option>
                     </>}
                   </select>
@@ -894,7 +895,7 @@ ${account.type === 'microsoft'
                     </svg>
                   </button>
                 </div>
-                <p className="text-[11px] text-text-muted mt-1">🔒 Se guarda solo en tu equipo, nunca se envía a ningún servidor nuestro.</p>
+                <p className="text-[11px] text-text-muted mt-1"><G n="lock" /> Se guarda solo en tu equipo, nunca se envía a ningún servidor nuestro.</p>
 
                 {/* ── API Key tutorial ── */}
                 <AIKeyTutorial provider={aiForm.provider} />
@@ -903,13 +904,13 @@ ${account.type === 'microsoft'
 
             {aiForm.provider === 'ollama' && (
               <div className="bg-bg-primary rounded-xl p-3 space-y-1.5">
-                <p className="text-xs font-semibold text-text-secondary">🦙 ¿Cómo usar Ollama? (gratis, sin internet)</p>
+                <p className="text-xs font-semibold text-text-secondary">¿Cómo usar Ollama? (gratis, sin internet)</p>
                 <ol className="text-xs text-text-muted space-y-1 list-decimal list-inside">
                   <li>Ve a <button onClick={() => window.api.shell.openExternal('https://ollama.com')} className="text-accent hover:underline font-mono">ollama.com</button> y descarga Ollama para tu sistema</li>
                   <li>Instálalo y ábrelo (queda corriendo en segundo plano)</li>
                   <li>Abre una terminal y escribe: <code className="bg-bg-card px-1 rounded font-mono">ollama pull llama3.2</code></li>
                   <li>Escribe el mismo nombre del modelo arriba (ej: <code className="bg-bg-card px-1 rounded font-mono">llama3.2</code>)</li>
-                  <li>¡Listo! No necesitas cuenta ni pagar nada 🎉</li>
+                  <li>¡Listo! No necesitas cuenta ni pagar nada.</li>
                 </ol>
                 <div className="pt-1">
                   <label className="block text-xs text-text-muted mb-1">URL de Ollama</label>
@@ -955,16 +956,16 @@ ${account.type === 'microsoft'
 
 // ── Cabecera e índice de Ajustes ─────────────────────────────────────────────
 
-const SECTIONS: { id: string; label: string; icon: string }[] = [
-  { id: 'cuentas', label: 'Cuentas', icon: '👤' },
-  { id: 'java', label: 'Java y memoria', icon: '☕' },
-  { id: 'launcher', label: 'Launcher', icon: '🚀' },
-  { id: 'modrinth', label: 'Modrinth', icon: '🧩' },
-  { id: 'modpacks', label: 'Crear modpacks', icon: '📦' },
-  { id: 'almacenamiento', label: 'Almacenamiento', icon: '💾' },
-  { id: 'sistema', label: 'Sistema', icon: '🖥️' },
-  { id: 'privacidad', label: 'Privacidad', icon: '🔒' },
-  { id: 'ia', label: 'Inteligencia Artificial', icon: '✨' },
+const SECTIONS: { id: string; label: string; icon: GlyphName }[] = [
+  { id: 'cuentas', label: 'Cuentas', icon: 'user' },
+  { id: 'java', label: 'Java y memoria', icon: 'coffee' },
+  { id: 'launcher', label: 'Launcher', icon: 'rocket' },
+  { id: 'modrinth', label: 'Modrinth', icon: 'puzzle' },
+  { id: 'modpacks', label: 'Crear modpacks', icon: 'package' },
+  { id: 'almacenamiento', label: 'Almacenamiento', icon: 'save' },
+  { id: 'sistema', label: 'Sistema', icon: 'monitor' },
+  { id: 'privacidad', label: 'Privacidad', icon: 'lock' },
+  { id: 'ia', label: 'Inteligencia Artificial', icon: 'sparkles' },
 ]
 
 function SettingsHeader({ account }: { account?: MinecraftAccount }) {
@@ -975,7 +976,7 @@ function SettingsHeader({ account }: { account?: MinecraftAccount }) {
           {account?.type === 'microsoft'
             ? <SkinAvatar uuid={account.uuid} username={account.username} size={64} />
             : account ? <span className="text-2xl font-bold text-accent">{account.username[0].toUpperCase()}</span>
-              : <span className="text-2xl">⚙️</span>}
+              : <span className="text-2xl text-text-muted"><G n="settings" /></span>}
         </div>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold text-text-primary">Ajustes</h1>
@@ -1018,7 +1019,7 @@ function SettingsNav() {
       {SECTIONS.map((s) => (
         <button key={s.id} onClick={() => { setActive(s.id); document.getElementById(`ajustes-${s.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
           className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-left transition-colors ${active === s.id ? 'bg-accent/15 text-accent font-semibold' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}>
-          <span className="w-5 text-center">{s.icon}</span>{s.label}
+          <span className="w-5 text-center"><G n={s.icon} /></span>{s.label}
         </button>
       ))}
     </nav>

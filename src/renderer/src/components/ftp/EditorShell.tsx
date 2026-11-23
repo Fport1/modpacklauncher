@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react'
 import { typingIn } from './shared'
+import G from '../ui/Glyph'
 
 // Marco común de todo lo que se abre dentro de un cuadro de Servidores (texto,
 // NBT, server.properties, equipos, jugadores, imágenes): la cabecera con
@@ -67,12 +68,12 @@ export default function EditorShell({
       <div className={`flex items-center gap-2 px-3 py-2 border-b ${code ? 'border-black/40 bg-[#252526]' : 'border-border bg-bg-secondary'}`}>
         <button type="button" onClick={() => requestClose()} title="Volver a la carpeta (Esc)"
           className="shrink-0 flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border text-sm text-text-secondary hover:text-text-primary hover:border-accent/50">
-          ← <span className="hidden md:inline">Carpeta</span>
+          <G n="arrowLeft" /> <span className="hidden md:inline">Carpeta</span>
         </button>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-text-primary truncate flex items-center gap-2">
             <span className="truncate">{title}</span>
-            {dirty && <span className="shrink-0 text-[11px] font-normal text-amber-400">● sin guardar</span>}
+            {dirty && <span className="shrink-0 text-[11px] font-normal text-amber-400"><G n="dot" /> sin guardar</span>}
             {hint}
           </p>
           {subtitle && <p className="text-[11px] text-text-muted font-mono truncate">{subtitle}</p>}
@@ -89,7 +90,7 @@ export default function EditorShell({
       {banner}
       <div className="flex-1 flex flex-col min-h-0">{children}</div>
       {status && (
-        <p className={`px-3 py-1.5 text-xs border-t border-border ${status.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}>{status.text}</p>
+        <p className={`px-3 py-1.5 text-xs border-t border-border ${status.kind === 'ok' ? 'text-green-400' : 'text-red-400'}`}><G n={status.kind === 'ok' ? 'check' : 'warning'} /> {status.text}</p>
       )}
 
       {ask && (

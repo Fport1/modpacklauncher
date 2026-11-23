@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Instance, TransferKey, TransferPlan, TransferResult } from '../../../shared/types'
 import { DOT_MINECRAFT_ID } from '../../../shared/types'
 import { IconCopy, IconTransfer, IconCheck } from './ui/icons'
+import G from './ui/Glyph'
 
 // Pasar contenido (mods, packs, mundos…) de una instancia a otra, también a o desde la
 // carpeta .minecraft del launcher oficial. Tres pasos: a dónde y cómo, qué, y revisar los
@@ -228,7 +229,7 @@ export default function TransferModal({ source, instances, onClose, onFinished }
             <>
               <div className="flex items-center gap-3 text-xs bg-bg-card border border-border rounded-xl px-3 py-2.5">
                 <InstanceTag inst={plan.source} />
-                <span className="text-text-muted shrink-0">{mode === 'move' ? 'mover a' : 'copiar a'} →</span>
+                <span className="text-text-muted shrink-0">{mode === 'move' ? 'mover a' : 'copiar a'} <G n="arrowRight" /></span>
                 <InstanceTag inst={plan.target} />
               </div>
               {plan.categories.length === 0 && <p className="text-sm text-text-muted">«{plan.source.name}» no tiene nada que pasar.</p>}
@@ -262,7 +263,7 @@ export default function TransferModal({ source, instances, onClose, onFinished }
                           {c.items.map((it) => (
                             <label key={it.name} className="flex items-center gap-3 px-3 py-1.5 pl-10 cursor-pointer hover:bg-bg-hover">
                               <input type="checkbox" checked={!!picked[c.key]?.has(it.name)} onChange={() => toggleItem(c.key, it.name)} className="w-3.5 h-3.5 accent-accent shrink-0" />
-                              <span className="flex-1 min-w-0 text-xs text-text-secondary truncate" title={it.name}>{it.isDir ? '📁 ' : ''}{it.name}</span>
+                              <span className="flex-1 min-w-0 text-xs text-text-secondary truncate" title={it.name}>{it.isDir ? <><G n="folder" /> </> : ''}{it.name}</span>
                               {it.exists && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 shrink-0">ya existe</span>}
                               {it.similar && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-300 shrink-0" title={`En el destino: ${it.similar}`}>otra versión en destino</span>}
                               <span className="text-[10px] text-text-muted shrink-0 w-14 text-right">{fmtSize(it.size)}</span>
@@ -315,7 +316,7 @@ export default function TransferModal({ source, instances, onClose, onFinished }
                   <p className="text-xs font-semibold text-text-primary">Ten en cuenta</p>
                   {warnings.map((w, i) => (
                     <div key={i} className={`flex gap-2 text-xs rounded-lg px-3 py-2 border ${w.strong ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-bg-card border-border text-text-secondary'}`}>
-                      <span className="shrink-0">{w.strong ? '⚠️' : 'ℹ️'}</span>
+                      <span className="shrink-0"><G n={w.strong ? 'warning' : 'info'} /></span>
                       <span>{w.text}</span>
                     </div>
                   ))}

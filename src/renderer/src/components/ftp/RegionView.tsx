@@ -3,6 +3,7 @@ import type { RegionChunkInfo } from '../../../../shared/types'
 import type { CloseRequest } from './EditorShell'
 import NbtFileView from './NbtFileView'
 import { errText } from './shared'
+import G from '../ui/Glyph'
 
 // Un archivo de región (.mca): los 1024 chunks que caben en él (32×32) como un mapa, con lo
 // básico de cada uno. Se pueden seleccionar (clic, Mayús o arrastrando), borrar y abrir uno
@@ -121,7 +122,7 @@ export default function RegionView({ name, location, side, path, onClose, closeR
     setBusy('Borrando…')
     try {
       await window.api.region.delete(local, [...sel])
-      setMsg(`✓ ${sel.size} chunk${sel.size === 1 ? '' : 's'} borrado${sel.size === 1 ? '' : 's'}`)
+      setMsg(`${sel.size} chunk${sel.size === 1 ? '' : 's'} borrado${sel.size === 1 ? '' : 's'}`)
       setSel(new Set())
       await reload()
     } catch (e) { setError(errText(e)) }
@@ -145,7 +146,7 @@ export default function RegionView({ name, location, side, path, onClose, closeR
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border">
-        <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary" title="Volver">←</button>
+        <button type="button" onClick={onClose} className="text-text-muted hover:text-text-primary" title="Volver"><G n="arrowLeft" /></button>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-text-primary truncate">{name}</p>
           <p className="text-[11px] text-text-muted truncate">
@@ -243,8 +244,8 @@ export default function RegionView({ name, location, side, path, onClose, closeR
               </button>
               {sel.size > 0 && <button type="button" onClick={() => setSel(new Set())} className="text-xs text-text-muted hover:text-text-primary">Quitar selección</button>}
             </div>
-            {msg && <p className="text-xs text-green-400">{msg}</p>}
-            <p className="text-[11px] text-amber-300/90">⚠ Cierra el juego o el servidor antes de cambiar nada: si están abiertos, vuelven a escribir la región.</p>
+            {msg && <p className="text-xs text-green-400"><G n="check" /> {msg}</p>}
+            <p className="text-[11px] text-amber-300/90"><G n="warning" /> Cierra el juego o el servidor antes de cambiar nada: si están abiertos, vuelven a escribir la región.</p>
           </div>
         </div>
       )}

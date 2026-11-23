@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import G from '../components/ui/Glyph'
 
 type Arch = 'arm64' | 'x64'
 
@@ -42,7 +43,7 @@ export default function MacToolsPage() {
   if (vlcInstalled === null) {
     return (
       <div className="p-6 max-w-xl mx-auto flex flex-col items-center justify-center gap-3 mt-20">
-        <span className="text-4xl">🔍</span>
+        <span className="text-4xl text-accent"><G n="search" /></span>
         <p className="text-text-muted text-sm">Comprobando si tienes VLC...</p>
       </div>
     )
@@ -53,10 +54,10 @@ export default function MacToolsPage() {
     return (
       <div className="p-6 max-w-xl mx-auto">
         <div className="bg-green-500/10 border-2 border-green-500/40 rounded-2xl p-8 text-center">
-          <div className="text-6xl mb-4">✅</div>
+          <div className="text-6xl mb-4 text-green-400"><G n="checkCircle" /></div>
           <h1 className="text-2xl font-bold text-green-400 mb-2">¡VLC está instalado!</h1>
           <p className="text-text-secondary text-sm mb-6">
-            🎉 ¡Perfecto! Los videos y cinemáticas de tus modpacks funcionarán sin ningún problema.
+            <G n="party" /> ¡Perfecto! Los videos y cinemáticas de tus modpacks funcionarán sin ningún problema.
           </p>
           <button
             onClick={recheck}
@@ -75,7 +76,7 @@ export default function MacToolsPage() {
 
       {/* Header */}
       <div className="text-center pb-2">
-        <div className="text-5xl mb-3">🎬</div>
+        <div className="text-5xl mb-3 text-accent"><G n="film" /></div>
         <h1 className="text-2xl font-bold text-text-primary">Necesitas instalar VLC</h1>
         <p className="text-sm text-text-muted mt-1">
           Sin VLC los videos y cinemáticas de algunos modpacks <span className="text-red-400 font-medium">no funcionan</span> en Mac.
@@ -88,7 +89,7 @@ export default function MacToolsPage() {
           <span className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white font-bold text-sm flex-shrink-0">1</span>
           <div>
             <p className="font-bold text-text-primary">¿Qué tipo de Mac tienes?</p>
-            <p className="text-xs text-text-muted">Si tienes un Mac desde 2020 en adelante, casi seguro es Apple Silicon 🍎</p>
+            <p className="text-xs text-text-muted">Si tienes un Mac desde 2020 en adelante, casi seguro es Apple Silicon.</p>
           </div>
         </div>
 
@@ -104,16 +105,16 @@ export default function MacToolsPage() {
           >
             {arch === 'arm64' && (
               <span className="absolute top-2 right-2 text-[10px] bg-accent text-white rounded-full px-1.5 py-0.5 font-bold">
-                ← El tuyo
+                <G n="arrowLeft" /> El tuyo
               </span>
             )}
-            <span className="text-3xl">🍎</span>
+            <span className="text-3xl"><G n="apple" /></span>
             <div className="text-center">
               <p className="font-bold text-sm text-text-primary">Apple Silicon</p>
               <p className="text-[11px] text-text-muted">M1, M2, M3, M4...</p>
             </div>
             {selectedArch === 'arm64' && (
-              <span className="text-accent text-lg">✓</span>
+              <span className="text-accent text-lg"><G n="check" /></span>
             )}
           </button>
 
@@ -128,23 +129,23 @@ export default function MacToolsPage() {
           >
             {arch === 'x64' && (
               <span className="absolute top-2 right-2 text-[10px] bg-blue-500 text-white rounded-full px-1.5 py-0.5 font-bold">
-                ← El tuyo
+                <G n="arrowLeft" /> El tuyo
               </span>
             )}
-            <span className="text-3xl">🖥️</span>
+            <span className="text-3xl"><G n="monitor" /></span>
             <div className="text-center">
               <p className="font-bold text-sm text-text-primary">Intel</p>
               <p className="text-[11px] text-text-muted">Macs antes de 2020</p>
             </div>
             {selectedArch === 'x64' && (
-              <span className="text-blue-400 text-lg">✓</span>
+              <span className="text-blue-400 text-lg"><G n="check" /></span>
             )}
           </button>
         </div>
 
         <p className="text-[11px] text-text-muted mt-3 text-center">
-          💡 ¿No sabes cuál tienes? En tu Mac ve a{' '}
-          <span className="text-text-secondary font-medium"> 🍎 → Acerca de este Mac</span>
+          <G n="bulb" /> ¿No sabes cuál tienes? En tu Mac ve a{' '}
+          <span className="text-text-secondary font-medium"> el menú <G n="apple" /> y «Acerca de este Mac»</span>
           {' '}y mira el procesador.
         </p>
       </div>
@@ -155,13 +156,13 @@ export default function MacToolsPage() {
           <span className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-white font-bold text-sm flex-shrink-0">2</span>
           <div>
             <p className="font-bold text-text-primary">¡Pulsa el botón y listo!</p>
-            <p className="text-xs text-text-muted">El launcher lo descarga e instala solo, tú no tienes que hacer nada más 🙌</p>
+            <p className="text-xs text-text-muted">El launcher lo descarga e instala solo, tú no tienes que hacer nada más.</p>
           </div>
         </div>
 
         {error && (
           <div className="mb-3 bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 text-sm text-red-400">
-            ❌ {error}
+            <G n="xCircle" /> {error}
           </div>
         )}
 
@@ -179,7 +180,7 @@ export default function MacToolsPage() {
             </>
           ) : (
             <>
-              <span className="text-xl">📥</span>
+              <span className="text-xl"><G n="inbox" /></span>
               Instalar VLC {selectedArch === 'arm64' ? 'para Apple Silicon' : 'para Intel'}
             </>
           )}
@@ -187,7 +188,7 @@ export default function MacToolsPage() {
 
         {installing && (
           <div className="mt-3 flex items-start gap-2 bg-accent/8 border border-accent/20 rounded-xl px-4 py-3">
-            <span className="text-lg flex-shrink-0">👀</span>
+            <span className="text-lg flex-shrink-0"><G n="eye" /></span>
             <p className="text-xs text-text-secondary">
               Mira la <span className="text-accent font-medium">esquina inferior derecha</span> de la pantalla — ahí verás el progreso de la instalación.
             </p>
@@ -200,7 +201,7 @@ export default function MacToolsPage() {
         <div className="flex items-center gap-3">
           <span className="w-8 h-8 rounded-full bg-green-500/30 flex items-center justify-center text-green-400 font-bold text-sm flex-shrink-0">3</span>
           <div>
-            <p className="font-bold text-text-primary">¡Ya puedes jugar! 🎮</p>
+            <p className="font-bold text-text-primary"><G n="gamepad" /> ¡Ya puedes jugar!</p>
             <p className="text-xs text-text-muted">Cuando termine, esta página cambiará a verde y ya está.</p>
           </div>
         </div>
@@ -212,13 +213,13 @@ export default function MacToolsPage() {
           onClick={recheck}
           className="text-xs text-text-muted hover:text-text-secondary transition-colors"
         >
-          🔄 Ya lo instalé manualmente, comprobar de nuevo
+          <G n="rotate" /> Ya lo instalé manualmente, comprobar de nuevo
         </button>
         <button
           onClick={() => window.api.shell.openExternal('https://www.videolan.org/vlc/')}
           className="text-xs text-text-muted hover:text-accent transition-colors"
         >
-          videolan.org →
+          videolan.org <G n="arrowRight" />
         </button>
       </div>
 

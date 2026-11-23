@@ -4,6 +4,7 @@ import {
   type Key, type Path, type Row, TYPE_BADGE, ADDABLE, ARRAY_ELEMENT, MAX_CHILDREN, isContainer, pathId,
   childrenOf, resolve, setRaw, removeAt, renameAt, addChild, parseValue, displayValue, containerSummary, uuidHint, flatten
 } from '../../lib/nbtModel'
+import G from '../ui/Glyph'
 
 // Modo avanzado de un archivo NBT, como NBT Explorer: el árbol tal cual con
 // sus tipos. Solo pinta y edita; cargar, guardar y deshacer son de quien lo usa
@@ -127,14 +128,14 @@ export default function NbtTree({ root, mutate }: Props) {
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border flex-wrap">
         <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Buscar por nombre o valor…"
           className="w-56 bg-bg-primary border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent/60" />
-        <SmallBtn onClick={() => setOpen(new Set(flatten(root, () => true).filter((r) => isContainer(r.tag.type)).map((r) => pathId(r.path))))}>⊞ Desplegar</SmallBtn>
-        <SmallBtn onClick={() => setOpen(new Set([pathId([])]))}>⊟ Plegar</SmallBtn>
+        <SmallBtn onClick={() => setOpen(new Set(flatten(root, () => true).filter((r) => isContainer(r.tag.type)).map((r) => pathId(r.path))))}><G n="plusSquare" /> Desplegar</SmallBtn>
+        <SmallBtn onClick={() => setOpen(new Set([pathId([])]))}><G n="minusSquare" /> Plegar</SmallBtn>
         {selectedRow && (
           <>
-            {isContainer(selectedRow.tag.type) && <SmallBtn onClick={() => startAdd(selectedRow)}>＋ Añadir dentro</SmallBtn>}
-            {!isContainer(selectedRow.tag.type) && <SmallBtn onClick={() => startEdit(selectedRow, 'value')}>✎ Editar</SmallBtn>}
+            {isContainer(selectedRow.tag.type) && <SmallBtn onClick={() => startAdd(selectedRow)}><G n="plus" /> Añadir dentro</SmallBtn>}
+            {!isContainer(selectedRow.tag.type) && <SmallBtn onClick={() => startEdit(selectedRow, 'value')}><G n="edit" /> Editar</SmallBtn>}
             {selectedRow.parentType === 'compound' && <SmallBtn onClick={() => startEdit(selectedRow, 'name')}>Renombrar</SmallBtn>}
-            {selectedRow.path.length > 0 && <SmallBtn danger onClick={() => remove(selectedRow)}>🗑 Borrar</SmallBtn>}
+            {selectedRow.path.length > 0 && <SmallBtn danger onClick={() => remove(selectedRow)}><G n="trash" /> Borrar</SmallBtn>}
           </>
         )}
       </div>
@@ -157,7 +158,7 @@ export default function NbtTree({ root, mutate }: Props) {
               style={{ paddingLeft: 10 + row.depth * 18 }}>
               <span className="w-4 text-center text-text-muted select-none"
                 onClick={(e) => { e.stopPropagation(); if (container) toggleOpen(row) }}>
-                {container ? (isOpen ? '▾' : '▸') : ''}
+                {container ? <G n={isOpen ? 'chevronDown' : 'chevronRight'} /> : ''}
               </span>
               <span className={`px-1 rounded text-[10px] font-bold min-w-[22px] text-center ${badge.cls}`} title={badge.label}>{badge.text}</span>
               {edit?.field === 'name' ? (

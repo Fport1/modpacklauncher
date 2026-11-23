@@ -224,7 +224,7 @@ function AnnouncementsAdmin() {
 
       {!settings.githubToken && (
         <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-400 text-sm">
-          Para publicar, configura el <strong>Token de GitHub</strong> en Ajustes → Creación de Modpacks.
+          Para publicar, configura el <strong>Token de GitHub</strong> en Ajustes, en «Crear modpacks».
         </div>
       )}
 

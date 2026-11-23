@@ -14,6 +14,7 @@ import ProtectionNotice from '../components/ProtectionNotice'
 import FpackImportModal from '../components/FpackImportModal'
 import type { Instance, LiveStatus, Modloader, ModpackManifest } from '../../../shared/types'
 import { useT } from '../i18n'
+import G from '../components/ui/Glyph'
 
 type ModalStep = 'choose' | 'modpack' | 'manual'
 type EditMode = 'edit'
@@ -460,6 +461,16 @@ export default function InstancesPage() {
     const id = Math.random().toString(36).slice(2)
     setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration)
+  }
+
+  /** Acceso directo en el escritorio que abre la instancia como un juego (ver src/main/shortcuts.ts) */
+  async function createShortcut(inst: Instance) {
+    try {
+      await window.api.instances.createShortcut(inst.id)
+      addToast(t('shortcut_created', { name: inst.name }), 'success')
+    } catch (e) {
+      addToast(t('shortcut_create_error', { error: e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e) }), 'error', 6000)
+    }
   }
 
   // Instancia recién creada: se pone la primera, se lleva la vista hasta ella
@@ -1071,6 +1082,7 @@ export default function InstancesPage() {
           onExport={() => { setExportInstance(fullDetailInstance) }}
           onDuplicate={() => { setDuplicateSource(fullDetailInstance) }}
           onChangeIcon={() => { setIconPickInstance(fullDetailInstance) }}
+          onCreateShortcut={() => createShortcut(fullDetailInstance)}
           onDelete={() => handleDelete(fullDetailInstance.id)}
         />
       )}
@@ -1157,6 +1169,7 @@ export default function InstancesPage() {
                   onRepair={() => window.api.launcher.repair(inst.id).catch(() => {})}
                   onAssist={() => { startHosting(inst.id).catch(() => {}) }}
                   onTransfer={instances.length > 1 ? () => setTransferSource(inst) : undefined}
+                  onCreateShortcut={() => createShortcut(inst)}
                   isLaunching={launching === inst.id}
                   isRunning={runningInstances.has(inst.id)}
                   live={liveInstances.get(inst.id)}
@@ -1456,7 +1469,7 @@ export default function InstancesPage() {
                 onClick={createHorizon}
                 className="group mt-4 w-full flex items-center gap-4 p-4 bg-bg-card border border-border rounded-xl hover:border-orange-400/50 hover:bg-orange-400/5 transition-all text-left"
               >
-                <div className="w-12 h-12 rounded-xl bg-orange-400/10 group-hover:bg-orange-400/20 flex items-center justify-center text-xl shrink-0">🦀</div>
+                <div className="w-12 h-12 rounded-xl bg-orange-400/10 group-hover:bg-orange-400/20 flex items-center justify-center text-xl shrink-0 text-orange-300"><G n="crab" /></div>
                 <div className="min-w-0">
                   <p className="font-semibold text-text-primary text-sm">Horizon <span className="text-[11px] font-normal text-orange-300 ml-1">experimental</span></p>
                   <p className="text-[13px] text-text-muted mt-0.5">Minecraft 26.3 reescrito en Rust: más rápido, con sus propios mods. Los mods de Java no funcionan.</p>
@@ -1619,7 +1632,7 @@ export default function InstancesPage() {
 
                 {lockedCore && (
                   <p className="text-[12px] text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                    🔒 Modpack protegido: la versión y el modloader los decide su creador.
+                    <G n="lock" /> Modpack protegido: la versión y el modloader los decide su creador.
                   </p>
                 )}
                 <fieldset disabled={lockedCore} className={lockedCore ? "space-y-5 opacity-50 pointer-events-none" : "space-y-5"}>

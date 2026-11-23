@@ -16,6 +16,7 @@ import {
   reserveUsernameAndUpsertProfile, validateHandle, normalizeHandle,
   USERNAME_MIN, USERNAME_MAX, DISPLAY_NAME_MAX,
 } from '../lib/username'
+import G from '../components/ui/Glyph'
 
 const WEB = 'https://fport1web.vercel.app'
 
@@ -124,7 +125,7 @@ function Hint({ color, children }: { color: string; children: React.ReactNode })
 
 function StatusHint({ status, syntaxOk, touched, msg, checkingText, availableText, takenText }: {
   status: string; syntaxOk: boolean; touched: boolean; msg?: string
-  checkingText: string; availableText: string; takenText: string
+  checkingText: string; availableText: React.ReactNode; takenText: string
 }) {
   if (status === 'checking') return <Hint color={C.yellow}><TinySpinner />{checkingText}</Hint>
   if (status === 'available' && syntaxOk) return <Hint color={C.green}>{availableText}</Hint>
@@ -252,7 +253,7 @@ function FriendCard({ f, delay = 0, onMessage }: { f: SocialFriend; delay?: numb
         </p>
         {f.username && <p style={{ fontSize:11, fontWeight:500, color:C.accent2, margin:'1px 0 2px' }}>{f.username}</p>}
         <PresencePill p={f.presence} />
-        {f.minecraftUsername && <p style={{ fontSize:10, color:C.muted, margin:'2px 0 0' }}>⛏ {f.minecraftUsername}</p>}
+        {f.minecraftUsername && <p style={{ fontSize:10, color:C.muted, margin:'2px 0 0' }}><G n="pickaxe" /> {f.minecraftUsername}</p>}
       </div>
       {onMessage && (
         <button onClick={onMessage} title="Enviar mensaje" className="f1-google" style={{
@@ -483,7 +484,7 @@ function RegisterForm({ onGoogleAuth, defaultMc }: { onGoogleAuth: () => void; d
           </div>
           <StatusHint status={handleStatus} syntaxOk={handleSynOk} touched={touched.handle}
             msg={handleCheck.msg} checkingText="Comprobando…"
-            availableText="Disponible ✓" takenText="Ese usuario ya está en uso." />
+            availableText={<>Disponible <G n="check" /></>} takenText="Ese usuario ya está en uso." />
           <Hint color={C.muted}>Solo minúsculas, números, - y _. {USERNAME_MIN}–{USERNAME_MAX} caracteres.</Hint>
         </Field>
 
@@ -493,7 +494,7 @@ function RegisterForm({ onGoogleAuth, defaultMc }: { onGoogleAuth: () => void; d
             onBlur={() => touch('email')}
             className="f1-input" style={inputSx(emailState())} />
           <StatusHint status={emailStatus} syntaxOk={emailFmtOk} touched={touched.email}
-            checkingText="Comprobando…" availableText="Disponible ✓"
+            checkingText="Comprobando…" availableText={<>Disponible <G n="check" /></>}
             takenText="Ese correo ya está registrado." />
           {touched.email && !emailFmtOk && form.email && <Hint color={C.red}>Correo inválido.</Hint>}
         </Field>
@@ -810,7 +811,7 @@ function CompleteProfileForm({ user, onDone }: { user: User; onDone: (username: 
                 className="f1-input" style={{ ...inputSx(handleState()), flex:1 }} />
             </div>
             <StatusHint status={handleStatus} syntaxOk={handleSynOk} touched={touched.handle}
-              msg={handleCheck.msg} checkingText="Comprobando…" availableText="Disponible ✓" takenText="Ya está en uso." />
+              msg={handleCheck.msg} checkingText="Comprobando…" availableText={<>Disponible <G n="check" /></>} takenText="Ya está en uso." />
             <Hint color={C.muted}>Solo minúsculas, números, - y _. {USERNAME_MIN}–{USERNAME_MAX} caracteres.</Hint>
           </Field>
           {err && <div style={{ background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.3)', borderRadius:8, padding:'10px 14px', color:C.red, fontSize:13 }}>{err}</div>}
@@ -1222,8 +1223,8 @@ export default function FriendsPage() {
                       {req.username && <p style={{ fontSize:11, color:C.accent2, margin:'1px 0 0' }}>{req.username}</p>}
                     </div>
                     <div style={{ display:'flex', gap:5, flexShrink:0 }}>
-                      <button onClick={() => acceptFriendRequest(req)} style={{ padding:'5px 11px', borderRadius:8, border:'none', background:`linear-gradient(135deg,${C.accent},#6d28d9)`, color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>✓</button>
-                      <button onClick={() => rejectFriendRequest(req.uid)} style={{ padding:'5px 9px', borderRadius:8, border:`1px solid rgba(248,113,113,.35)`, background:'rgba(248,113,113,.08)', color:C.red, fontSize:12, cursor:'pointer' }}>✕</button>
+                      <button onClick={() => acceptFriendRequest(req)} style={{ padding:'5px 11px', borderRadius:8, border:'none', background:`linear-gradient(135deg,${C.accent},#6d28d9)`, color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}><G n="check" /></button>
+                      <button onClick={() => rejectFriendRequest(req.uid)} style={{ padding:'5px 9px', borderRadius:8, border:`1px solid rgba(248,113,113,.35)`, background:'rgba(248,113,113,.08)', color:C.red, fontSize:12, cursor:'pointer' }}><G n="x" /></button>
                     </div>
                   </div>
                 ))}
@@ -1243,7 +1244,7 @@ export default function FriendsPage() {
                 style={{ flex:1, background:'transparent', border:'none', outline:'none', boxShadow:'none', color:C.text, fontSize:13, padding:'10px 0', boxSizing:'border-box' }}
               />
               {loadingSugg && <Spinner size={12} color={C.muted} />}
-              {addInput && !loadingSugg && <button onClick={() => { setAddInput(''); setSuggestions([]); setAddState('idle'); setAddResult(null) }} style={{ background:'none', border:'none', color:C.muted, cursor:'pointer', padding:2, fontSize:14, lineHeight:1 }}>✕</button>}
+              {addInput && !loadingSugg && <button onClick={() => { setAddInput(''); setSuggestions([]); setAddState('idle'); setAddResult(null) }} style={{ background:'none', border:'none', color:C.muted, cursor:'pointer', padding:2, fontSize:14, lineHeight:1 }}><G n="x" /></button>}
             </div>
 
             {/* Suggestions dropdown */}
@@ -1293,11 +1294,11 @@ export default function FriendsPage() {
             ) : friends.length === 0 ? (
               <div style={{ borderRadius:20, border:`1px solid rgba(124,58,237,.2)`, background:`linear-gradient(135deg,${C.card},#13131e)`, padding:'32px 20px', textAlign:'center', position:'relative', overflow:'hidden' }}>
                 <div style={{ position:'absolute', inset:0, background:`radial-gradient(ellipse at top,rgba(124,58,237,.07),transparent 60%)`, pointerEvents:'none' }} />
-                <div style={{ width:56, height:56, borderRadius:16, margin:'0 auto 12px', background:`linear-gradient(135deg,rgba(124,58,237,.2),rgba(168,85,247,.12))`, border:`1px solid rgba(124,58,237,.25)`, display:'flex', alignItems:'center', justifyContent:'center', animation:'emptyPulse 3s ease-in-out infinite', fontSize:24, position:'relative' }}>👾</div>
+                <div style={{ width:56, height:56, borderRadius:16, margin:'0 auto 12px', background:`linear-gradient(135deg,rgba(124,58,237,.2),rgba(168,85,247,.12))`, border:`1px solid rgba(124,58,237,.25)`, display:'flex', alignItems:'center', justifyContent:'center', animation:'emptyPulse 3s ease-in-out infinite', fontSize:24, position:'relative', color:C.accent }}><G n="users" /></div>
                 <p style={{ fontSize:14, fontWeight:600, color:C.text, margin:'0 0 6px' }}>Sin amigos aún</p>
                 <p style={{ fontSize:12, color:C.muted, margin:'0 0 16px', lineHeight:1.6 }}>Añade amigos con el campo de arriba.</p>
                 <button onClick={() => window.api.shell.openExternal(`${WEB}/amigos`)} className="f1-btn-primary" style={{ padding:'8px 18px', borderRadius:10, border:'none', background:`linear-gradient(135deg,${C.accent},#6d28d9)`, color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-                  Abrir fport1-social →
+                  Abrir fport1-social <G n="arrowRight" />
                 </button>
               </div>
             ) : (

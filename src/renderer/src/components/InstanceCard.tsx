@@ -4,8 +4,10 @@ import ContextMenu, { type MenuEntry } from './ui/ContextMenu'
 import { cachedInstanceIcon, loadInstanceIcon } from '../lib/instanceIcons'
 import {
   IconPlay, IconStop, IconInfo, IconEdit, IconImage, IconCopy, IconFolder, IconPackage, IconSave,
-  IconHelp, IconWrench, IconTrash, IconMore, IconClock, IconRefresh, IconTransfer
+  IconHelp, IconWrench, IconTrash, IconMore, IconClock, IconRefresh, IconTransfer, IconShortcut
 } from './ui/icons'
+import { useT } from '../i18n'
+import G from './ui/Glyph'
 
 interface Props {
   instance: Instance
@@ -25,6 +27,8 @@ interface Props {
   onAssist?: () => void
   /** Pasar mods, mundos… a otra instancia */
   onTransfer?: () => void
+  /** Acceso directo en el escritorio que abre la instancia como un juego */
+  onCreateShortcut?: () => void
   isLaunching?: boolean
   isRunning?: boolean
   /** La partida está conectada por el canal en vivo del mod fport1-social (las IAs la ven y la manejan). */
@@ -88,8 +92,9 @@ function formatPlaytime(ms?: number): string {
 
 export default function InstanceCard({
   instance, onPlay, onKill, onLaunchExtra, onEdit, onDelete, onOpenFolder, onDetails, onExport,
-  onDuplicate, onChangeIcon, onSaveFpack, onRepair, onAssist, onTransfer, isLaunching, isRunning, live, hasUpdate, latestVersion, isUpdating, onUpdate
+  onDuplicate, onChangeIcon, onSaveFpack, onRepair, onAssist, onTransfer, onCreateShortcut, isLaunching, isRunning, live, hasUpdate, latestVersion, isUpdating, onUpdate
 }: Props) {
+  const t = useT()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [showExtraConfirm, setShowExtraConfirm] = useState(false)
   const [iconSrc, setIconSrc] = useState<string | null>(() => cachedInstanceIcon(instance) ?? null)
@@ -122,6 +127,7 @@ export default function InstanceCard({
     { label: 'Cambiar icono', icon: <IconImage />, onClick: onChangeIcon },
     ...(!isDot && !locked ? [{ label: 'Duplicar', icon: <IconCopy />, onClick: onDuplicate } as MenuEntry] : []),
     ...(!locked || prot?.allow.files ? [{ label: 'Abrir carpeta', icon: <IconFolder />, onClick: onOpenFolder } as MenuEntry] : []),
+    ...(onCreateShortcut ? [{ label: t('shortcut_create'), icon: <IconShortcut />, onClick: onCreateShortcut, hint: t('shortcut_create_hint') } as MenuEntry] : []),
     ...(onTransfer && !locked ? [{ label: 'Transferir contenido…', icon: <IconTransfer />, onClick: onTransfer, hint: 'mods, mundos…' } as MenuEntry] : []),
     { header: 'Compartir' },
     ...(onAssist ? [{ label: 'Pedir ayuda a un amigo', icon: <IconHelp />, onClick: onAssist, tone: 'text-purple-400' } as MenuEntry] : []),
@@ -155,13 +161,13 @@ export default function InstanceCard({
       {instance.kind === 'horizon' && (
         <span className="absolute -top-2 left-4 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow"
           title="Minecraft 26.3 reescrito en Rust (Horizon). Los mods de Java no funcionan aquí.">
-          🦀 Horizon
+          <G n="crab" /> Horizon
         </span>
       )}
       {prot && (
         <span className="absolute -top-2 left-4 inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-600 text-black shadow"
           title={protHint}>
-          🔒 Protegido{prot.expiresAt ? ` · ${timeLeft(prot.expiresAt)}` : ''}
+          <G n="lock" /> Protegido{prot.expiresAt ? ` · ${timeLeft(prot.expiresAt)}` : ''}
         </span>
       )}
       {/* Icono, nombre y etiquetas: siempre una sola fila de etiquetas */}
@@ -185,7 +191,7 @@ export default function InstanceCard({
                 <span className="min-w-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/30"
                   title={`Modpack v${instance.modpackVersion ?? '?'} · hay una versión nueva${latestVersion ? ` (v${latestVersion})` : ''}`}>
                   <IconPackage size={11} />
-                  <span className="truncate">v{instance.modpackVersion ?? '?'}{latestVersion ? ` → v${latestVersion}` : ''}</span>
+                  <span className="truncate">v{instance.modpackVersion ?? '?'}{latestVersion ? <> <G n="arrowRight" /> v{latestVersion}</> : ''}</span>
                 </span>
               ) : (
                 <span className="min-w-0 inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md bg-accent/10 text-accent border border-accent/20" title={`Modpack v${instance.modpackVersion ?? '?'} (al día)`}>

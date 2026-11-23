@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
+import G from './ui/Glyph'
 
 // Qué comparte el launcher y cómo desactivarlo (Ajustes › Privacidad).
 // Viene activado; no se enseña ningún aviso al abrir el launcher.
@@ -55,7 +56,7 @@ export default function PrivacySettings({ compact = false }: { compact?: boolean
           </div>
         )
       })}
-      <p className="text-[11px] text-text-muted leading-relaxed">🔒 {PRIVACY_NEVER}</p>
+      <p className="text-[11px] text-text-muted leading-relaxed"><G n="lock" /> {PRIVACY_NEVER}</p>
     </div>
   )
 }

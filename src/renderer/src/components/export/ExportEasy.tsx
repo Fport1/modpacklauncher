@@ -1,3 +1,4 @@
+import G, { type GlyphName } from '../ui/Glyph'
 // Modo fácil de «Exportar modpack»: en vez de un árbol de carpetas, preguntas
 // en lenguaje normal sobre qué recibirá quien lo instale.
 
@@ -44,10 +45,10 @@ export function fmtSize(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }
 
-const STARTS: { key: ExportStart; title: string; hint: string; icon: string }[] = [
-  { key: 'fresh', icon: '✨', title: 'Como nuevo', hint: 'Al abrir Minecraft será como la primera vez: sin mundos, sin servidores guardados ni tus ajustes. Recomendado para compartir.' },
-  { key: 'mine', icon: '🎛️', title: 'Con mi configuración', hint: 'Empiezan con tus ajustes de vídeo, sonido y controles y tu lista de servidores. Luego cada uno puede cambiarlos.' },
-  { key: 'world', icon: '🌍', title: 'Con mi configuración y un mundo', hint: 'Lo mismo, y además los mundos que elijas (por ejemplo, un mapa de aventura).' },
+const STARTS: { key: ExportStart; title: string; hint: string; icon: GlyphName }[] = [
+  { key: 'fresh', icon: 'sparkles', title: 'Como nuevo', hint: 'Al abrir Minecraft será como la primera vez: sin mundos, sin servidores guardados ni tus ajustes. Recomendado para compartir.' },
+  { key: 'mine', icon: 'sliders', title: 'Con mi configuración', hint: 'Empiezan con tus ajustes de vídeo, sonido y controles y tu lista de servidores. Luego cada uno puede cambiarlos.' },
+  { key: 'world', icon: 'globe', title: 'Con mi configuración y un mundo', hint: 'Lo mismo, y además los mundos que elijas (por ejemplo, un mapa de aventura).' },
 ]
 
 /** Opciones de inicio de cada forma de empezar. */
@@ -63,7 +64,7 @@ export function ExportStartPicker({ value, onChange }: { value: ExportStart; onC
       {STARTS.map(s => (
         <button key={s.key} onClick={() => onChange(s.key)}
           className={`p-3 rounded-xl border text-left transition-colors ${value === s.key ? 'bg-accent/10 border-accent/60' : 'border-border hover:bg-bg-hover'}`}>
-          <p className="text-lg leading-none">{s.icon}</p>
+          <p className="text-lg leading-none text-accent"><G n={s.icon} /></p>
           <p className="text-sm font-semibold text-text-primary mt-1.5">{s.title}</p>
           <p className="text-[11px] text-text-muted mt-1 leading-snug">{s.hint}</p>
         </button>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { shallow } from 'zustand/shallow'
 import { APP_VERSION } from '../../../shared/types'
+import G from './ui/Glyph'
 
 export default function UpdateModal() {
   const { pendingUpdate, updateModalOpen, setUpdateModalOpen, operations } = useStore(s => ({ pendingUpdate: s.pendingUpdate, updateModalOpen: s.updateModalOpen, setUpdateModalOpen: s.setUpdateModalOpen, operations: s.operations }), shallow)
@@ -70,7 +71,7 @@ export default function UpdateModal() {
           <div>
             <h2 className="font-bold text-text-primary">Actualización disponible</h2>
             <p className="text-xs text-text-muted">
-              v{APP_VERSION} → <span className="text-accent font-semibold">v{pendingUpdate.version}</span>
+              v{APP_VERSION} <G n="arrowRight" /> <span className="text-accent font-semibold">v{pendingUpdate.version}</span>
             </p>
           </div>
         </div>
@@ -127,7 +128,7 @@ export default function UpdateModal() {
         {/* Warning: operations running */}
         {forceConfirm && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 mb-4">
-            <p className="text-sm font-medium text-amber-400 mb-1">⚠️ Hay operaciones en curso</p>
+            <p className="text-sm font-medium text-amber-400 mb-1"><G n="warning" /> Hay operaciones en curso</p>
             <p className="text-xs text-text-muted">Hay descargas o instalaciones activas. Si actualizas ahora se interrumpirán y podrían quedar archivos incompletos.</p>
           </div>
         )}

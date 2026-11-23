@@ -5,6 +5,7 @@ import FpackSaveModal from './FpackSaveModal'
 import QRDisplay from './QRDisplay'
 import ExportProtection, { EMPTY_PROTECTION, protectionProblem, toProtection, type ProtectionDraft } from './export/ExportProtection'
 import { ExportContentPicker, ExportStartOptions, ExportStartPicker, presetFor, toGameOptions, NO_GROUPS, type ExportPlanData, type ExportStart, type StartOptions } from './export/ExportEasy'
+import G from './ui/Glyph'
 
 interface Props {
   instance: Instance
@@ -429,7 +430,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
               <div className="bg-bg-card rounded-lg p-3 text-xs text-text-muted space-y-1.5">
                 <p className="text-text-secondary font-medium">¿Cómo instalar este modpack?</p>
                 <p>1. Comparte el enlace o el QR con tus jugadores.</p>
-                <p>2. En el launcher, ve a <span className="text-text-primary font-medium">Modpacks → Añadir Modpack → QR</span> o pega la URL.</p>
+                <p>2. En el launcher, ve a <span className="text-text-primary font-medium">Modpacks <G n="chevronRight" /> Añadir Modpack <G n="chevronRight" /> QR</span> o pega la URL.</p>
                 <p>3. También puedes compartir el archivo .fpack directamente.</p>
               </div>
               <button
@@ -588,7 +589,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                 </div>
                 {accessKey && (
                   <p className="text-[11px] text-amber-400 mt-1">
-                    🔒 Este modpack requerirá la clave para instalarse. Compártela de forma privada.
+                    <G n="lock" /> Este modpack requerirá la clave para instalarse. Compártela de forma privada.
                   </p>
                 )}
               </div>
@@ -616,7 +617,7 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                   <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border/50 bg-bg-hover/50">
                     <div className="w-3.5" />
                     <span className="text-[10px] text-text-muted flex-1">Nombre</span>
-                    <span className="text-[10px] text-text-muted w-5 text-center">▶</span>
+                    <span className="text-[10px] text-text-muted w-5 text-center"><G n="play" /></span>
                   </div>
 
                   <div className="max-h-56 overflow-y-auto">
@@ -647,8 +648,8 @@ export default function ExportModpackModal({ instance, onClose }: Props) {
                 </div>
 
                 <p className="text-[11px] text-text-muted mt-1.5">
-                  <span className="font-medium">☐ izquierdo</span> = incluir carpeta/archivo completo ·{' '}
-                  <span className="font-medium">▶ derecho</span> = expandir y seleccionar archivos individuales
+                  <span className="font-medium"><G n="square" /> izquierdo</span> = incluir carpeta/archivo completo ·{' '}
+                  <span className="font-medium"><G n="play" /> derecho</span> = expandir y seleccionar archivos individuales
                 </p>
                 <p className="text-[11px] text-text-muted mt-1">
                   <span className="font-medium">options.txt</span> y <span className="font-medium">servers.dat</span> no se copian tal cual: se usan las opciones de abajo como valores iniciales.

@@ -3,6 +3,7 @@ import type { GithubRepo, GithubStatus } from '../../../../shared/types'
 import type { Fport1Github, Fport1Hosting, Fport1License, Fport1Links, Fport1Project } from '../../lib/fport1Content'
 import { GithubLogo } from './GithubConnect'
 import { CLOSED_LICENSES, OPEN_LICENSES, cleanErr, inputCls, labelCls } from './studioShared'
+import G from '../ui/Glyph'
 
 // Código abierto o cerrado, licencia, repositorio de GitHub y enlaces.
 // Lo que se cambia aquí va al formulario del proyecto y se guarda con
@@ -82,7 +83,7 @@ export default function CodeTab({ project, form, onChange, github }: {
     <div className="max-w-3xl space-y-6">
       {form.hosting === 'storage' && (
         <div className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 flex items-start gap-3">
-          <span className="text-lg">⚠</span>
+          <span className="text-lg"><G n="warning" /></span>
           <div className="flex-1">
             <p className="text-sm font-semibold text-amber-100">Este proyecto guarda sus archivos en Firebase Storage</p>
             <p className="text-xs text-amber-200/80 mt-0.5">Si lo pasas a GitHub, las versiones e imágenes nuevas irán a GitHub (sin coste de descargas). Lo ya subido sigue funcionando donde está.</p>
@@ -97,7 +98,7 @@ export default function CodeTab({ project, form, onChange, github }: {
           {([[true, 'Código abierto', 'El código está en un repo público; cualquiera puede verlo según la licencia.'], [false, 'Código cerrado', 'El código es privado (o no está en GitHub). Solo se publican los archivos para descargar.']] as const).map(([open, title, hint]) => (
             <button key={title} onClick={() => setOpen(open)}
               className={`p-4 rounded-2xl border text-left transition-colors ${form.openSource === open ? 'bg-[#a855f7]/15 border-[#a855f7]/60' : 'border-border hover:bg-bg-hover'}`}>
-              <p className="text-sm font-semibold text-text-primary">{form.openSource === open ? '● ' : '○ '}{title}</p>
+              <p className="text-sm font-semibold text-text-primary"><G n={form.openSource === open ? 'dot' : 'circle'} className="mr-1" />{title}</p>
               <p className="text-[11px] text-text-muted mt-1">{hint}</p>
             </button>
           ))}

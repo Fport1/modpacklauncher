@@ -5,6 +5,7 @@ import { parseHostInput } from '../../../shared/ftpHost'
 import FilePane, { Btn, type PaneApi } from '../components/ftp/FilePane'
 import AssistConnectDialog from '../components/assist/AssistConnectDialog'
 import { errText, type LogKind, type Side } from '../components/ftp/shared'
+import G from '../components/ui/Glyph'
 
 // Cliente de archivos para servidores (FTP, FTPS y SFTP), con lo básico de
 // FileZilla: sitios guardados, dos cuadros, subir, bajar, editar, renombrar,
@@ -93,8 +94,8 @@ export function TransfersBar() {
       {shown.map((t) => {
         const pct = t.bytes ? Math.min(100, (t.bytesDone / t.bytes) * 100) : t.files ? (t.filesDone / t.files) * 100 : 0
         const color = t.kind === 'up' ? 'bg-accent' : t.kind === 'down' ? 'bg-sky-400' : 'bg-red-400'
-        const verb = t.kind === 'up' ? '↑ Subiendo' : t.kind === 'down' ? '↓ Descargando' : '🗑 Borrando'
-        const state = t.status === 'queued' ? 'En cola' : t.status === 'done' ? '✓ Hecho' : t.status === 'cancelled' ? 'Cancelado' : t.status === 'error' ? `⚠ Con ${t.failed.length} error${t.failed.length === 1 ? '' : 'es'}` : verb
+        const verb = t.kind === 'up' ? <><G n="arrowUp" /> Subiendo</> : t.kind === 'down' ? <><G n="arrowDown" /> Descargando</> : <><G n="trash" /> Borrando</>
+        const state = t.status === 'queued' ? 'En cola' : t.status === 'done' ? <><G n="check" /> Hecho</> : t.status === 'cancelled' ? 'Cancelado' : t.status === 'error' ? <><G n="warning" /> Con {t.failed.length} error{t.failed.length === 1 ? '' : 'es'}</> : verb
         const eta = t.speed > 0 && t.bytes ? (t.bytes - t.bytesDone) / t.speed : 0
         const expanded = open === t.id
         return (
@@ -125,7 +126,7 @@ export function TransfersBar() {
                   <p className="text-text-muted truncate">Siguen: {t.next.join(', ')}{t.pending > t.next.length ? ` y ${t.pending - t.next.length} más` : ''}</p>
                 )}
                 {!expanded && t.pending > 0 && <p className="text-text-muted">{t.pending} en cola · <button type="button" className="underline hover:text-text-primary" onClick={() => setOpen(t.id)}>ver cuáles</button></p>}
-                {expanded && t.failed.map((f) => <p key={f.name} className="text-red-400 truncate" title={f.error}>✕ {f.name}: {f.error}</p>)}
+                {expanded && t.failed.map((f) => <p key={f.name} className="text-red-400 truncate" title={f.error}><G n="x" /> {f.name}: {f.error}</p>)}
               </div>
             )}
           </div>
@@ -241,7 +242,7 @@ export default function FtpPage() {
         <h1 className="text-2xl font-bold text-text-primary">Servidores</h1>
         <span className="text-xs text-text-muted">FTP · FTPS · SFTP</span>
         <span className="ml-auto text-[11px] text-text-muted hidden xl:block">
-          Ctrl+F buscar · F5 recargar · F2 renombrar · Supr borrar · Ctrl+Z / Ctrl+Y deshacer · ⧉ sacar un cuadro a otra ventana
+          Ctrl+F buscar · F5 recargar · F2 renombrar · Supr borrar · Ctrl+Z / Ctrl+Y deshacer · <G n="popout" /> sacar un cuadro a otra ventana
         </span>
       </div>
 
@@ -252,13 +253,13 @@ export default function FtpPage() {
           {sites.length === 0 && <option value="">Sin sitios guardados</option>}
           {sites.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.protocol.toUpperCase()} {s.host}:{s.port}</option>)}
         </select>
-        <Btn onClick={() => setForm({ ...EMPTY_FORM })} disabled={busyConn}>＋ Nuevo sitio</Btn>
+        <Btn onClick={() => setForm({ ...EMPTY_FORM })} disabled={busyConn}><G n="plus" /> Nuevo sitio</Btn>
         <Btn onClick={() => site && setForm({
           id: site.id, name: site.name, protocol: site.protocol, host: site.host,
           port: site.port, user: site.user, password: '', remoteDir: site.remoteDir ?? ''
-        })} disabled={!site || busyConn}>✎ Editar</Btn>
-        <Btn onClick={() => setConfirmDelete(true)} disabled={!site || busyConn} danger>🗑</Btn>
-        <Btn onClick={() => setAssistOpen(true)} disabled={busyConn}>🤝 Ayudar a un amigo</Btn>
+        })} disabled={!site || busyConn}><G n="edit" /> Editar</Btn>
+        <Btn onClick={() => setConfirmDelete(true)} disabled={!site || busyConn} danger><G n="trash" /></Btn>
+        <Btn onClick={() => setAssistOpen(true)} disabled={busyConn}><G n="handshake" /> Ayudar a un amigo</Btn>
 
         <div className="ml-auto flex items-center gap-3">
           <span className={`flex items-center gap-2 text-sm ${conn.connected ? 'text-green-400' : conn.lost ? 'text-red-400' : conn.reconnecting ? 'text-amber-400' : 'text-text-muted'}`}>
@@ -278,7 +279,7 @@ export default function FtpPage() {
       <div className="flex-1 flex gap-3 min-h-0">
         {(['local', 'remote'] as Side[]).map((side) => popped[side] ? (
           <div key={side} className="w-52 shrink-0 flex flex-col items-center justify-center gap-3 text-center bg-bg-secondary border-2 border-dashed border-border rounded-2xl p-4">
-            <span className="text-3xl text-accent">⧉</span>
+            <span className="text-3xl text-accent"><G n="popout" /></span>
             <p className="text-sm text-text-secondary">{side === 'local' ? '«Este equipo»' : 'El servidor'} está en otra ventana</p>
             <div className="flex flex-col gap-2 w-full">
               <Btn primary onClick={() => window.api.ftp.paneOpen(side)}>Ir a esa ventana</Btn>

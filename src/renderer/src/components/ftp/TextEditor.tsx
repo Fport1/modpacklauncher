@@ -31,7 +31,7 @@ export default function TextEditor({ name, location, load, save, onClose, closeR
     const toSave = contentRef.current
     await save(toSave)
     setSaved(toSave)
-  }, '✓ Guardado')
+  }, 'Guardado')
   // Monaco registra el atajo una sola vez: con una referencia llama siempre a la versión actual
   const saveRef = useRef(saver.run)
   saveRef.current = saver.run

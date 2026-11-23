@@ -6,6 +6,7 @@ import {
   SOURCE_INFO, compatibility, resolveRefs, sourceDetail, sourceVersions, versionChangelog,
   type ContentKind, type ProjectDetail, type ProjectRef, type SearchContext, type SourceId, type SourceVersion
 } from '../../lib/contentSources'
+import G from '../ui/Glyph'
 
 // Ficha de un proyecto, igual para todas las fuentes (Modrinth, CurseForge,
 // Fport1, Hangar y SpigotMC): información, galería, versiones con fecha y
@@ -23,7 +24,7 @@ const YT_IFRAME_RE = /<iframe[^>]*src="https?:\/\/(?:www\.)?youtube(?:-nocookie)
 /** Quita scripts y atributos on* del HTML de las fuentes y cambia vídeos de YouTube por tarjetas. */
 function cleanHtml(html: string): string {
   const withCards = html.replace(YT_IFRAME_RE, (_, id: string) =>
-    `<a href="https://www.youtube.com/watch?v=${id}" class="yt-card"><img src="https://img.youtube.com/vi/${id}/hqdefault.jpg" alt="YouTube" /><span class="yt-play">▶</span></a>`)
+    `<a href="https://www.youtube.com/watch?v=${id}" class="yt-card"><img src="https://img.youtube.com/vi/${id}/hqdefault.jpg" alt="YouTube" /><span class="yt-play"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg></span></a>`)
   const doc = new DOMParser().parseFromString(withCards, 'text/html')
   doc.querySelectorAll('script,style,iframe,object,embed,form').forEach((n) => n.remove())
   doc.querySelectorAll('*').forEach((el) => {
@@ -228,7 +229,7 @@ export default function ExploreDetail(p: Props) {
         </div>
         <div className="relative flex items-center gap-5 px-6 pt-3 pb-5">
           <div className="w-24 h-24 rounded-3xl bg-bg-hover overflow-hidden flex-shrink-0 ring-1 ring-white/10" style={{ boxShadow: `0 10px 34px ${tint(0.45)}` }}>
-            {icon ? <img src={icon} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-4xl">📦</div>}
+            {icon ? <img src={icon} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-4xl text-text-muted"><G n="package" /></div>}
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold text-text-primary truncate">{data?.title ?? target.title}</h1>
@@ -253,7 +254,7 @@ export default function ExploreDetail(p: Props) {
             {p.installed ? (
               <>
                 <span className="flex items-center gap-2 px-4 py-2 rounded-xl border border-green-500/40 bg-green-500/10 text-green-300 text-sm font-semibold">
-                  ✓ Instalado{installedVersion ? ` · ${installedVersion.number}` : ''}
+                  <G n="check" /> Instalado{installedVersion ? ` · ${installedVersion.number}` : ''}
                 </span>
                 <button onClick={() => changeTab('versions')} className="text-xs text-text-muted hover:text-text-primary hover:underline">Cambiar de versión</button>
               </>
@@ -269,7 +270,7 @@ export default function ExploreDetail(p: Props) {
             )}
             {data?.pageUrl && (
               <button onClick={() => window.api.shell.openExternal(data.pageUrl!)} className="text-xs text-text-muted hover:text-text-primary hover:underline">
-                Ver en {SOURCE_INFO[target.source].label} ↗
+                Ver en {SOURCE_INFO[target.source].label} <G n="external" />
               </button>
             )}
           </div>
@@ -331,7 +332,7 @@ export default function ExploreDetail(p: Props) {
                 {ctx?.minecraft && (
                   <button onClick={() => setOnlyCompat((v) => !v)}
                     className={`px-3 py-2 rounded-xl text-sm font-semibold border transition-colors ${onlyCompat ? 'bg-green-500/15 border-green-500/40 text-green-300' : 'border-border text-text-secondary hover:text-text-primary'}`}>
-                    {onlyCompat ? '✓ ' : ''}Solo compatibles con {ctx.minecraft}{ctx.loader && ctx.loader !== 'vanilla' && kind !== 'datapack' ? ` · ${LOADER_NAMES[ctx.loader] ?? ctx.loader}` : ''}
+                    {onlyCompat ? <><G n="check" /> </> : ''}Solo compatibles con {ctx.minecraft}{ctx.loader && ctx.loader !== 'vanilla' && kind !== 'datapack' ? ` · ${LOADER_NAMES[ctx.loader] ?? ctx.loader}` : ''}
                   </button>
                 )}
                 <select value={vMc} onChange={(e) => setVMc(e.target.value)} className="bg-bg-card border border-border rounded-xl px-3 py-2 text-sm text-text-secondary outline-none">

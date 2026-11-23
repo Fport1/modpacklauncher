@@ -4,6 +4,7 @@ import {
   collection, doc, getCountFromServer, getDoc, getDocs, limit, orderBy, query, Timestamp, where,
 } from 'firebase/firestore'
 import { socialAuth, socialDb } from '../lib/firebase'
+import G from './ui/Glyph'
 
 // Estadísticas para vender el launcher: descargas, instalaciones activas,
 // usuarios diarios/semanales/mensuales, fport1social, uso del juego y de la IA.
@@ -290,7 +291,7 @@ export default function AdminStats() {
       <div className="flex items-center justify-between">
         <p className="text-xs text-text-muted">Datos anónimos y agregados. Las instalaciones cuentan desde la versión 1.10.1.</p>
         <div className="flex gap-2">
-          <button onClick={copySummary} disabled={!stats} className="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary hover:text-text-primary disabled:opacity-40">{copied ? 'Copiado ✓' : 'Copiar resumen'}</button>
+          <button onClick={copySummary} disabled={!stats} className="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary hover:text-text-primary disabled:opacity-40">{copied ? <>Copiado <G n="check" /></> : 'Copiar resumen'}</button>
           <button onClick={refresh} disabled={loading} className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white text-xs font-semibold disabled:opacity-60">{loading ? 'Cargando…' : 'Actualizar'}</button>
         </div>
       </div>

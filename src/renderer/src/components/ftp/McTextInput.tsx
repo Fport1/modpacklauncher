@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { MC_COLORS, MC_STYLES, CLICK_ACTIONS, colorHex, parseCodes, type McSegment, type RichText, type ClickAction } from '../../lib/mcText'
+import G from '../ui/Glyph'
 
 // Campo para escribir texto con formato de Minecraft (&5&l[VIP]) con botones
 // de colores y estilos, y cómo queda en el juego debajo. Pensado para quien no
@@ -105,7 +106,7 @@ export default function McTextInput({ value: external, onChange: emit, placehold
           </button>
         ))}
         <button type="button" title="Quitar formato a partir de aquí (&r)" onClick={() => insert('&r')}
-          className="h-5 px-1.5 rounded border border-border text-[11px] text-text-muted hover:text-text-primary">↺</button>
+          className="h-5 px-1.5 rounded border border-border text-[11px] text-text-muted hover:text-text-primary"><G n="rotateLeft" /></button>
       </div>
       <div className="relative">
         <div className="px-3 py-1.5 rounded-lg bg-[#1d1d24] border border-black/40 min-h-[30px] flex items-center overflow-x-auto"
@@ -151,11 +152,11 @@ export function RichTextInput({ value, onChange, placeholder, previewBefore, pre
       <div className="flex gap-1.5 flex-wrap">
         <button type="button" onClick={() => { if (showHover) set({ hover: undefined }); setShowHover(!showHover) }}
           className={`px-2 py-0.5 rounded-md border text-[11px] ${showHover ? 'border-accent/60 text-accent bg-accent/10' : 'border-border text-text-muted hover:text-text-primary'}`}>
-          {showHover ? '✕ Quitar' : '＋'} texto al pasar el ratón
+          <G n={showHover ? 'x' : 'plus'} /> {showHover ? 'Quitar' : ''} texto al pasar el ratón
         </button>
         <button type="button" onClick={() => { if (showClick) set({ click: undefined }); setShowClick(!showClick) }}
           className={`px-2 py-0.5 rounded-md border text-[11px] ${showClick ? 'border-accent/60 text-accent bg-accent/10' : 'border-border text-text-muted hover:text-text-primary'}`}>
-          {showClick ? '✕ Quitar' : '＋'} acción al hacer clic
+          <G n={showClick ? 'x' : 'plus'} /> {showClick ? 'Quitar' : ''} acción al hacer clic
         </button>
       </div>
 

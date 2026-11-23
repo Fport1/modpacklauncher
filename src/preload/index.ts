@@ -32,8 +32,23 @@ import type {
   DownloadProgress,
   Friend
 } from '../shared/types'
-import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus, TransferPlan, TransferRequest, TransferResult, TransferJobState, RegionChunkInfo, ItemRender, AdvancementDef, AdvancementProgress, WorldLayout, WorldPlayer, TransferArea } from '../shared/types'
+import type { ModFile, ModMeta, WorldFolder, ScreenshotFile, CrashReport, ConfigFile, AssetSource, AssetEntry, StorageChild, StorageScanProgress, DiskInfo, FtpSiteInput, FtpSiteSummary, RemoteEntry, LocalEntry, ServerInfo, ServerOverride, ServerJarMeta, NbtDocument, FtpConnectionState, AssistInstanceInfo, BedrockStatus, BedrockEdition, BedrockWindowSettings, AiActivity, AiToolId, AiToolMissing, GithubRepo, GithubStatus, LiveStatus, TransferPlan, TransferRequest, TransferResult, TransferJobState, RegionChunkInfo, HorizonModProject, HorizonModInstalled, StudioProject, StudioModelEntry, StudioTexture, ItemRender, AdvancementDef, AdvancementProgress, WorldLayout, WorldPlayer, TransferArea } from '../shared/types'
 export type { ModFile, ModMeta }
+
+/** Acceso directo de una instancia cuyo modpack tiene versión nueva (ver src/main/shortcuts.ts). */
+export interface ShortcutUpdateInfo {
+  instanceId: string
+  name: string
+  modpackUrl: string
+  currentVersion?: string
+  latestVersion: string
+}
+/** Acceso directo que no pudo lanzar el juego. */
+export interface ShortcutErrorInfo {
+  instanceId: string
+  name?: string
+  message: string
+}
 
 const api = {
   // Window controls
@@ -83,6 +98,8 @@ const api = {
     create: (data: Omit<Instance, 'id' | 'createdAt'>) =>
       ipcRenderer.invoke('instances:create', data) as Promise<Instance>,
     update: (instance: Instance) => ipcRenderer.invoke('instances:update', instance),
+    /** Acceso directo en el escritorio que abre la instancia como un juego. Devuelve dónde se creó. */
+    createShortcut: (instanceId: string) => ipcRenderer.invoke('instances:create-shortcut', instanceId) as Promise<string>,
     delete: (instanceId: string) => ipcRenderer.invoke('instances:delete', instanceId),
     openFolder: (instanceId: string) => ipcRenderer.invoke('instances:open-folder', instanceId),
     getModSources: (instanceId: string) => ipcRenderer.invoke('instances:get-mod-sources', instanceId) as Promise<Record<string, { source: 'curseforge' | 'modrinth'; projectId?: number | string; fileId?: number | string }>>,
@@ -448,6 +465,25 @@ const api = {
       ipcRenderer.invoke('qr:save-image', dataUrl, suggestedName) as Promise<string | null>,
   },
 
+  /**
+   * Peticiones que llegan al abrir la app (doble clic en un .fpack, accesos directos
+   * de instancia…). `ready` avisa de que ya se escucha y devuelve las que llegaron
+   * antes; las siguientes llegan por `on`.
+   */
+  launchRequests: {
+    ready: () => ipcRenderer.invoke('inbox:ready') as Promise<{ channel: string; args: unknown[] }[]>,
+    onShortcutUpdate: (cb: (info: ShortcutUpdateInfo) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, info: ShortcutUpdateInfo) => cb(info)
+      ipcRenderer.on('instance-shortcut:update', handler)
+      return () => { ipcRenderer.removeListener('instance-shortcut:update', handler) }
+    },
+    onShortcutError: (cb: (info: ShortcutErrorInfo) => void) => {
+      const handler = (_e: Electron.IpcRendererEvent, info: ShortcutErrorInfo) => cb(info)
+      ipcRenderer.on('instance-shortcut:error', handler)
+      return () => { ipcRenderer.removeListener('instance-shortcut:error', handler) }
+    },
+  },
+
   // Deep link events from main process (modpacklauncher:// protocol)
   onDeepLink: (cb: (action: string, params: Record<string, string>) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, action: string, params: Record<string, string>) => cb(action, params)
@@ -554,6 +590,38 @@ const api = {
     /** Textos del juego en el idioma del launcher */
     lang: () => ipcRenderer.invoke('mc:lang') as Promise<Record<string, string>>,
     advancements: () => ipcRenderer.invoke('mc:advancements') as Promise<AdvancementDef[]>,
+  },
+
+  /** Estudio de modelos de WinterTales (solo la cuenta del dueño; el proceso principal lo comprueba) */
+  horizonMods: {
+    index: (force?: boolean): Promise<HorizonModProject[]> => ipcRenderer.invoke('horizon-mods:index', force),
+    installed: (instanceId: string): Promise<HorizonModInstalled[]> => ipcRenderer.invoke('horizon-mods:installed', instanceId),
+    install: (instanceId: string, id: string, version?: string): Promise<HorizonModInstalled> => ipcRenderer.invoke('horizon-mods:install', instanceId, id, version),
+    remove: (instanceId: string, id: string): Promise<void> => ipcRenderer.invoke('horizon-mods:remove', instanceId, id),
+    toggle: (instanceId: string, id: string, on: boolean): Promise<void> => ipcRenderer.invoke('horizon-mods:toggle', instanceId, id, on),
+  },
+  studio: {
+    layersGet: (ref: string): Promise<unknown> => ipcRenderer.invoke('studio:layers-get', ref),
+    layersSet: (ref: string, data: unknown): Promise<void> => ipcRenderer.invoke('studio:layers-set', ref, data),
+    thumbGet: (id: string, stamp: string): Promise<string | null> => ipcRenderer.invoke('studio:thumb-get', id, stamp),
+    thumbSet: (id: string, stamp: string, url: string): Promise<void> => ipcRenderer.invoke('studio:thumb-set', id, stamp, url),
+    project: () => ipcRenderer.invoke('studio:project') as Promise<StudioProject>,
+    setProject: (dir: string) => ipcRenderer.invoke('studio:set-project', dir) as Promise<StudioProject>,
+    pickProject: () => ipcRenderer.invoke('studio:pick-project') as Promise<string | null>,
+    setTestInstance: (id: string | null) => ipcRenderer.invoke('studio:set-test-instance', id) as Promise<void>,
+    list: () => ipcRenderer.invoke('studio:list') as Promise<StudioModelEntry[]>,
+    readModel: (id: string) => ipcRenderer.invoke('studio:read-model', id) as Promise<string>,
+    readVanillaModel: (ref: string) => ipcRenderer.invoke('studio:read-vanilla-model', ref) as Promise<string | null>,
+    readTexture: (ref: string) => ipcRenderer.invoke('studio:read-texture', ref) as Promise<StudioTexture | null>,
+    listTextures: () => ipcRenderer.invoke('studio:list-textures') as Promise<string[]>,
+    /** Qué scripts de tools/ generan cada textura del mod */
+    generatedBy: (refs: string[]) => ipcRenderer.invoke('studio:generated-by', refs) as Promise<Record<string, { scripts: string[]; handEdited: boolean }>>,
+    saveModel: (id: string, json: string, opts?: { handEdited?: boolean }) => ipcRenderer.invoke('studio:save-model', id, json, opts) as Promise<{ backup: string | null }>,
+    saveTexture: (ref: string, pngBase64: string, opts?: { handEdited?: boolean }) => ipcRenderer.invoke('studio:save-texture', ref, pngBase64, opts) as Promise<{ backup: string | null }>,
+    draftGet: (id: string) => ipcRenderer.invoke('studio:draft-get', id) as Promise<{ savedAt: number; data: unknown } | null>,
+    draftSet: (id: string, data: unknown) => ipcRenderer.invoke('studio:draft-set', id, data) as Promise<void>,
+    draftClear: (id: string) => ipcRenderer.invoke('studio:draft-clear', id) as Promise<void>,
+    testInGame: (models: string[], textures: string[]) => ipcRenderer.invoke('studio:test-in-game', models, textures) as Promise<{ instance: string; pack: string; files: number }>,
   },
 
   /** Archivos de región (.mca) del editor de mundos */

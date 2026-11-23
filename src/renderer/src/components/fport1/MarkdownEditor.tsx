@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { marked } from 'marked'
 import type { Fport1Image } from '../../lib/fport1Content'
 import { inputCls } from './studioShared'
+import G from '../ui/Glyph'
 
 // Descripción en Markdown con barra de formato y vista previa al lado.
 // Las imágenes de la galería se colocan donde esté el cursor, con su tamaño y
@@ -78,20 +79,20 @@ export default function MarkdownEditor({ value, onChange, gallery, onUploadImage
     setPicker(false)
   }
 
-  const tools: { label: string; title: string; run: () => void; cls?: string }[] = [
+  const tools: { label: React.ReactNode; title: string; run: () => void; cls?: string }[] = [
     { label: 'H2', title: 'Título', run: () => linePrefix('## ') },
     { label: 'H3', title: 'Subtítulo', run: () => linePrefix('### ') },
     { label: 'B', title: 'Negrita', run: () => wrap('**', '**', 'texto'), cls: 'font-bold' },
     { label: 'I', title: 'Cursiva', run: () => wrap('*', '*', 'texto'), cls: 'italic' },
     { label: 'S', title: 'Tachado', run: () => wrap('~~', '~~', 'texto'), cls: 'line-through' },
-    { label: '•', title: 'Lista', run: () => linePrefix('- ') },
+    { label: <G n="list" />, title: 'Lista', run: () => linePrefix('- ') },
     { label: '1.', title: 'Lista numerada', run: () => linePrefix((i) => `${i + 1}. `) },
-    { label: '❝', title: 'Cita', run: () => linePrefix('> ') },
+    { label: <G n="quote" />, title: 'Cita', run: () => linePrefix('> ') },
     { label: '</>', title: 'Código', run: () => wrap('`', '`', 'código') },
-    { label: '🔗', title: 'Enlace', run: () => wrap('[', '](https://)', 'texto del enlace') },
-    { label: '▦', title: 'Tabla', run: () => insertBlock('| Columna | Columna |\n| --- | --- |\n| Dato | Dato |') },
+    { label: <G n="link" />, title: 'Enlace', run: () => wrap('[', '](https://)', 'texto del enlace') },
+    { label: <G n="table" />, title: 'Tabla', run: () => insertBlock('| Columna | Columna |\n| --- | --- |\n| Dato | Dato |') },
     { label: '―', title: 'Separador', run: () => insertBlock('---') },
-    { label: '▶', title: 'Vídeo de YouTube (enlace con miniatura)', run: () => insertBlock('[![Vídeo](https://img.youtube.com/vi/ID_DEL_VIDEO/maxresdefault.jpg)](https://www.youtube.com/watch?v=ID_DEL_VIDEO)') },
+    { label: <G n="play" />, title: 'Vídeo de YouTube (enlace con miniatura)', run: () => insertBlock('[![Vídeo](https://img.youtube.com/vi/ID_DEL_VIDEO/maxresdefault.jpg)](https://www.youtube.com/watch?v=ID_DEL_VIDEO)') },
   ]
 
   return (
@@ -102,7 +103,7 @@ export default function MarkdownEditor({ value, onChange, gallery, onUploadImage
             className={`min-w-[32px] h-8 px-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover ${t.cls ?? ''}`}>{t.label}</button>
         ))}
         <button type="button" onClick={() => setPicker(p => !p)}
-          className={`h-8 px-3 rounded-lg text-sm font-semibold ${picker ? 'bg-[#a855f7]/25 text-[#e9d5ff]' : 'text-[#c084fc] hover:bg-bg-hover'}`}>🖼 Imagen</button>
+          className={`h-8 px-3 rounded-lg text-sm font-semibold ${picker ? 'bg-[#a855f7]/25 text-[#e9d5ff]' : 'text-[#c084fc] hover:bg-bg-hover'}`}><G n="image" /> Imagen</button>
         <span className="flex-1" />
         <button type="button" onClick={() => setSplit(s => !s)} className="h-8 px-3 rounded-lg text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover">
           {split ? 'Solo editor' : 'Con vista previa'}

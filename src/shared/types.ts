@@ -401,6 +401,44 @@ export interface FtpSiteSummary extends Omit<FtpSite, 'password'> {
   hasPassword: boolean
 }
 
+// ── Estudio de modelos (WinterTales) ──
+
+export interface StudioProject {
+  dir: string
+  /** Si existe src/main/resources/assets/<modid> */
+  exists: boolean
+  modid: string
+  testInstanceId: string | null
+}
+
+export interface StudioModelEntry {
+  /** "block/poker_table_0" */
+  id: string
+  kind: 'block' | 'item'
+  name: string
+  /** Ruta relativa al proyecto */
+  file: string
+  size: number
+  mtime: number
+  /** Cubos propios (0 = solo hereda de su padre) */
+  elements: number
+  parent?: string
+  /** Scripts de tools/ que parecen generarlo */
+  generatedBy: string[]
+  /** Está en tools/hand-edited.json: los scripts no lo tocan */
+  handEdited: boolean
+}
+
+export interface StudioTexture {
+  ref: string
+  dataUrl: string
+  w: number
+  h: number
+  /** Del mod (se puede guardar); las de Minecraft no */
+  editable: boolean
+  file?: string
+}
+
 /** Un chunk de un archivo de región (.mca). */
 export interface RegionChunkInfo {
   /** 0..1023 dentro de la región */
@@ -716,3 +754,28 @@ export interface TransferResult {
   skipped: number
   failed: { name: string; error: string }[]
 }
+
+/** Proyecto del registro de mods de Horizon (horizon-rust.github.io/horizon-mods) */
+export interface HorizonModProject {
+  id: string
+  kind: 'resourcepack' | 'native-mod' | 'mod' | 'modpack' | 'shader'
+  name: string
+  summary: string
+  description: string
+  authors: string[]
+  license?: string
+  source?: string
+  icon?: string
+  categories: string[]
+  tags: string[]
+  screenshots: string[]
+  downloads: number
+  rating?: number
+  ratingCount?: number
+  /** Se puede instalar desde el launcher (los nativos necesitan compilar Horizon) */
+  installable: boolean
+  updated: string
+  versions: { version: string; published: string; changelog: string; game: string; side?: string; capabilities: string[]; file: { name: string; url: string; size: number; sha256: string } }[]
+}
+
+export interface HorizonModInstalled { id: string; version: string; kind: string; file: string; enabled: boolean }

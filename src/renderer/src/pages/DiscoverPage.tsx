@@ -9,9 +9,11 @@ import {
   countDownload as countFport1Download, projectUpdatedMs, versionPublishedMs, type Fport1Project
 } from '../lib/fport1Content'
 import Fport1Studio from '../components/fport1/Fport1Studio'
+import HorizonBrowser from '../components/HorizonBrowser'
 import ExploreDetail, { type DetailRef, type DVersion, type DetailTab } from '../components/explore/ExploreDetail'
 import { nav } from '../nav'
 import { catLabel } from '../lib/categoryNames'
+import G from '../components/ui/Glyph'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -1071,7 +1073,7 @@ function CurseInstall({ hit, file, contentType, instances, onClose }: {
               {worlds.map(w => (
                 <button key={w.name} onClick={() => doInstall(undefined, w.name)}
                   className="w-full p-3 bg-bg-card border border-border hover:border-[#F16436]/50 rounded-xl text-left text-sm text-text-primary transition-colors">
-                  🌍 {w.name}
+                  <G n="globe" /> {w.name}
                 </button>
               ))}
             </div>
@@ -1086,7 +1088,7 @@ function CurseInstall({ hit, file, contentType, instances, onClose }: {
 
           {step === 'done' && (
             <div className="flex flex-col items-center gap-3 py-8 text-center">
-              <div className="w-14 h-14 rounded-full bg-green-500/15 flex items-center justify-center text-green-400 text-2xl">✓</div>
+              <div className="w-14 h-14 rounded-full bg-green-500/15 flex items-center justify-center text-green-400 text-2xl"><G n="check" /></div>
               <p className="text-sm font-semibold text-text-primary">¡Instalado!</p>
               <div className="flex gap-2 mt-2">
                 {createdInstanceId && <button onClick={() => { onClose(); navigate('/instances') }} className="px-4 py-2 rounded-xl bg-[#F16436] text-white text-sm font-semibold">Ir a instancias</button>}
@@ -1165,7 +1167,7 @@ const TAB_ICONS: Record<ContentType, React.ReactNode> = {
   shader: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>,
 }
 
-type Source = 'modrinth' | 'curseforge' | 'fport1'
+type Source = 'modrinth' | 'curseforge' | 'fport1' | 'horizon'
 
 const SOURCES: { key: Source; label: string; color: string; icon: React.ReactNode }[] = [
   {
@@ -1180,12 +1182,16 @@ const SOURCES: { key: Source; label: string; color: string; icon: React.ReactNod
     key: 'fport1', label: 'Fport1', color: '#a855f7',
     icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>,
   },
+  {
+    key: 'horizon', label: 'Horizon', color: '#f97316',
+    icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 18h20"/><path d="M5 18a7 7 0 0114 0"/><path d="M12 4v3M4.2 8.2l2.1 2.1M19.8 8.2l-2.1 2.1"/></svg>,
+  },
 ]
 
 export default function DiscoverPage() {
   const [source, setSource]             = useState<Source>(() => {
     const s = localStorage.getItem('ml-discover-source')
-    return s === 'curseforge' || s === 'fport1' ? s : 'modrinth'
+    return s === 'curseforge' || s === 'fport1' || s === 'horizon' ? s : 'modrinth'
   })
   const [contentType, setContentType]   = useState<ContentType>('modpack')
   const [query, setQuery]               = useState('')
@@ -1513,7 +1519,7 @@ export default function DiscoverPage() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1 border-b border-border pb-0">
+          <div className={`flex items-center gap-1 border-b border-border pb-0 ${source === 'horizon' ? 'hidden' : ''}`}>
             {visibleTabs.map(tab => (
               <button key={tab.key} onClick={() => handleTabChange(tab.key)}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold transition-colors border-b-2 -mb-px ${
@@ -1530,8 +1536,9 @@ export default function DiscoverPage() {
         </div>
       )}
 
+      {source === 'horizon' && !view && <HorizonBrowser />}
       {/* Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className={`flex flex-1 overflow-hidden ${source === 'horizon' ? 'hidden' : ''}`}>
         {/* Detail view (inline, replaces results + sidebar) */}
         {view && (
           <ExploreDetail
@@ -1643,7 +1650,7 @@ export default function DiscoverPage() {
                 return (
                   <ProjectCard key={p.id} hit={hit} contentType={contentType} catIcons={catIcons} hideFollows
                     extra={<>
-                      {p.featured && <span className="text-[11px] px-2 py-0.5 rounded-md border font-semibold bg-[#a855f7]/15 text-[#d8b4fe] border-[#a855f7]/40">★ Destacado</span>}
+                      {p.featured && <span className="text-[11px] px-2 py-0.5 rounded-md border font-semibold bg-[#a855f7]/15 text-[#d8b4fe] border-[#a855f7]/40"><G n="star" /> Destacado</span>}
                       {p.latestVersion && (
                         <span className={`text-[11px] px-2 py-0.5 rounded-md border font-semibold ${CHANNEL_STYLE[p.latestVersion.channel] ?? ''}`}>
                           v{p.latestVersion.versionNumber}{p.latestVersion.channel !== 'release' ? ` · ${p.latestVersion.channel}` : ''}

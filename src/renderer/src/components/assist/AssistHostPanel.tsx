@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { acceptHelper, dismissHost, rejectHelper, stopHosting, useAssistHost } from '../../lib/assist/session'
+import G from '../ui/Glyph'
 
 // Tarjeta fija en la esquina mientras alguien te está ayudando (o esperas a
 // que entre): el código, quién quiere conectarse, qué está tocando y el botón
@@ -22,7 +23,7 @@ export default function AssistHostPanel() {
         className={`fixed bottom-4 right-4 z-[450] flex items-center gap-2 px-3 py-2 rounded-full shadow-2xl border text-sm font-medium ${
           s.phase === 'connected' ? 'bg-purple-600 border-purple-400 text-white' : 'bg-bg-secondary border-border text-text-primary'
         }`}>
-        🤝 {title}
+        <G n="handshake" /> {title}
       </button>
     )
   }
@@ -30,7 +31,7 @@ export default function AssistHostPanel() {
   return (
     <div className="fixed bottom-4 right-4 z-[450] w-[360px] bg-bg-secondary border-2 border-purple-500/60 rounded-2xl shadow-2xl overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2.5 bg-purple-500/15 border-b border-purple-500/30">
-        <span className="text-lg">🤝</span>
+        <span className="text-lg text-purple-400"><G n="handshake" /></span>
         <p className="text-sm font-semibold text-text-primary flex-1 truncate">{title}</p>
         {s.phase !== 'ended' && <button type="button" onClick={() => setMinimized(true)} title="Minimizar" className="text-text-muted hover:text-text-primary px-1">▁</button>}
       </div>
@@ -42,13 +43,13 @@ export default function AssistHostPanel() {
 
         {s.phase === 'waiting' && s.code && (
           <>
-            <p className="text-sm text-text-secondary">Pásale este código a tu amigo. Lo mete en Servidores → «Ayudar a un amigo».</p>
+            <p className="text-sm text-text-secondary">Pásale este código a tu amigo. Lo mete en Servidores <G n="chevronRight" /> «Ayudar a un amigo».</p>
             <button type="button" title="Copiar"
               onClick={() => { navigator.clipboard.writeText(s.code!); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
               className="w-full py-3 rounded-xl bg-bg-primary border border-border font-mono text-3xl tracking-[0.25em] text-accent hover:border-accent/50">
               {s.code}
             </button>
-            <p className="text-[11px] text-text-muted text-center">{copied ? '✓ Copiado' : 'Clic para copiar · caduca en 30 minutos'}</p>
+            <p className="text-[11px] text-text-muted text-center">{copied ? <><G n="check" /> Copiado</> : 'Clic para copiar · caduca en 30 minutos'}</p>
           </>
         )}
 

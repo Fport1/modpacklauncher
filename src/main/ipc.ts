@@ -107,10 +107,11 @@ import { safeJoin } from './paths'
 import { planTransfer, runTransfer, type TransferRequest } from './transfer'
 import { cfGet as cfFetch, cfPost } from './curseforge'
 import { listWorldDatapacks, setWorldDatapackEnabled, deleteWorldDatapack, addWorldDatapacks } from './worldDatapacks'
-import { hasRunningInstances, getRunningSnapshot, isInstanceRunning } from './launcher'
+import { hasRunningInstances, getRunningSnapshot, isInstanceRunning, gameEvents } from './launcher'
 import { checkProtectedInstall, instancesBoundTo, guard, keepProtectedFields, sealedMods, removeProtection, withUnsealed, updateProtectionRules, checkLaunch, unsealForGame, resealAfterGame, resealLeftovers, startExpiryWatch } from './protection'
 import { aiContextStatus, prepareAiContext, prepareLauncherWorkspace, writeToolConfigs } from './aiContext'
 import { startAiBridge } from './aiBridge'
+import { syncInstanceShortcuts } from './shortcuts'
 import { setTelemetryEnabled, startTelemetry } from './telemetry'
 import { setAiLearningEnabled, startAiCommunity } from './aiCommunity'
 import { hasSocialSession } from './socialSession'
@@ -138,6 +139,13 @@ export function getSettings(): Settings {
 }
 let currentMainWindow: BrowserWindow | null = null
 let ipcHandlersRegistered = false
+
+/** El mismo arranque que el botón Jugar, para quien no pasa por IPC (accesos directos). */
+let launchInstanceById: ((instanceId: string) => Promise<void>) | null = null
+export function launchFromMain(instanceId: string): Promise<void> {
+  if (!launchInstanceById) return Promise.reject(new Error('El launcher aún no está listo'))
+  return launchInstanceById(instanceId)
+}
 
 function sendToWindow(window: BrowserWindow | null | undefined, channel: string, ...args: unknown[]): boolean {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return false
@@ -256,7 +264,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     createInstance(data)
   )
 
-  ipcMain.handle('instances:update', async (_e, instance: Instance) => updateInstance(await keepProtectedFields(instance)))
+  ipcMain.handle('instances:update', async (_e, instance: Instance) => {
+    const result = await updateInstance(await keepProtectedFields(instance))
+    // Nombre o icono nuevos: el acceso directo del escritorio también (si tiene)
+    void syncInstanceShortcuts(instance.id)
+    return result
+  })
 
   ipcMain.handle('instances:delete', async (_e, instanceId: string) => {
     const instances = await loadInstances()
@@ -266,6 +279,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       op.progress('Borrando archivos...', 0, 1)
       await deleteInstance(instanceId)
       await removeProtection(instanceId)
+      void syncInstanceShortcuts(instanceId) // ya no lleva a ninguna parte: se quita del escritorio
       op.done('Instancia eliminada')
     } catch (err) {
       op.error(describeError(err, 'Error al eliminar'))
@@ -355,15 +369,25 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       throw err
     }
   })
-  ipcMain.handle('instances:pick-icon', (_e, instanceId: string) => pickInstanceIcon(instanceId, getMainWindow()))
+  ipcMain.handle('instances:pick-icon', async (_e, instanceId: string) => {
+    const r = await pickInstanceIcon(instanceId, getMainWindow())
+    if (r) void syncInstanceShortcuts(instanceId)
+    return r
+  })
   ipcMain.handle('instances:get-icon', (_e, instanceId: string) => getInstanceIconBase64(instanceId))
   ipcMain.handle('instances:list-default-icons', () => listDefaultIcons())
   ipcMain.handle('instances:check-name', (_e, name: string, excludeId?: string) => checkInstanceNameExists(name, excludeId))
   ipcMain.handle('instances:list-game-dir', async (_e, instanceId: string, subPath?: string) => { await guard(instanceId, 'files'); return listGameDirEntries(instanceId, subPath) })
   ipcMain.handle('instances:get-default-icon', () => getDefaultIconBase64())
   ipcMain.handle('instances:pick-icon-preview', () => pickIconPreview(getMainWindow()))
-  ipcMain.handle('instances:apply-pending-icon', (_e, instanceId: string, filePath: string) => applyPendingIcon(instanceId, filePath))
-  ipcMain.handle('instances:set-icon-from-url', (_e, instanceId: string, url: string) => setInstanceIconFromUrl(instanceId, url))
+  ipcMain.handle('instances:apply-pending-icon', async (_e, instanceId: string, filePath: string) => {
+    await applyPendingIcon(instanceId, filePath)
+    void syncInstanceShortcuts(instanceId)
+  })
+  ipcMain.handle('instances:set-icon-from-url', async (_e, instanceId: string, url: string) => {
+    await setInstanceIconFromUrl(instanceId, url)
+    void syncInstanceShortcuts(instanceId)
+  })
 
   ipcMain.handle('shell:open-external', async (_e, url: string) => {
     const { shell } = await import('electron')
@@ -383,6 +407,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // ── Launcher ────────────────────────────────────────────────────────────────
 
   ipcMain.handle('launcher:launch', (_e, instanceId: string) => launchById(instanceId))
+  launchInstanceById = launchById
   // La IA arranca el juego por el mismo camino que el botón Jugar
   startAiBridge(launchById)
   // Modpacks protegidos: lo que quedó descifrado (el launcher se cerró con el juego abierto)
@@ -437,9 +462,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         instance, account, settings, getMainWindow(),
         (current, total, message, detail) => op.progress(message, current, total, detail),
         async (sessionMs) => {
-          await resealAfterGame(instanceId)
-          instance.playtime = (instance.playtime ?? 0) + sessionMs
-          await updateInstance(await keepProtectedFields(instance))
+          try {
+            await resealAfterGame(instanceId)
+            instance.playtime = (instance.playtime ?? 0) + sessionMs
+            await updateInstance(await keepProtectedFields(instance))
+          } finally {
+            // Los accesos directos esperan a esto para cerrar la app (ver shortcuts.ts)
+            gameEvents.emit('session-saved', instanceId)
+          }
         }
       ))
       instance.lastPlayed = Date.now()
@@ -1597,6 +1627,49 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle('ftp:transfers', async () => (await import('./ftpTransfer')).transferJobs())
   ipcMain.handle('ftp:transfer-cancel', async (_e, id: string) => (await import('./ftpTransfer')).cancelTransfer(id))
   ipcMain.handle('ftp:transfers-clear', async () => (await import('./ftpTransfer')).clearFinishedTransfers())
+  // Estudio de modelos de WinterTales: solo para la cuenta del dueño (la misma de Admin)
+  {
+    const studio = async (): Promise<typeof import('./modelStudio')> => {
+      const m = await import('./modelStudio')
+      m.setStudioOwnerCheck(() => {
+        const { accounts, activeId } = accountsStore.getAll()
+        const acc = accounts.find((a) => a.id === activeId) ?? accounts[0]
+        return acc?.type === 'microsoft' && acc.username.toLowerCase() === 'devora60'
+      })
+      return m
+    }
+    // Registro de mods de Horizon (Explorar → Horizon)
+    const hzm = () => import('./horizonMods')
+    ipcMain.handle('horizon-mods:index', async (_e, force?: boolean) => (await hzm()).horizonModsIndex(force))
+    ipcMain.handle('horizon-mods:installed', async (_e, instanceId: string) => (await hzm()).horizonModsInstalled(instanceId))
+    ipcMain.handle('horizon-mods:install', async (_e, instanceId: string, id: string, version?: string) => (await hzm()).horizonModInstall(instanceId, id, version, () => {}))
+    ipcMain.handle('horizon-mods:remove', async (_e, instanceId: string, id: string) => (await hzm()).horizonModRemove(instanceId, id))
+    ipcMain.handle('horizon-mods:toggle', async (_e, instanceId: string, id: string, on: boolean) => (await hzm()).horizonModToggle(instanceId, id, on))
+    ipcMain.handle('studio:layers-get', async (_e, ref: string) => (await studio()).studioLayersGet(ref))
+    ipcMain.handle('studio:layers-set', async (_e, ref: string, data: unknown) => (await studio()).studioLayersSet(ref, data))
+    ipcMain.handle('studio:thumb-get', async (_e, id: string, stamp: string) => (await studio()).studioThumbGet(id, stamp))
+    ipcMain.handle('studio:thumb-set', async (_e, id: string, stamp: string, url: string) => (await studio()).studioThumbSet(id, stamp, url))
+    ipcMain.handle('studio:project', async () => (await studio()).studioProject())
+    ipcMain.handle('studio:set-project', async (_e, dir: string) => (await studio()).studioSetProject(dir))
+    ipcMain.handle('studio:set-test-instance', async (_e, id: string | null) => (await studio()).studioSetTestInstance(id))
+    ipcMain.handle('studio:list', async () => (await studio()).studioList())
+    ipcMain.handle('studio:read-model', async (_e, id: string) => (await studio()).studioReadModel(id))
+    ipcMain.handle('studio:read-vanilla-model', async (_e, ref: string) => (await studio()).studioReadVanillaModel(ref))
+    ipcMain.handle('studio:read-texture', async (_e, ref: string) => (await studio()).studioReadTexture(ref))
+    ipcMain.handle('studio:list-textures', async () => (await studio()).studioListTextures())
+    ipcMain.handle('studio:generated-by', async (_e, refs: string[]) => (await studio()).studioGeneratedBy(refs))
+    ipcMain.handle('studio:save-model', async (_e, id: string, json: string, opts?: { handEdited?: boolean }) => (await studio()).studioSaveModel(id, json, opts))
+    ipcMain.handle('studio:save-texture', async (_e, ref: string, png: string, opts?: { handEdited?: boolean }) => (await studio()).studioSaveTexture(ref, png, opts))
+    ipcMain.handle('studio:draft-get', async (_e, id: string) => (await studio()).studioDraftGet(id))
+    ipcMain.handle('studio:draft-set', async (_e, id: string, data: unknown) => (await studio()).studioDraftSet(id, data))
+    ipcMain.handle('studio:draft-clear', async (_e, id: string) => (await studio()).studioDraftClear(id))
+    ipcMain.handle('studio:test-in-game', async (_e, models: string[], textures: string[]) => (await studio()).studioTestInGame(models, textures))
+    ipcMain.handle('studio:pick-project', async () => {
+      const r = await dialog.showOpenDialog({ title: 'Carpeta del proyecto del mod', properties: ['openDirectory'] })
+      return r.canceled ? null : r.filePaths[0]
+    })
+  }
+
   // Archivos de región (.mca): lista de chunks, NBT de uno, guardar y borrar (regionEditor.ts)
   ipcMain.handle('region:open', async (_e, side: 'local' | 'remote', file: string) => (await import('./regionEditor')).regionOpen(side, file))
   ipcMain.handle('region:list', async (_e, local: string) => (await import('./regionEditor')).regionList(local))

@@ -234,7 +234,12 @@ export default function Sidebar() {
       {aiOpen && <LauncherAiModal onClose={() => setAiOpen(false)} />}
 
       {isAdmin && (
-        <div className="flex justify-center pb-1">
+        <div className="flex flex-col items-center gap-1 pb-1">
+          <NavLink to="/studio" title="Estudio de modelos" className={({ isActive }) => navCls(isActive)}>
+            <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M12 2l9 5v10l-9 5-9-5V7z"/><path d="M12 22V12"/><path d="M21 7l-9 5-9-5"/>
+            </svg>
+          </NavLink>
           <NavLink to="/admin" title="Admin" className={({ isActive }) => navCls(isActive)}>
             <svg width={ICO} height={ICO} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>

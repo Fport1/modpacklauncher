@@ -7,6 +7,7 @@ import {
 } from '../../lib/nbtBuild'
 import McTextInput, { McTextPreview, RichTextInput } from './McTextInput'
 import { headUrl } from './shared'
+import G from '../ui/Glyph'
 
 // Modo sencillo de scoreboard.dat: todo lo que se puede hacer con /team y
 // /scoreboard, sin tocar el árbol NBT. Equipos con prefijos de colores y
@@ -212,7 +213,7 @@ function Teams({ mutate, teams, modern }: Shared) {
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar equipo o jugador…"
               className="w-full bg-bg-primary border border-border rounded-lg px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent/60" />
             <button type="button" onClick={() => setCreating({ name: '', prefix: '', color: 'white' })}
-              className="w-full py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25">＋ Nuevo equipo</button>
+              className="w-full py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25"><G n="plus" /> Nuevo equipo</button>
           </div>
           <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
             {visible.map((t) => {
@@ -299,7 +300,7 @@ function Teams({ mutate, teams, modern }: Shared) {
                     <span className="text-sm text-text-primary truncate flex-1" title={p}>{p}</span>
                     <button type="button" title="Quitar del equipo"
                       onClick={() => editTeam((t) => { t.Players = stringList(playersOf(t).filter((x) => x !== p)) })}
-                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400">✕</button>
+                      className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-red-400"><G n="x" /></button>
                   </div>
                 ))}
               </div>
@@ -531,7 +532,7 @@ function Objectives({ mutate, objectives, scores, modern }: Shared) {
         list={<>
           <div className="p-2 border-b border-border">
             <button type="button" onClick={() => setCreating({ name: '', criteria: 'dummy', display: '' })}
-              className="w-full py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25">＋ Nuevo objetivo</button>
+              className="w-full py-1.5 rounded-lg bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25"><G n="plus" /> Nuevo objetivo</button>
           </div>
           <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
             {objectives.map((o) => {
@@ -603,12 +604,12 @@ function Objectives({ mutate, objectives, scores, modern }: Shared) {
                         <NumberCell value={getNum(s, 'Score')} onCommit={(v) => editScore(player, (x) => { x.Score = int(v) }, `score:${player}`)} />
                         {isTrigger && (
                           <button type="button" title={locked ? 'No puede usar /trigger (clic para permitir)' : 'Puede usar /trigger'}
-                            onClick={() => editScore(player, (x) => { x.Locked = byte(!locked) })} className="w-6 text-center">{locked ? '🔒' : '🔓'}</button>
+                            onClick={() => editScore(player, (x) => { x.Locked = byte(!locked) })} className="w-6 text-center"><G n={locked ? 'lock' : 'unlock'} /></button>
                         )}
-                        <button type="button" title="Más opciones" onClick={() => setExpanded(open ? null : player)} className="w-6 text-text-muted hover:text-text-primary">{open ? '▴' : '▾'}</button>
+                        <button type="button" title="Más opciones" onClick={() => setExpanded(open ? null : player)} className="w-6 text-text-muted hover:text-text-primary"><G n={open ? 'chevronUp' : 'chevronDown'} /></button>
                         <button type="button" title="Quitar"
                           onClick={() => mutate((r) => setList(r, 'PlayerScores', listOf(r, 'PlayerScores').filter((x) => !(nameOf(x) === player && getStr(x, 'Objective') === selected))))}
-                          className="w-6 text-text-muted hover:text-red-400">✕</button>
+                          className="w-6 text-text-muted hover:text-red-400"><G n="x" /></button>
                       </div>
                       {open && (
                         <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border">
@@ -729,7 +730,7 @@ function Players({ mutate, teams, objectives, scores, holders }: Shared) {
               {t && <span className="text-xs px-2 py-0.5 rounded-full border border-border truncate max-w-[40%]" title="Equipo">
                 <McTextPreview segments={parseCodes(readText(t.DisplayName))} empty={nameOf(t)} />
               </span>}
-              <span className="text-text-muted">{isOpen ? '▴' : '▾'}</span>
+              <span className="text-text-muted"><G n={isOpen ? 'chevronUp' : 'chevronDown'} /></span>
             </button>
             {isOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border">
@@ -745,10 +746,10 @@ function Players({ mutate, teams, objectives, scores, holders }: Shared) {
                         {sc ? (
                           <>
                             <NumberCell value={getNum(sc, 'Score')} onCommit={(v) => setScore(p, nameOf(o), v)} />
-                            <button type="button" title="Quitar este punto" onClick={() => setScore(p, nameOf(o), null)} className="text-text-muted hover:text-red-400 w-5">✕</button>
+                            <button type="button" title="Quitar este punto" onClick={() => setScore(p, nameOf(o), null)} className="text-text-muted hover:text-red-400 w-5"><G n="x" /></button>
                           </>
                         ) : (
-                          <button type="button" onClick={() => setScore(p, nameOf(o), 0)} className="text-xs text-accent hover:underline">＋ añadir</button>
+                          <button type="button" onClick={() => setScore(p, nameOf(o), 0)} className="text-xs text-accent hover:underline"><G n="plus" /> añadir</button>
                         )}
                       </div>
                     )

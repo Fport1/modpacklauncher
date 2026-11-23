@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { removeFile, updateProject, uploadImage, type Fport1Image, type Fport1Project } from '../../lib/fport1Content'
 import { cleanErr, inputCls, labelCls } from './studioShared'
+import G from '../ui/Glyph'
 
 // Icono, portada y galería del proyecto. Cada cambio se guarda al momento.
 // «Insertar en la descripción» pasa la imagen al editor para colocarla allí.
@@ -86,7 +87,7 @@ export default function ImagesTab({ project, flash, onChanged, onInsert }: {
         <div>
           <label className={labelCls}>Icono</label>
           <label className="relative block w-32 h-32 rounded-2xl bg-bg-hover overflow-hidden ring-1 ring-white/10 cursor-pointer group">
-            {project.iconUrl ? <img src={project.iconUrl} alt="" className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center text-4xl">📦</span>}
+            {project.iconUrl ? <img src={project.iconUrl} alt="" className="w-full h-full object-cover" /> : <span className="w-full h-full flex items-center justify-center text-4xl text-text-muted"><G n="package" /></span>}
             <span className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-semibold">{busy === 'icon' ? 'Subiendo…' : 'Cambiar'}</span>
             <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={e => { const f = e.target.files?.[0]; if (f) setSingle('icon', f); e.target.value = '' }} />
           </label>
@@ -131,8 +132,8 @@ export default function ImagesTab({ project, flash, onChanged, onInsert }: {
                     {used && <span className="text-[10px] px-2 py-0.5 rounded-md bg-black/70 text-white">En la descripción</span>}
                   </div>
                   <div className="absolute top-2 right-2 flex gap-1">
-                    <button onClick={() => move(i, -1)} disabled={i === 0} title="Antes" className="w-7 h-7 rounded-md bg-black/60 text-white disabled:opacity-30">←</button>
-                    <button onClick={() => move(i, 1)} disabled={i === project.gallery.length - 1} title="Después" className="w-7 h-7 rounded-md bg-black/60 text-white disabled:opacity-30">→</button>
+                    <button onClick={() => move(i, -1)} disabled={i === 0} title="Antes" className="w-7 h-7 rounded-md bg-black/60 text-white disabled:opacity-30"><G n="arrowLeft" /></button>
+                    <button onClick={() => move(i, 1)} disabled={i === project.gallery.length - 1} title="Después" className="w-7 h-7 rounded-md bg-black/60 text-white disabled:opacity-30"><G n="arrowRight" /></button>
                   </div>
                 </div>
                 <div className="p-3 space-y-2">
